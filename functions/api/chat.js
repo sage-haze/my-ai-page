@@ -188,7 +188,7 @@ async function fetchYahooFxRate(baseCurrency) {
   }
 
   const pair = `${baseCurrency}THB=X`;
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${pair}?interval=1d&range=1d`;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${pair}?interval=1d&range=7d`;
 
   const response = await fetch(url, {
     headers: {
@@ -203,19 +203,30 @@ async function fetchYahooFxRate(baseCurrency) {
   }
 
   const result = data?.chart?.result?.[0];
-  const meta = result?.meta;
-  const rate = meta?.regularMarketPrice;
 
-  if (typeof rate !== "number") {
-    throw new Error("Yahoo Finance did not return a usable FX rate.");
+  const timestamps = result?.timestamp || [];
+  const prices = result?.indicators?.quote?.[0]?.close || [];
+
+  if (!timestamps.length || !prices.length) {
+    throw new Error("No FX time series data returned.");
   }
+
+  const series = timestamps.map((ts, i) => {
+    const date = new Date(ts * 1000).toISOString().slice(0, 10);
+    const rate = prices[i];
+
+    return {
+      date,
+      rate: typeof rate === "number" ? rate.toFixed(4) : null
+    };
+  }).filter(item => item.rate !== null);
 
   return {
     skip: false,
     base: baseCurrency,
     quote: "THB",
     pair,
-    rate: rate,
+    series,
     source: "Yahoo Finance (prototype)",
     retrieved_at: new Date().toISOString()
   };
