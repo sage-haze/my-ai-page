@@ -40,6 +40,17 @@
               <option value="360">Last 360 days</option>
             </select>
           </div>
+
+          <div class="form-group">
+            <label for="currency">Currency</label>
+            <select id="currency">
+              <option value="THB">THB</option>
+              <option value="USD">USD</option>
+              <option value="JPY">JPY</option>
+              <option value="EUR">EUR</option>
+              <option value="CNY">CNY</option>
+            </select>
+          </div>
         </div>
 
         <div class="form-group">
@@ -76,6 +87,11 @@
           </div>
 
           <div class="result-card">
+            <h2>FX Rate</h2>
+            <div id="fxOutput">The FX rate will appear here.</div>
+          </div>
+
+          <div class="result-card result-card-full">
             <h2>Sources</h2>
             <div id="sourcesOutput">The source links will appear here.</div>
           </div>
