@@ -1,261 +1,180 @@
-const keywordPacks = {
-  banking: {
-    primary_keywords: ["bank", "banking", "commercial banking", "retail banking"],
-    secondary_keywords: ["deposit", "deposits", "loan", "loan growth", "net interest margin"],
-    regulatory_keywords: ["Basel III", "AML", "KYC", "capital requirements", "compliance"],
-    company_keywords: ["DBS", "OCBC", "UOB", "HSBC"],
-    risk_keywords: ["credit risk", "liquidity risk", "cybersecurity", "operational resilience"],
-    exclude_keywords: ["river bank", "blood bank"]
-  },
-  insurance: {
-    primary_keywords: ["insurance", "insurer", "insurers", "life insurance", "general insurance"],
-    secondary_keywords: ["premium", "premiums", "claim", "claims", "underwriting"],
-    regulatory_keywords: ["solvency", "capital adequacy", "conduct rules"],
-    company_keywords: ["AIA", "Prudential", "Great Eastern"],
-    risk_keywords: ["catastrophe risk", "fraud", "reinsurance"],
-    exclude_keywords: []
-  },
-  healthcare: {
-    primary_keywords: ["healthcare", "hospital", "hospitals", "medical services"],
-    secondary_keywords: ["patient care", "health system", "clinical operations"],
-    regulatory_keywords: ["FDA", "health regulation", "reimbursement"],
-    company_keywords: ["Pfizer", "UnitedHealth", "SingHealth"],
-    risk_keywords: ["drug shortages", "cyberattack", "staffing shortage"],
-    exclude_keywords: []
-  },
-  semiconductors: {
-    primary_keywords: ["semiconductor", "semiconductors", "chip", "chips", "chipmaking"],
-    secondary_keywords: ["foundry", "wafer", "advanced packaging"],
-    regulatory_keywords: ["export controls", "industrial policy", "subsidies"],
-    company_keywords: ["TSMC", "Intel", "Samsung", "NVIDIA"],
-    risk_keywords: ["supply chain", "capacity constraints", "geopolitical risk"],
-    exclude_keywords: []
-  },
-  telecommunications: {
-    primary_keywords: ["telecommunications", "telecom", "telecoms", "mobile network"],
-    secondary_keywords: ["5G", "broadband", "spectrum"],
-    regulatory_keywords: ["spectrum allocation", "telecom regulation", "net neutrality"],
-    company_keywords: ["Singtel", "StarHub", "M1"],
-    risk_keywords: ["outages", "infrastructure risk", "cybersecurity"],
-    exclude_keywords: []
-  },
-  cybersecurity: {
-    primary_keywords: ["cybersecurity", "cyber attack", "cyber defense", "breach", "breaches"],
-    secondary_keywords: ["ransomware", "zero-day", "threat intelligence"],
-    regulatory_keywords: ["cyber regulation", "data protection", "incident reporting"],
-    company_keywords: ["CrowdStrike", "Palo Alto Networks", "Microsoft"],
-    risk_keywords: ["breach", "vulnerability", "supply chain attack"],
-    exclude_keywords: []
-  },
-  energy: {
-    primary_keywords: ["energy", "power sector", "electricity market", "utility", "utilities"],
-    secondary_keywords: ["renewables", "oil and gas", "grid"],
-    regulatory_keywords: ["energy policy", "emissions regulation", "carbon pricing"],
-    company_keywords: ["Shell", "ExxonMobil", "BP"],
-    risk_keywords: ["price volatility", "supply disruption", "grid instability"],
-    exclude_keywords: []
-  },
-  retail: {
-    primary_keywords: ["retail", "retailer", "retailers", "consumer spending", "retail sales"],
-    secondary_keywords: ["e-commerce", "store traffic", "inventory"],
-    regulatory_keywords: ["consumer protection", "pricing regulation", "competition rules"],
-    company_keywords: ["Amazon", "Walmart", "Target"],
-    risk_keywords: ["margin pressure", "supply chain delays", "weak demand"],
-    exclude_keywords: []
-  }
+const APPROVED_DOMAIN_MAP = {
+  banking: [
+    "reuters.com",
+    "bloomberg.com",
+    "ft.com",
+    "wsj.com",
+    "mas.gov.sg",
+    "bis.org"
+  ],
+  insurance: [
+    "reuters.com",
+    "bloomberg.com",
+    "ft.com",
+    "insurancebusinessmag.com",
+    "iaisweb.org"
+  ],
+  healthcare: [
+    "reuters.com",
+    "statnews.com",
+    "fiercehealthcare.com",
+    "who.int",
+    "fda.gov"
+  ],
+  semiconductors: [
+    "reuters.com",
+    "bloomberg.com",
+    "ft.com",
+    "digitimes.com",
+    "tomshardware.com"
+  ],
+  telecommunications: [
+    "reuters.com",
+    "lightreading.com",
+    "fierce-network.com",
+    "telecoms.com"
+  ],
+  cybersecurity: [
+    "reuters.com",
+    "therecord.media",
+    "bleepingcomputer.com",
+    "securityweek.com",
+    "cisa.gov"
+  ],
+  energy: [
+    "reuters.com",
+    "bloomberg.com",
+    "ft.com",
+    "spglobal.com",
+    "iea.org"
+  ],
+  retail: [
+    "reuters.com",
+    "bloomberg.com",
+    "ft.com",
+    "retaildive.com",
+    "chainstoreage.com"
+  ]
 };
 
-const MOCK_ARTICLES = [
-  {
-    title: "Singapore banks tighten compliance controls after new supervisory guidance",
-    summary: "Major banks in Singapore are updating internal processes after fresh supervisory expectations on compliance and operational resilience.",
-    url: "https://example.com/article-1",
-    source: "Approved Finance News",
-    ageDays: 12
-  },
-  {
-    title: "Regional lenders invest in AI tooling for risk review and monitoring",
-    summary: "Banks across Southeast Asia are increasing spending on AI systems that support monitoring, document review, and internal controls.",
-    url: "https://example.com/article-2",
-    source: "Approved Banking Journal",
-    ageDays: 26
-  },
-  {
-    title: "Chipmakers prepare for tighter export-control enforcement",
-    summary: "Semiconductor firms are reassessing supply chains and customer exposure amid discussion of stricter export-control implementation.",
-    url: "https://example.com/article-3",
-    source: "Approved Tech Policy Daily",
-    ageDays: 41
-  },
-  {
-    title: "Insurers respond to higher catastrophe losses with pricing changes",
-    summary: "Insurance groups are re-evaluating underwriting and premium strategies after a period of elevated catastrophe-related claims.",
-    url: "https://example.com/article-4",
-    source: "Approved Insurance Brief",
-    ageDays: 70
-  },
-  {
-    title: "Telecom operators step up cybersecurity spending after recent outages",
-    summary: "Telecommunications providers are reviewing infrastructure resilience and security investments after several high-profile incidents.",
-    url: "https://example.com/article-5",
-    source: "Approved Telecom Review",
-    ageDays: 18
-  },
-  {
-    title: "Healthcare systems face rising cybersecurity scrutiny after incident reports",
-    summary: "Healthcare organizations are reviewing vendor exposure and reporting processes as cyber incidents continue to draw regulatory attention.",
-    url: "https://example.com/article-6",
-    source: "Approved Healthcare Monitor",
-    ageDays: 33
-  },
-  {
-    title: "Retailers report cautious consumer demand and heavier discounting",
-    summary: "Retail companies are focusing on inventory discipline and promotions amid uneven consumer demand.",
-    url: "https://example.com/article-7",
-    source: "Approved Retail Watch",
-    ageDays: 22
-  },
-  {
-    title: "Energy firms evaluate grid resilience and supply risks ahead of peak season",
-    summary: "Utilities and energy operators are assessing capacity, grid reliability, and procurement strategies.",
-    url: "https://example.com/article-8",
-    source: "Approved Energy Bulletin",
-    ageDays: 95
-  }
-];
-
-function articleTimestampFromAgeDays(ageDays) {
-  return Date.now() - ageDays * 24 * 60 * 60 * 1000;
+function formatDate(date) {
+  return date.toISOString().slice(0, 10);
 }
 
-function getCutoffTimestamp(timeframeDays) {
+function getDateRange(timeframeDays) {
   const days = Number(timeframeDays || 30);
-  return Date.now() - days * 24 * 60 * 60 * 1000;
+  const end = new Date();
+  const start = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+  return {
+    start_date: formatDate(start),
+    end_date: formatDate(end)
+  };
 }
 
-function normalizeText(text) {
-  return String(text || "").toLowerCase();
+function normalizeTavilyResults(results, sourceGroup) {
+  return (results || []).map(item => ({
+    title: item.title || item.url || "Untitled source",
+    url: item.url,
+    source: item.source || "",
+    domain: item.url ? new URL(item.url).hostname.replace(/^www\./, "") : "",
+    published_at: item.published_date || item.published_at || "",
+    summary: item.content || "",
+    raw_content: item.raw_content || "",
+    score: item.score || 0,
+    source_group: sourceGroup
+  }));
 }
 
-function termMatches(haystack, term) {
-  const cleanHaystack = normalizeText(haystack);
-  const cleanTerm = normalizeText(term).trim();
+function dedupeSources(items) {
+  const seen = new Set();
+  const deduped = [];
 
-  if (!cleanTerm) return false;
-  return cleanHaystack.includes(cleanTerm);
+  for (const item of items) {
+    if (!item.url) continue;
+    if (seen.has(item.url)) continue;
+    seen.add(item.url);
+    deduped.push(item);
+  }
+
+  return deduped;
 }
 
-function scoreArticle(article, pack) {
-  const haystack = `${article.title} ${article.summary}`;
-  let score = 0;
-
-  const addScore = (terms, points) => {
-    for (const term of terms || []) {
-      if (termMatches(haystack, term)) {
-        score += points;
-      }
-    }
+async function tavilySearch({ apiKey, query, startDate, endDate, includeDomains = null, maxResults = 5 }) {
+  const body = {
+    query,
+    topic: "news",
+    search_depth: "advanced",
+    max_results: maxResults,
+    include_raw_content: true,
+    start_date: startDate,
+    end_date: endDate
   };
 
-  const hasExcludedTerm = (pack.exclude_keywords || []).some(term =>
-    termMatches(haystack, term)
-  );
-
-  if (hasExcludedTerm) {
-    return -999;
+  if (includeDomains && includeDomains.length > 0) {
+    body.include_domains = includeDomains;
   }
 
-  addScore(pack.primary_keywords, 5);
-  addScore(pack.secondary_keywords, 3);
-  addScore(pack.regulatory_keywords, 4);
-  addScore(pack.company_keywords, 2);
-  addScore(pack.risk_keywords, 3);
+  const response = await fetch("https://api.tavily.com/search", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`
+    },
+    body: JSON.stringify(body)
+  });
 
-  return score;
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.detail || data.error || "Tavily search failed.");
+  }
+
+  return data.results || [];
 }
 
-function getApprovedArticlesForIndustry(industry, timeframeDays) {
-  const pack = keywordPacks[industry];
-  if (!pack) return [];
-
-  const cutoff = getCutoffTimestamp(timeframeDays);
-
-  return MOCK_ARTICLES
-    .map(article => ({
-      ...article,
-      published: articleTimestampFromAgeDays(article.ageDays)
-    }))
-    .filter(article => article.published >= cutoff)
-    .map(article => ({
-      ...article,
-      score: scoreArticle(article, pack)
-    }))
-    .filter(article => article.score > 0)
-    .sort((a, b) => b.score - a.score || b.published - a.published)
-    .slice(0, 6);
+function buildQuery({ industry, topic }) {
+  return `${topic} ${industry} latest developments`;
 }
 
-function buildNewsAnalysisPrompt({ industry, timeframe, situation, request, articles }) {
-  const formattedArticles = articles.map((article, index) => {
-    const publishedDate = new Date(article.published).toISOString().slice(0, 10);
+function buildArticleContext(sources) {
+  return sources.map((source, index) => {
+    const text = source.raw_content || source.summary || "";
+    const trimmedText = text.length > 2500 ? text.slice(0, 2500) + "…" : text;
 
     return `
-Article ${index + 1}
-Title: ${article.title}
-Source: ${article.source}
-Published: ${publishedDate}
-URL: ${article.url}
-Summary: ${article.summary}
+Source ${index + 1}
+Title: ${source.title}
+URL: ${source.url}
+Publisher: ${source.domain || source.source || "Unknown"}
+Published: ${source.published_at || "Unknown"}
+Source type: ${source.source_group}
+Content:
+${trimmedText}
 `.trim();
   }).join("\n\n");
-
-  return `
-You are a research assistant.
-
-The user wants analysis based only on approved-source articles already retrieved by the system.
-
-Industry: ${industry}
-Timeframe: last ${timeframe} days
-
-User's situation:
-${situation}
-
-User's request:
-${request}
-
-Approved-source articles:
-${formattedArticles}
-
-Instructions:
-- Use only the approved-source articles above
-- Do not invent or assume other sources
-- If the article set is limited, say so clearly
-- Prioritize developments most relevant to the user's situation
-- Highlight practical implications, not just summaries
-- Mention publication recency where relevant
-
-Please produce:
-1. A short summary of the most relevant developments
-2. 3 to 5 key insights applicable to the user's situation
-3. Risks and opportunities
-4. A short conclusion
-5. A short source list at the end using the article titles and URLs provided
-`.trim();
 }
 
-function buildGeneralPrompt({ prompt, tone, length, format, audience }) {
-  return `
-You are a helpful assistant.
+function extractOutputText(data) {
+  if (data.output_text) return data.output_text;
 
-Please answer using these settings:
-- Tone: ${tone}
-- Length: ${length}
-- Format: ${format}
-- Audience: ${audience}
+  if (Array.isArray(data.output)) {
+    let text = "";
 
-User request:
-${prompt}
-`.trim();
+    for (const item of data.output) {
+      if (!item.content) continue;
+
+      for (const contentItem of item.content) {
+        if (contentItem.type === "output_text" && contentItem.text) {
+          text += contentItem.text;
+        }
+      }
+    }
+
+    if (text) return text;
+  }
+
+  return "";
 }
 
 export async function onRequestPost(context) {
@@ -263,58 +182,107 @@ export async function onRequestPost(context) {
     const { request, env } = context;
     const body = await request.json();
 
-    const mode = body.mode || "general";
+    const industry = (body.industry || "").trim();
+    const timeframe = (body.timeframe || "30").trim();
+    const topic = (body.topic || "").trim();
+    const situation = (body.situation || "").trim();
     const prompt = (body.prompt || "").trim();
 
+    if (!industry) {
+      return Response.json({ error: "Please select an industry." }, { status: 400 });
+    }
+
+    if (!topic) {
+      return Response.json({ error: "Please enter a topic / company / issue." }, { status: 400 });
+    }
+
+    if (!situation) {
+      return Response.json({ error: "Please describe your situation." }, { status: 400 });
+    }
+
     if (!prompt) {
-      return new Response("Please type a message first.", { status: 400 });
+      return Response.json({ error: "Please describe what you want the analysis to focus on." }, { status: 400 });
     }
 
-    let finalPrompt = "";
-
-    if (mode === "approved_news") {
-      const industry = body.industry || "";
-      const timeframe = body.timeframe || "30";
-      const situation = (body.situation || "").trim();
-
-      if (!industry) {
-        return new Response("Please select an industry.", { status: 400 });
-      }
-
-      if (!situation) {
-        return new Response("Please describe your situation.", { status: 400 });
-      }
-
-      const approvedArticles = getApprovedArticlesForIndustry(industry, timeframe);
-
-      if (approvedArticles.length === 0) {
-        return new Response(
-          "No approved-source articles matched this industry and timeframe yet. Try a longer timeframe or a different industry.",
-          { status: 400 }
-        );
-      }
-
-      finalPrompt = buildNewsAnalysisPrompt({
-        industry,
-        timeframe,
-        situation,
-        request: prompt,
-        articles: approvedArticles
-      });
-    } else {
-      const tone = body.tone || "friendly";
-      const length = body.length || "medium";
-      const format = body.format || "paragraph";
-      const audience = body.audience || "general audience";
-
-      finalPrompt = buildGeneralPrompt({
-        prompt,
-        tone,
-        length,
-        format,
-        audience
-      });
+    if (!env.TAVILY_API_KEY) {
+      return Response.json({ error: "Missing TAVILY_API_KEY secret in Cloudflare." }, { status: 500 });
     }
+
+    if (!env.OPENAI_API_KEY) {
+      return Response.json({ error: "Missing OPENAI_API_KEY secret in Cloudflare." }, { status: 500 });
+    }
+
+    const { start_date, end_date } = getDateRange(timeframe);
+    const approvedDomains = APPROVED_DOMAIN_MAP[industry] || [];
+    const query = buildQuery({ industry, topic });
+
+    const approvedResults = await tavilySearch({
+      apiKey: env.TAVILY_API_KEY,
+      query,
+      startDate: start_date,
+      endDate: end_date,
+      includeDomains: approvedDomains,
+      maxResults: 5
+    });
+
+    const broadResults = await tavilySearch({
+      apiKey: env.TAVILY_API_KEY,
+      query,
+      startDate: start_date,
+      endDate: end_date,
+      includeDomains: null,
+      maxResults: 8
+    });
+
+    const approvedSources = normalizeTavilyResults(approvedResults, "approved");
+    const broadSources = normalizeTavilyResults(broadResults, "broad");
+
+    const mergedSources = dedupeSources([...approvedSources, ...broadSources])
+      .sort((a, b) => (b.score || 0) - (a.score || 0))
+      .slice(0, 10);
+
+    if (mergedSources.length === 0) {
+      return Response.json({
+        error: "No recent sources were found for that topic and timeframe."
+      }, { status: 400 });
+    }
+
+    const articleContext = buildArticleContext(mergedSources);
+
+    const analysisPrompt = `
+You are a research assistant.
+
+Analyze the news sources provided below for the user's situation.
+
+Industry: ${industry}
+Timeframe: last ${timeframe} days
+Topic: ${topic}
+
+User's situation:
+${situation}
+
+Requested focus:
+${prompt}
+
+Instructions:
+- Use only the provided sources below
+- Do not invent additional sources
+- If evidence is mixed or incomplete, say so clearly
+- Prioritize practical implications for the user's situation
+- Separate signal from noise
+- Mention source recency when relevant
+- Do not repeat long source lists inside the analysis; the UI shows sources separately
+
+Please write:
+1. A short summary of the main developments
+2. 3 to 5 key insights for the user's situation
+3. Risks
+4. Opportunities
+5. A short bottom-line conclusion
+
+Provided sources:
+${articleContext}
+`.trim();
 
     const openaiResponse = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
@@ -324,24 +292,34 @@ export async function onRequestPost(context) {
       },
       body: JSON.stringify({
         model: "gpt-4.1-mini",
-        input: finalPrompt,
-        stream: true
+        input: analysisPrompt
       })
     });
 
-    if (!openaiResponse.ok || !openaiResponse.body) {
-      const text = await openaiResponse.text();
-      return new Response(text || "OpenAI request failed.", { status: 500 });
+    const openaiData = await openaiResponse.json();
+
+    if (!openaiResponse.ok) {
+      return Response.json({
+        error: openaiData.error?.message || "OpenAI request failed."
+      }, { status: 500 });
     }
 
-    return new Response(openaiResponse.body, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        "Connection": "keep-alive"
-      }
+    const analysis = extractOutputText(openaiData);
+
+    return Response.json({
+      analysis: analysis || "No analysis returned.",
+      sources: mergedSources.map(source => ({
+        title: source.title,
+        url: source.url,
+        source: source.source,
+        domain: source.domain,
+        published_at: source.published_at,
+        source_group: source.source_group
+      }))
     });
   } catch (error) {
-    return new Response("Server error.", { status: 500 });
+    return Response.json({
+      error: error.message || "Server error."
+    }, { status: 500 });
   }
 }
