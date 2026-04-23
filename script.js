@@ -68,7 +68,7 @@ button.addEventListener("click", async function () {
   }
 
   button.disabled = true;
-  outputBox.textContent = "Loading...";
+  outputBox.textContent = "";
 
   try {
     const response = await fetch("/api/chat", {
@@ -79,8 +79,42 @@ button.addEventListener("click", async function () {
       body: JSON.stringify(payload)
     });
 
-    const text = await response.text();
-    outputBox.textContent = text;
+    if (!response.ok || !response.body) {
+      const text = await response.text();
+      outputBox.textContent = text || "Request failed.";
+      return;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split("\n");
+      buffer = parts.pop();
+
+      for (const line of parts) {
+        if (!line.startsWith("data: ")) continue;
+
+        const data = line.slice(6).trim();
+
+        if (data === "[DONE]") continue;
+
+        try {
+          const json = JSON.parse(data);
+
+          if (json.type === "response.output_text.delta") {
+            outputBox.textContent += json.delta;
+          }
+        } catch (error) {
+          // ignore non-JSON lines
+        }
+      }
+    }
   } catch (error) {
     outputBox.textContent = "Network error. Please try again.";
   } finally {
