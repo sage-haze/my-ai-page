@@ -61,7 +61,7 @@
         }
     
         button.disabled = true;
-        outputBox.textContent = "Thinking...";
+        outputBox.textContent = "";
     
         try {
           const response = await fetch("/api/chat", {
@@ -72,8 +72,43 @@
             body: JSON.stringify({ prompt: message })
           });
     
-          const data = await response.json();
-          outputBox.textContent = data.reply;
+          if (!response.ok || !response.body) {
+            outputBox.textContent = "Request failed.";
+            return;
+          }
+    
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+    
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+    
+            buffer += decoder.decode(value, { stream: true });
+    
+            const parts = buffer.split("\n");
+            buffer = parts.pop();
+    
+            for (const line of parts) {
+              if (!line.startsWith("data: ")) continue;
+    
+              const data = line.slice(6).trim();
+    
+              if (data === "[DONE]") {
+                continue;
+              }
+    
+              try {
+                const json = JSON.parse(data);
+    
+                if (json.type === "response.output_text.delta") {
+                  outputBox.textContent += json.delta;
+                }
+              } catch (e) {
+              }
+            }
+          }
         } catch (error) {
           outputBox.textContent = "Network error. Please try again.";
         } finally {
