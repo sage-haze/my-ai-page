@@ -36,7 +36,7 @@ function getCutoffTimestamp(timeframeDays) {
 }
 
 function normalizeText(text) {
-  return text.toLowerCase().replace(/[^\w\s-]/g, " ");
+  return String(text || "").toLowerCase();
 }
 
 function termMatches(haystack, term) {
@@ -44,49 +44,51 @@ function termMatches(haystack, term) {
   const cleanTerm = normalizeText(term).trim();
 
   if (!cleanTerm) return false;
-  if (cleanHaystack.includes(cleanTerm)) return true;
-  if (cleanTerm.endsWith("s") && cleanHaystack.includes(cleanTerm.slice(0, -1))) return true;
-  if (cleanHaystack.includes(cleanTerm + "s")) return true;
 
-  return false;
+  return cleanHaystack.includes(cleanTerm);
 }
 
 function scoreArticle(article, pack) {
   const haystack = `${article.title} ${article.summary}`;
   let score = 0;
+  const matchedTerms = [];
 
   for (const term of pack.primary_keywords || []) {
-    if (termMatches(haystack, term)) score += 5;
+    if (termMatches(haystack, term)) {
+      score += 5;
+      matchedTerms.push({ term, points: 5, group: "primary" });
+    }
   }
+
   for (const term of pack.secondary_keywords || []) {
-    if (termMatches(haystack, term)) score += 3;
+    if (termMatches(haystack, term)) {
+      score += 3;
+      matchedTerms.push({ term, points: 3, group: "secondary" });
+    }
   }
+
   for (const term of pack.regulatory_keywords || []) {
-    if (termMatches(haystack, term)) score += 4;
+    if (termMatches(haystack, term)) {
+      score += 4;
+      matchedTerms.push({ term, points: 4, group: "regulatory" });
+    }
   }
+
   for (const term of pack.company_keywords || []) {
-    if (termMatches(haystack, term)) score += 2;
+    if (termMatches(haystack, term)) {
+      score += 2;
+      matchedTerms.push({ term, points: 2, group: "company" });
+    }
   }
+
   for (const term of pack.risk_keywords || []) {
-    if (termMatches(haystack, term)) score += 3;
+    if (termMatches(haystack, term)) {
+      score += 3;
+      matchedTerms.push({ term, points: 3, group: "risk" });
+    }
   }
 
-  return score;
-}
-
-function getApprovedArticlesForIndustry(industry, timeframeDays) {
-  const pack = keywordPacks[industry];
-  if (!pack) return [];
-
-  const cutoff = getCutoffTimestamp(timeframeDays);
-
-  return MOCK_ARTICLES
-    .filter(article => article.published >= cutoff)
-    .map(article => ({
-      ...article,
-      score: scoreArticle(article, pack)
-    }))
-    .filter(article => article.score > 0);
+  return { score, matchedTerms, haystack };
 }
 
 export async function onRequestPost(context) {
@@ -99,18 +101,41 @@ export async function onRequestPost(context) {
   const prompt = body.prompt || "";
   const mode = body.mode || "";
 
-  const approvedArticles = getApprovedArticlesForIndustry(industry, timeframe);
+  const pack = keywordPacks[industry];
+  const cutoff = getCutoffTimestamp(timeframe);
+
+  const articleDebug = MOCK_ARTICLES.map(article => {
+    const scoring = scoreArticle(article, pack);
+    return {
+      title: article.title,
+      published: new Date(article.published).toISOString(),
+      passesDateFilter: article.published >= cutoff,
+      score: scoring.score,
+      matchedTerms: scoring.matchedTerms,
+      haystack: scoring.haystack
+    };
+  });
+
+  const approvedArticles = articleDebug.filter(
+    article => article.passesDateFilter && article.score > 0
+  );
 
   return new Response(
-    JSON.stringify({
-      mode,
-      industry,
-      timeframe,
-      situation,
-      prompt,
-      matchedCount: approvedArticles.length,
-      matchedTitles: approvedArticles.map(a => a.title)
-    }),
+    JSON.stringify(
+      {
+        mode,
+        industry,
+        timeframe,
+        situation,
+        prompt,
+        cutoffISO: new Date(cutoff).toISOString(),
+        articleDebug,
+        matchedCount: approvedArticles.length,
+        matchedTitles: approvedArticles.map(a => a.title)
+      },
+      null,
+      2
+    ),
     {
       headers: { "Content-Type": "application/json" }
     }
