@@ -2,7 +2,27 @@ export async function onRequestPost(context) {
   try {
     const { request, env } = context;
     const body = await request.json();
-    const prompt = body.prompt || "";
+    const prompt = (body.prompt || "").trim();
+
+    if (!prompt) {
+      return new Response(
+        JSON.stringify({ reply: "Please type a message first." }),
+        {
+          status: 400,
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+    }
+
+    if (prompt.length > 1000) {
+      return new Response(
+        JSON.stringify({ reply: "Please keep your message under 1000 characters." }),
+        {
+          status: 400,
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+    }
 
     const openaiResponse = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
@@ -12,6 +32,7 @@ export async function onRequestPost(context) {
       },
       body: JSON.stringify({
         model: "gpt-4.1-mini",
+        instructions: "You are a helpful assistant. Keep answers clear and concise.",
         input: prompt
       })
     });
