@@ -5,23 +5,7 @@ export async function onRequestPost(context) {
     const prompt = (body.prompt || "").trim();
 
     if (!prompt) {
-      return new Response(
-        JSON.stringify({ reply: "Please type a message first." }),
-        {
-          status: 400,
-          headers: { "Content-Type": "application/json" }
-        }
-      );
-    }
-
-    if (prompt.length > 1000) {
-      return new Response(
-        JSON.stringify({ reply: "Please keep your message under 1000 characters." }),
-        {
-          status: 400,
-          headers: { "Content-Type": "application/json" }
-        }
-      );
+      return new Response("Please type a message first.", { status: 400 });
     }
 
     const openaiResponse = await fetch("https://api.openai.com/v1/responses", {
@@ -32,50 +16,24 @@ export async function onRequestPost(context) {
       },
       body: JSON.stringify({
         model: "gpt-4.1-mini",
-        instructions: "You are a helpful assistant. Keep answers clear and concise.",
-        input: prompt
+        input: prompt,
+        stream: true
       })
     });
 
-    const data = await openaiResponse.json();
-
-    if (!openaiResponse.ok) {
-      return new Response(
-        JSON.stringify({
-          reply: data.error?.message || "OpenAI request failed."
-        }),
-        {
-          status: openaiResponse.status,
-          headers: { "Content-Type": "application/json" }
-        }
-      );
+    if (!openaiResponse.ok || !openaiResponse.body) {
+      const text = await openaiResponse.text();
+      return new Response(text || "OpenAI request failed.", { status: 500 });
     }
 
-    let reply = data.output_text;
-
-    if (!reply && Array.isArray(data.output)) {
-      const firstItem = data.output[0];
-      const firstContent = firstItem?.content?.[0];
-      reply = firstContent?.text;
-    }
-
-    return new Response(
-      JSON.stringify({
-        reply: reply || "No reply returned."
-      }),
-      {
-        headers: { "Content-Type": "application/json" }
+    return new Response(openaiResponse.body, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive"
       }
-    );
+    });
   } catch (error) {
-    return new Response(
-      JSON.stringify({
-        reply: "Something went wrong on the server."
-      }),
-      {
-        status: 500,
-        headers: { "Content-Type": "application/json" }
-      }
-    );
+    return new Response("Server error.", { status: 500 });
   }
 }
