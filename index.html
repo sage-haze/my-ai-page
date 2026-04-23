@@ -53,22 +53,34 @@
       const outputBox = document.getElementById("output");
     
       button.addEventListener("click", async function () {
-        const message = promptBox.value;
+        const message = promptBox.value.trim();
     
-        outputBox.textContent = "Loading...";
+        if (!message) {
+          outputBox.textContent = "Please type a message first.";
+          return;
+        }
     
-        const response = await fetch("/api/chat", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({ prompt: message })
-        });
+        button.disabled = true;
+        outputBox.textContent = "Thinking...";
     
-        const data = await response.json();
+        try {
+          const response = await fetch("/api/chat", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ prompt: message })
+          });
     
-        outputBox.textContent = data.reply;
+          const data = await response.json();
+          outputBox.textContent = data.reply;
+        } catch (error) {
+          outputBox.textContent = "Network error. Please try again.";
+        } finally {
+          button.disabled = false;
+        }
       });
     </script>
+    
   </body>
 </html>
