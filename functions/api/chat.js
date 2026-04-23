@@ -203,7 +203,6 @@ async function fetchYahooFxRate(baseCurrency) {
   }
 
   const result = data?.chart?.result?.[0];
-
   const timestamps = result?.timestamp || [];
   const prices = result?.indicators?.quote?.[0]?.close || [];
 
@@ -211,15 +210,25 @@ async function fetchYahooFxRate(baseCurrency) {
     throw new Error("No FX time series data returned.");
   }
 
-  const series = timestamps.map((ts, i) => {
-    const date = new Date(ts * 1000).toISOString().slice(0, 10);
-    const rate = prices[i];
+  const series = timestamps
+    .map((ts, i) => {
+      const rate = prices[i];
+      if (typeof rate !== "number") return null;
 
-    return {
-      date,
-      rate: typeof rate === "number" ? rate.toFixed(4) : null
-    };
-  }).filter(item => item.rate !== null);
+      return {
+        date: new Date(ts * 1000).toISOString().slice(0, 10),
+        rate: Number(rate.toFixed(4))
+      };
+    })
+    .filter(Boolean);
+
+  if (series.length === 0) {
+    throw new Error("No usable FX points returned.");
+  }
+
+  const latest = series[series.length - 1];
+  const highest = series.reduce((max, item) => item.rate > max.rate ? item : max, series[0]);
+  const lowest = series.reduce((min, item) => item.rate < min.rate ? item : min, series[0]);
 
   return {
     skip: false,
@@ -227,6 +236,11 @@ async function fetchYahooFxRate(baseCurrency) {
     quote: "THB",
     pair,
     series,
+    latest_rate: latest.rate.toFixed(4),
+    highest_rate: highest.rate.toFixed(4),
+    highest_date: highest.date,
+    lowest_rate: lowest.rate.toFixed(4),
+    lowest_date: lowest.date,
     source: "Yahoo Finance (prototype)",
     retrieved_at: new Date().toISOString()
   };
@@ -318,7 +332,9 @@ export async function onRequestPost(context) {
 
     const fxInstruction = currency === "THB"
       ? "The user selected THB, so no FX conversion is needed."
-      : `The user selected ${currency}. The latest prototype FX lookup indicates approximately 1 ${currency} = ${fxResult.rate} THB. Use this only as supporting context if relevant.`;
+      : fxResult.error
+        ? `The user selected ${currency}, but the prototype FX lookup failed.`
+        : `The user selected ${currency}. Over the last 7 days, the latest prototype FX lookup indicates 1 ${currency} = ${fxResult.latest_rate} THB, with a high of ${fxResult.highest_rate} and a low of ${fxResult.lowest_rate}. Use this only as supporting context if relevant.`;
 
     const analysisPrompt = `
 You are a research assistant.
