@@ -1,12 +1,14 @@
 const button = document.getElementById("send");
 const industryBox = document.getElementById("industry");
 const timeframeBox = document.getElementById("timeframe");
+const currencyBox = document.getElementById("currency");
 const topicBox = document.getElementById("topic");
 const situationBox = document.getElementById("situation");
 const promptBox = document.getElementById("prompt");
 
 const analysisOutput = document.getElementById("analysisOutput");
 const sourcesOutput = document.getElementById("sourcesOutput");
+const fxOutput = document.getElementById("fxOutput");
 
 function renderSources(sources) {
   if (!sources || sources.length === 0) {
@@ -31,9 +33,39 @@ function renderSources(sources) {
   }).join("");
 }
 
+function renderFx(fx) {
+  if (!fx) {
+    fxOutput.textContent = "No FX information returned.";
+    return;
+  }
+
+  if (fx.skip) {
+    fxOutput.innerHTML = `
+      <div class="fx-rate">THB selected</div>
+      <div class="fx-meta">No FX conversion needed.</div>
+    `;
+    return;
+  }
+
+  if (fx.error) {
+    fxOutput.innerHTML = `<span class="error">${fx.error}</span>`;
+    return;
+  }
+
+  fxOutput.innerHTML = `
+    <div class="fx-rate">1 ${fx.base} = ${fx.rate} THB</div>
+    <div class="fx-meta">
+      Pair: ${fx.pair}<br>
+      Source: ${fx.source}<br>
+      Retrieved: ${fx.retrieved_at}
+    </div>
+  `;
+}
+
 button.addEventListener("click", async function () {
   const industry = industryBox.value;
   const timeframe = timeframeBox.value;
+  const currency = currencyBox.value;
   const topic = topicBox.value.trim();
   const situation = situationBox.value.trim();
   const prompt = promptBox.value.trim();
@@ -61,6 +93,7 @@ button.addEventListener("click", async function () {
   button.disabled = true;
   analysisOutput.innerHTML = '<span class="loading">Researching recent news...</span>';
   sourcesOutput.innerHTML = '<span class="loading">Gathering sources...</span>';
+  fxOutput.innerHTML = '<span class="loading">Checking FX rate...</span>';
 
   try {
     const response = await fetch("/api/chat", {
@@ -71,6 +104,7 @@ button.addEventListener("click", async function () {
       body: JSON.stringify({
         industry,
         timeframe,
+        currency,
         topic,
         situation,
         prompt
@@ -82,14 +116,17 @@ button.addEventListener("click", async function () {
     if (!response.ok) {
       analysisOutput.innerHTML = `<span class="error">${data.error || "Request failed."}</span>`;
       sourcesOutput.textContent = "";
+      fxOutput.textContent = "";
       return;
     }
 
     analysisOutput.textContent = data.analysis || "No analysis returned.";
     renderSources(data.sources || []);
+    renderFx(data.fx || null);
   } catch (error) {
     analysisOutput.innerHTML = '<span class="error">Network error. Please try again.</span>';
     sourcesOutput.textContent = "";
+    fxOutput.textContent = "";
   } finally {
     button.disabled = false;
   }
