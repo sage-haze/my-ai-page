@@ -1,22 +1,22 @@
 const keywordPacks = {
   banking: {
-    primary_keywords: ["banking", "commercial banking", "retail banking"],
-    secondary_keywords: ["deposits", "loan growth", "net interest margin"],
-    regulatory_keywords: ["Basel III", "AML", "KYC", "capital requirements"],
+    primary_keywords: ["bank", "banking", "commercial banking", "retail banking"],
+    secondary_keywords: ["deposit", "deposits", "loan", "loan growth", "net interest margin"],
+    regulatory_keywords: ["Basel III", "AML", "KYC", "capital requirements", "compliance"],
     company_keywords: ["DBS", "OCBC", "UOB", "HSBC"],
-    risk_keywords: ["credit risk", "liquidity risk", "cybersecurity"],
+    risk_keywords: ["credit risk", "liquidity risk", "cybersecurity", "operational resilience"],
     exclude_keywords: ["river bank", "blood bank"]
   },
   insurance: {
-    primary_keywords: ["insurance", "life insurance", "general insurance"],
-    secondary_keywords: ["premiums", "claims", "underwriting"],
+    primary_keywords: ["insurance", "insurer", "insurers", "life insurance", "general insurance"],
+    secondary_keywords: ["premium", "premiums", "claim", "claims", "underwriting"],
     regulatory_keywords: ["solvency", "capital adequacy", "conduct rules"],
     company_keywords: ["AIA", "Prudential", "Great Eastern"],
     risk_keywords: ["catastrophe risk", "fraud", "reinsurance"],
     exclude_keywords: []
   },
   healthcare: {
-    primary_keywords: ["healthcare", "hospital", "medical services"],
+    primary_keywords: ["healthcare", "hospital", "hospitals", "medical services"],
     secondary_keywords: ["patient care", "health system", "clinical operations"],
     regulatory_keywords: ["FDA", "health regulation", "reimbursement"],
     company_keywords: ["Pfizer", "UnitedHealth", "SingHealth"],
@@ -24,7 +24,7 @@ const keywordPacks = {
     exclude_keywords: []
   },
   semiconductors: {
-    primary_keywords: ["semiconductors", "chipmaking", "chips"],
+    primary_keywords: ["semiconductor", "semiconductors", "chip", "chips", "chipmaking"],
     secondary_keywords: ["foundry", "wafer", "advanced packaging"],
     regulatory_keywords: ["export controls", "industrial policy", "subsidies"],
     company_keywords: ["TSMC", "Intel", "Samsung", "NVIDIA"],
@@ -32,7 +32,7 @@ const keywordPacks = {
     exclude_keywords: []
   },
   telecommunications: {
-    primary_keywords: ["telecommunications", "telecom", "mobile network"],
+    primary_keywords: ["telecommunications", "telecom", "telecoms", "mobile network"],
     secondary_keywords: ["5G", "broadband", "spectrum"],
     regulatory_keywords: ["spectrum allocation", "telecom regulation", "net neutrality"],
     company_keywords: ["Singtel", "StarHub", "M1"],
@@ -40,7 +40,7 @@ const keywordPacks = {
     exclude_keywords: []
   },
   cybersecurity: {
-    primary_keywords: ["cybersecurity", "cyber attack", "cyber defense"],
+    primary_keywords: ["cybersecurity", "cyber attack", "cyber defense", "breach", "breaches"],
     secondary_keywords: ["ransomware", "zero-day", "threat intelligence"],
     regulatory_keywords: ["cyber regulation", "data protection", "incident reporting"],
     company_keywords: ["CrowdStrike", "Palo Alto Networks", "Microsoft"],
@@ -48,7 +48,7 @@ const keywordPacks = {
     exclude_keywords: []
   },
   energy: {
-    primary_keywords: ["energy", "power sector", "electricity market"],
+    primary_keywords: ["energy", "power sector", "electricity market", "utility", "utilities"],
     secondary_keywords: ["renewables", "oil and gas", "grid"],
     regulatory_keywords: ["energy policy", "emissions regulation", "carbon pricing"],
     company_keywords: ["Shell", "ExxonMobil", "BP"],
@@ -56,7 +56,7 @@ const keywordPacks = {
     exclude_keywords: []
   },
   retail: {
-    primary_keywords: ["retail", "consumer spending", "retail sales"],
+    primary_keywords: ["retail", "retailer", "retailers", "consumer spending", "retail sales"],
     secondary_keywords: ["e-commerce", "store traffic", "inventory"],
     regulatory_keywords: ["consumer protection", "pricing regulation", "competition rules"],
     company_keywords: ["Amazon", "Walmart", "Target"],
@@ -64,6 +64,10 @@ const keywordPacks = {
     exclude_keywords: []
   }
 };
+
+function daysAgo(days) {
+  return Date.now() - days * 24 * 60 * 60 * 1000;
+}
 
 const MOCK_ARTICLES = [
   {
@@ -124,30 +128,45 @@ const MOCK_ARTICLES = [
   }
 ];
 
-function daysAgo(days) {
-  return Date.now() - days * 24 * 60 * 60 * 1000;
-}
-
 function getCutoffTimestamp(timeframeDays) {
   const days = Number(timeframeDays || 30);
   return Date.now() - days * 24 * 60 * 60 * 1000;
 }
 
+function normalizeText(text) {
+  return text.toLowerCase().replace(/[^\w\s-]/g, " ");
+}
+
+function termMatches(haystack, term) {
+  const cleanHaystack = normalizeText(haystack);
+  const cleanTerm = normalizeText(term).trim();
+
+  if (!cleanTerm) return false;
+
+  if (cleanHaystack.includes(cleanTerm)) return true;
+
+  // very light singular/plural fallback
+  if (cleanTerm.endsWith("s") && cleanHaystack.includes(cleanTerm.slice(0, -1))) return true;
+  if (cleanHaystack.includes(cleanTerm + "s")) return true;
+
+  return false;
+}
+
 function scoreArticle(article, pack) {
-  const haystack = `${article.title} ${article.summary}`.toLowerCase();
+  const haystack = `${article.title} ${article.summary}`;
 
   let score = 0;
 
   const addScore = (terms, points) => {
     for (const term of terms) {
-      if (haystack.includes(term.toLowerCase())) {
+      if (termMatches(haystack, term)) {
         score += points;
       }
     }
   };
 
   const hasExcludedTerm = (pack.exclude_keywords || []).some(term =>
-    haystack.includes(term.toLowerCase())
+    termMatches(haystack, term)
   );
 
   if (hasExcludedTerm) {
