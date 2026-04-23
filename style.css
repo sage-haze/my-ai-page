@@ -181,3 +181,22 @@ button:disabled {
     grid-column: auto;
   }
 }
+
+.fx-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+  font-size: 14px;
+}
+
+.fx-table th,
+.fx-table td {
+  border: 1px solid #ddd;
+  padding: 8px;
+  text-align: left;
+}
+
+.fx-table th {
+  background: #f0f3f8;
+  font-weight: bold;
+}
