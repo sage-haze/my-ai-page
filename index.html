@@ -51,10 +51,23 @@
       const button = document.getElementById("send");
       const promptBox = document.getElementById("prompt");
       const outputBox = document.getElementById("output");
-
-      button.addEventListener("click", function () {
+    
+      button.addEventListener("click", async function () {
         const message = promptBox.value;
-        outputBox.textContent = "You typed: " + message;
+    
+        outputBox.textContent = "Loading...";
+    
+        const response = await fetch("/api/chat", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ prompt: message })
+        });
+    
+        const data = await response.json();
+    
+        outputBox.textContent = data.reply;
       });
     </script>
   </body>
