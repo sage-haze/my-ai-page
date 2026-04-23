@@ -33,6 +33,21 @@ function renderSources(sources) {
   }).join("");
 }
 
+function buildMiniChartPath(series, width, height, padding) {
+  if (!series || series.length < 2) return "";
+
+  const values = series.map(item => Number(item.rate));
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+
+  return series.map((item, index) => {
+    const x = padding + (index * (width - padding * 2)) / (series.length - 1);
+    const y = height - padding - ((Number(item.rate) - min) / range) * (height - padding * 2);
+    return `${index === 0 ? "M" : "L"} ${x} ${y}`;
+  }).join(" ");
+}
+
 function renderFx(fx) {
   if (!fx) {
     fxOutput.textContent = "No FX information returned.";
@@ -64,8 +79,34 @@ function renderFx(fx) {
     </tr>
   `).join("");
 
+  const chartPath = buildMiniChartPath(fx.series, 320, 120, 12);
+
   fxOutput.innerHTML = `
     <div class="fx-rate">${fx.pair}</div>
+
+    <div class="fx-stats">
+      <div class="fx-stat-card">
+        <div class="fx-stat-label">Latest</div>
+        <div class="fx-stat-value">${fx.latest_rate}</div>
+      </div>
+      <div class="fx-stat-card">
+        <div class="fx-stat-label">Highest</div>
+        <div class="fx-stat-value">${fx.highest_rate}</div>
+        <div class="fx-stat-sub">${fx.highest_date}</div>
+      </div>
+      <div class="fx-stat-card">
+        <div class="fx-stat-label">Lowest</div>
+        <div class="fx-stat-value">${fx.lowest_rate}</div>
+        <div class="fx-stat-sub">${fx.lowest_date}</div>
+      </div>
+    </div>
+
+    <div class="fx-chart-wrap">
+      <svg class="fx-chart" viewBox="0 0 320 120" preserveAspectRatio="none" aria-label="FX trend chart">
+        <path d="${chartPath}" fill="none" stroke="currentColor" stroke-width="2" />
+      </svg>
+    </div>
+
     <table class="fx-table">
       <thead>
         <tr>
@@ -77,6 +118,7 @@ function renderFx(fx) {
         ${rows}
       </tbody>
     </table>
+
     <div class="fx-meta">
       Source: ${fx.source}<br>
       Retrieved: ${fx.retrieved_at}
