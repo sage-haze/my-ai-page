@@ -1,74 +1,66 @@
 const button = document.getElementById("send");
-const promptBox = document.getElementById("prompt");
-const outputBox = document.getElementById("output");
-
-const modeBox = document.getElementById("mode");
-const generalFields = document.getElementById("general-fields");
-const approvedNewsFields = document.getElementById("approved-news-fields");
-
-const toneBox = document.getElementById("tone");
-const lengthBox = document.getElementById("length");
-const formatBox = document.getElementById("format");
-const audienceBox = document.getElementById("audience");
-
 const industryBox = document.getElementById("industry");
 const timeframeBox = document.getElementById("timeframe");
+const topicBox = document.getElementById("topic");
 const situationBox = document.getElementById("situation");
+const promptBox = document.getElementById("prompt");
 
-function updateModeUI() {
-  const mode = modeBox.value;
+const analysisOutput = document.getElementById("analysisOutput");
+const sourcesOutput = document.getElementById("sourcesOutput");
 
-  if (mode === "approved_news") {
-    generalFields.classList.add("hidden");
-    approvedNewsFields.classList.remove("hidden");
-  } else {
-    generalFields.classList.remove("hidden");
-    approvedNewsFields.classList.add("hidden");
-  }
-}
-
-modeBox.addEventListener("change", updateModeUI);
-updateModeUI();
-
-button.addEventListener("click", async function () {
-  const mode = modeBox.value;
-  const prompt = promptBox.value.trim();
-
-  if (!prompt) {
-    outputBox.textContent = "Please type a request first.";
+function renderSources(sources) {
+  if (!sources || sources.length === 0) {
+    sourcesOutput.textContent = "No sources found.";
     return;
   }
 
-  const payload = {
-    mode,
-    prompt
-  };
+  sourcesOutput.innerHTML = sources.map(source => {
+    const published = source.published_at || "Unknown date";
+    const domain = source.domain || source.source || "Unknown source";
+    const label = source.source_group === "approved" ? "Approved source" : "Broad web";
 
-  if (mode === "general") {
-    payload.tone = toneBox.value;
-    payload.length = lengthBox.value;
-    payload.format = formatBox.value;
-    payload.audience = audienceBox.value;
+    return `
+      <div class="source-item">
+        <a class="source-title" href="${source.url}" target="_blank" rel="noopener noreferrer">
+          ${source.title || source.url}
+        </a>
+        <div class="source-meta">${domain} • ${published} • ${label}</div>
+        <div class="source-link">${source.url}</div>
+      </div>
+    `;
+  }).join("");
+}
+
+button.addEventListener("click", async function () {
+  const industry = industryBox.value;
+  const timeframe = timeframeBox.value;
+  const topic = topicBox.value.trim();
+  const situation = situationBox.value.trim();
+  const prompt = promptBox.value.trim();
+
+  if (!industry) {
+    analysisOutput.textContent = "Please select an industry.";
+    return;
   }
 
-  if (mode === "approved_news") {
-    payload.industry = industryBox.value;
-    payload.timeframe = timeframeBox.value;
-    payload.situation = situationBox.value.trim();
+  if (!topic) {
+    analysisOutput.textContent = "Please enter a topic / company / issue.";
+    return;
+  }
 
-    if (!payload.industry) {
-      outputBox.textContent = "Please select an industry.";
-      return;
-    }
+  if (!situation) {
+    analysisOutput.textContent = "Please describe your situation.";
+    return;
+  }
 
-    if (!payload.situation) {
-      outputBox.textContent = "Please describe your situation.";
-      return;
-    }
+  if (!prompt) {
+    analysisOutput.textContent = "Please describe what you want the analysis to focus on.";
+    return;
   }
 
   button.disabled = true;
-  outputBox.textContent = "";
+  analysisOutput.innerHTML = '<span class="loading">Researching recent news...</span>';
+  sourcesOutput.innerHTML = '<span class="loading">Gathering sources...</span>';
 
   try {
     const response = await fetch("/api/chat", {
@@ -76,47 +68,28 @@ button.addEventListener("click", async function () {
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify({
+        industry,
+        timeframe,
+        topic,
+        situation,
+        prompt
+      })
     });
 
-    if (!response.ok || !response.body) {
-      const text = await response.text();
-      outputBox.textContent = text || "Request failed.";
+    const data = await response.json();
+
+    if (!response.ok) {
+      analysisOutput.innerHTML = `<span class="error">${data.error || "Request failed."}</span>`;
+      sourcesOutput.textContent = "";
       return;
     }
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const parts = buffer.split("\n");
-      buffer = parts.pop();
-
-      for (const line of parts) {
-        if (!line.startsWith("data: ")) continue;
-
-        const data = line.slice(6).trim();
-
-        if (data === "[DONE]") continue;
-
-        try {
-          const json = JSON.parse(data);
-
-          if (json.type === "response.output_text.delta") {
-            outputBox.textContent += json.delta;
-          }
-        } catch (error) {
-          // ignore non-JSON lines
-        }
-      }
-    }
+    analysisOutput.textContent = data.analysis || "No analysis returned.";
+    renderSources(data.sources || []);
   } catch (error) {
-    outputBox.textContent = "Network error. Please try again.";
+    analysisOutput.innerHTML = '<span class="error">Network error. Please try again.</span>';
+    sourcesOutput.textContent = "";
   } finally {
     button.disabled = false;
   }
