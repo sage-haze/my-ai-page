@@ -57,6 +57,8 @@ const APPROVED_DOMAIN_MAP = {
   ]
 };
 
+const ALLOWED_CURRENCIES = ["THB", "USD", "JPY", "EUR", "CNY"];
+
 function formatDate(date) {
   return date.toISOString().slice(0, 10);
 }
@@ -177,6 +179,48 @@ function extractOutputText(data) {
   return "";
 }
 
+async function fetchYahooFxRate(baseCurrency) {
+  if (baseCurrency === "THB") {
+    return {
+      skip: true,
+      base: "THB"
+    };
+  }
+
+  const pair = `${baseCurrency}THB=X`;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${pair}?interval=1d&range=1d`;
+
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0"
+    }
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error("Yahoo Finance FX request failed.");
+  }
+
+  const result = data?.chart?.result?.[0];
+  const meta = result?.meta;
+  const rate = meta?.regularMarketPrice;
+
+  if (typeof rate !== "number") {
+    throw new Error("Yahoo Finance did not return a usable FX rate.");
+  }
+
+  return {
+    skip: false,
+    base: baseCurrency,
+    quote: "THB",
+    pair,
+    rate: rate,
+    source: "Yahoo Finance (prototype)",
+    retrieved_at: new Date().toISOString()
+  };
+}
+
 export async function onRequestPost(context) {
   try {
     const { request, env } = context;
@@ -184,6 +228,7 @@ export async function onRequestPost(context) {
 
     const industry = (body.industry || "").trim();
     const timeframe = (body.timeframe || "30").trim();
+    const currency = (body.currency || "THB").trim().toUpperCase();
     const topic = (body.topic || "").trim();
     const situation = (body.situation || "").trim();
     const prompt = (body.prompt || "").trim();
@@ -204,6 +249,10 @@ export async function onRequestPost(context) {
       return Response.json({ error: "Please describe what you want the analysis to focus on." }, { status: 400 });
     }
 
+    if (!ALLOWED_CURRENCIES.includes(currency)) {
+      return Response.json({ error: "Unsupported currency selected." }, { status: 400 });
+    }
+
     if (!env.TAVILY_API_KEY) {
       return Response.json({ error: "Missing TAVILY_API_KEY secret in Cloudflare." }, { status: 500 });
     }
@@ -216,23 +265,30 @@ export async function onRequestPost(context) {
     const approvedDomains = APPROVED_DOMAIN_MAP[industry] || [];
     const query = buildQuery({ industry, topic });
 
-    const approvedResults = await tavilySearch({
-      apiKey: env.TAVILY_API_KEY,
-      query,
-      startDate: start_date,
-      endDate: end_date,
-      includeDomains: approvedDomains,
-      maxResults: 5
-    });
-
-    const broadResults = await tavilySearch({
-      apiKey: env.TAVILY_API_KEY,
-      query,
-      startDate: start_date,
-      endDate: end_date,
-      includeDomains: null,
-      maxResults: 8
-    });
+    const [approvedResults, broadResults, fxResult] = await Promise.all([
+      tavilySearch({
+        apiKey: env.TAVILY_API_KEY,
+        query,
+        startDate: start_date,
+        endDate: end_date,
+        includeDomains: approvedDomains,
+        maxResults: 5
+      }),
+      tavilySearch({
+        apiKey: env.TAVILY_API_KEY,
+        query,
+        startDate: start_date,
+        endDate: end_date,
+        includeDomains: null,
+        maxResults: 8
+      }),
+      fetchYahooFxRate(currency).catch(error => ({
+        skip: false,
+        base: currency,
+        quote: "THB",
+        error: error.message || "FX lookup failed."
+      }))
+    ]);
 
     const approvedSources = normalizeTavilyResults(approvedResults, "approved");
     const broadSources = normalizeTavilyResults(broadResults, "broad");
@@ -249,6 +305,10 @@ export async function onRequestPost(context) {
 
     const articleContext = buildArticleContext(mergedSources);
 
+    const fxInstruction = currency === "THB"
+      ? "The user selected THB, so no FX conversion is needed."
+      : `The user selected ${currency}. The latest prototype FX lookup indicates approximately 1 ${currency} = ${fxResult.rate} THB. Use this only as supporting context if relevant.`;
+
     const analysisPrompt = `
 You are a research assistant.
 
@@ -257,6 +317,7 @@ Analyze the news sources provided below for the user's situation.
 Industry: ${industry}
 Timeframe: last ${timeframe} days
 Topic: ${topic}
+Selected currency: ${currency}
 
 User's situation:
 ${situation}
@@ -264,14 +325,18 @@ ${situation}
 Requested focus:
 ${prompt}
 
+Additional financial context:
+${fxInstruction}
+
 Instructions:
-- Use only the provided sources below
+- Use only the provided news sources below for the news analysis
 - Do not invent additional sources
 - If evidence is mixed or incomplete, say so clearly
 - Prioritize practical implications for the user's situation
 - Separate signal from noise
-- Mention source recency when relevant
+- Mention source recency where relevant
 - Do not repeat long source lists inside the analysis; the UI shows sources separately
+- If the FX rate is relevant, mention it briefly and carefully as supporting context, not as the main conclusion
 
 Please write:
 1. A short summary of the main developments
@@ -308,6 +373,7 @@ ${articleContext}
 
     return Response.json({
       analysis: analysis || "No analysis returned.",
+      fx: fxResult,
       sources: mergedSources.map(source => ({
         title: source.title,
         url: source.url,
