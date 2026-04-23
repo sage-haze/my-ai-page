@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My AI Page</title>
+    <title>My AI Assistant</title>
     <link rel="stylesheet" href="style.css">
   </head>
   <body>
@@ -16,78 +16,83 @@
           <label for="mode">Mode</label>
           <select id="mode">
             <option value="general">General Writing</option>
-            <option value="news">News Research</option>
+            <option value="approved_news">Approved News Research</option>
           </select>
         </div>
 
         <div id="general-fields">
-          <div class="form-group">
-            <label for="tone">Tone</label>
-            <select id="tone">
-              <option value="friendly">Friendly</option>
-              <option value="formal">Formal</option>
-              <option value="persuasive">Persuasive</option>
-              <option value="funny">Funny</option>
-            </select>
-          </div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="tone">Tone</label>
+              <select id="tone">
+                <option value="friendly">Friendly</option>
+                <option value="formal">Formal</option>
+                <option value="persuasive">Persuasive</option>
+                <option value="funny">Funny</option>
+              </select>
+            </div>
 
-          <div class="form-group">
-            <label for="length">Length</label>
-            <select id="length">
-              <option value="short">Short</option>
-              <option value="medium" selected>Medium</option>
-              <option value="long">Long</option>
-            </select>
-          </div>
+            <div class="form-group">
+              <label for="length">Length</label>
+              <select id="length">
+                <option value="short">Short</option>
+                <option value="medium" selected>Medium</option>
+                <option value="long">Long</option>
+              </select>
+            </div>
 
-          <div class="form-group">
-            <label for="format">Format</label>
-            <select id="format">
-              <option value="paragraph">Paragraph</option>
-              <option value="bullet points">Bullet points</option>
-              <option value="email">Email</option>
-            </select>
-          </div>
+            <div class="form-group">
+              <label for="format">Format</label>
+              <select id="format">
+                <option value="paragraph">Paragraph</option>
+                <option value="bullet points">Bullet points</option>
+                <option value="email">Email</option>
+              </select>
+            </div>
 
-          <div class="form-group">
-            <label for="audience">Audience</label>
-            <select id="audience">
-              <option value="general audience">General audience</option>
-              <option value="beginners">Beginners</option>
-              <option value="professionals">Professionals</option>
-            </select>
+            <div class="form-group">
+              <label for="audience">Audience</label>
+              <select id="audience">
+                <option value="general audience">General audience</option>
+                <option value="beginners">Beginners</option>
+                <option value="professionals">Professionals</option>
+              </select>
+            </div>
           </div>
         </div>
 
-        <div id="news-fields" class="hidden">
-          <div class="form-group">
-            <label for="topic">News topic</label>
-            <input id="topic" type="text" placeholder="e.g. AI regulation in Singapore">
+        <div id="approved-news-fields" class="hidden">
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="industry">Industry</label>
+              <select id="industry">
+                <option value="">Select an industry</option>
+                <option value="banking">Banking</option>
+                <option value="insurance">Insurance</option>
+                <option value="healthcare">Healthcare</option>
+                <option value="semiconductors">Semiconductors</option>
+                <option value="telecommunications">Telecommunications</option>
+                <option value="cybersecurity">Cybersecurity</option>
+                <option value="energy">Energy</option>
+                <option value="retail">Retail</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="timeframe">Timeframe</label>
+              <select id="timeframe">
+                <option value="30">Last 30 days</option>
+                <option value="60">Last 60 days</option>
+                <option value="90">Last 90 days</option>
+                <option value="180">Last 180 days</option>
+                <option value="360">Last 360 days</option>
+              </select>
+            </div>
           </div>
 
           <div class="form-group">
             <label for="situation">Your situation / context</label>
-            <textarea id="situation" placeholder="e.g. I run a startup serving banks and need to understand compliance impact"></textarea>
-          </div>
-
-          <div class="form-group">
-            <label for="timeWindow">Time window</label>
-            <select id="timeWindow">
-              <option value="past 7 days">Past 7 days</option>
-              <option value="past 30 days" selected>Past 30 days</option>
-              <option value="past 90 days">Past 90 days</option>
-            </select>
-          </div>
-
-          <div class="form-group">
-            <label for="region">Region</label>
-            <select id="region">
-              <option value="global">Global</option>
-              <option value="Singapore">Singapore</option>
-              <option value="Asia">Asia</option>
-              <option value="United States">United States</option>
-              <option value="Europe">Europe</option>
-            </select>
+            <textarea id="situation" placeholder="Example: I sell compliance software to banks in Southeast Asia and want to know what affects customer conversations."></textarea>
           </div>
         </div>
 
