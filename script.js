@@ -4,27 +4,26 @@ const outputBox = document.getElementById("output");
 
 const modeBox = document.getElementById("mode");
 const generalFields = document.getElementById("general-fields");
-const newsFields = document.getElementById("news-fields");
+const approvedNewsFields = document.getElementById("approved-news-fields");
 
 const toneBox = document.getElementById("tone");
 const lengthBox = document.getElementById("length");
 const formatBox = document.getElementById("format");
 const audienceBox = document.getElementById("audience");
 
-const topicBox = document.getElementById("topic");
+const industryBox = document.getElementById("industry");
+const timeframeBox = document.getElementById("timeframe");
 const situationBox = document.getElementById("situation");
-const timeWindowBox = document.getElementById("timeWindow");
-const regionBox = document.getElementById("region");
 
 function updateModeUI() {
   const mode = modeBox.value;
 
-  if (mode === "news") {
+  if (mode === "approved_news") {
     generalFields.classList.add("hidden");
-    newsFields.classList.remove("hidden");
+    approvedNewsFields.classList.remove("hidden");
   } else {
     generalFields.classList.remove("hidden");
-    newsFields.classList.add("hidden");
+    approvedNewsFields.classList.add("hidden");
   }
 }
 
@@ -40,7 +39,10 @@ button.addEventListener("click", async function () {
     return;
   }
 
-  const payload = { mode, prompt };
+  const payload = {
+    mode,
+    prompt
+  };
 
   if (mode === "general") {
     payload.tone = toneBox.value;
@@ -49,14 +51,13 @@ button.addEventListener("click", async function () {
     payload.audience = audienceBox.value;
   }
 
-  if (mode === "news") {
-    payload.topic = topicBox.value.trim();
+  if (mode === "approved_news") {
+    payload.industry = industryBox.value;
+    payload.timeframe = timeframeBox.value;
     payload.situation = situationBox.value.trim();
-    payload.timeWindow = timeWindowBox.value;
-    payload.region = regionBox.value;
 
-    if (!payload.topic) {
-      outputBox.textContent = "Please enter a news topic.";
+    if (!payload.industry) {
+      outputBox.textContent = "Please select an industry.";
       return;
     }
 
@@ -101,14 +102,18 @@ button.addEventListener("click", async function () {
 
         const data = line.slice(6).trim();
 
-        if (data === "[DONE]") continue;
+        if (data === "[DONE]") {
+          continue;
+        }
 
         try {
           const json = JSON.parse(data);
+
           if (json.type === "response.output_text.delta") {
             outputBox.textContent += json.delta;
           }
-        } catch (e) {
+        } catch (error) {
+          // ignore non-JSON lines
         }
       }
     }
