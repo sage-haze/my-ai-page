@@ -3,107 +3,83 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My AI Assistant</title>
+    <title>News Research Assistant</title>
     <link rel="stylesheet" href="style.css">
   </head>
   <body>
     <div class="page">
       <div class="card">
-        <h1>My AI Assistant</h1>
-        <p class="intro">Choose a mode and fill in the form.</p>
+        <h1>News Research Assistant</h1>
+        <p class="intro">
+          Search recent news, analyze it for a specific situation, and review the source links separately.
+        </p>
 
-        <div class="form-group">
-          <label for="mode">Mode</label>
-          <select id="mode">
-            <option value="general">General Writing</option>
-            <option value="approved_news">Approved News Research</option>
-          </select>
-        </div>
-
-        <div id="general-fields">
-          <div class="form-grid">
-            <div class="form-group">
-              <label for="tone">Tone</label>
-              <select id="tone">
-                <option value="friendly">Friendly</option>
-                <option value="formal">Formal</option>
-                <option value="persuasive">Persuasive</option>
-                <option value="funny">Funny</option>
-              </select>
-            </div>
-
-            <div class="form-group">
-              <label for="length">Length</label>
-              <select id="length">
-                <option value="short">Short</option>
-                <option value="medium" selected>Medium</option>
-                <option value="long">Long</option>
-              </select>
-            </div>
-
-            <div class="form-group">
-              <label for="format">Format</label>
-              <select id="format">
-                <option value="paragraph">Paragraph</option>
-                <option value="bullet points">Bullet points</option>
-                <option value="email">Email</option>
-              </select>
-            </div>
-
-            <div class="form-group">
-              <label for="audience">Audience</label>
-              <select id="audience">
-                <option value="general audience">General audience</option>
-                <option value="beginners">Beginners</option>
-                <option value="professionals">Professionals</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <div id="approved-news-fields" class="hidden">
-          <div class="form-grid">
-            <div class="form-group">
-              <label for="industry">Industry</label>
-              <select id="industry">
-                <option value="">Select an industry</option>
-                <option value="banking">Banking</option>
-                <option value="insurance">Insurance</option>
-                <option value="healthcare">Healthcare</option>
-                <option value="semiconductors">Semiconductors</option>
-                <option value="telecommunications">Telecommunications</option>
-                <option value="cybersecurity">Cybersecurity</option>
-                <option value="energy">Energy</option>
-                <option value="retail">Retail</option>
-              </select>
-            </div>
-
-            <div class="form-group">
-              <label for="timeframe">Timeframe</label>
-              <select id="timeframe">
-                <option value="30">Last 30 days</option>
-                <option value="60">Last 60 days</option>
-                <option value="90">Last 90 days</option>
-                <option value="180">Last 180 days</option>
-                <option value="360">Last 360 days</option>
-              </select>
-            </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="industry">Industry</label>
+            <select id="industry">
+              <option value="">Select an industry</option>
+              <option value="banking">Banking</option>
+              <option value="insurance">Insurance</option>
+              <option value="healthcare">Healthcare</option>
+              <option value="semiconductors">Semiconductors</option>
+              <option value="telecommunications">Telecommunications</option>
+              <option value="cybersecurity">Cybersecurity</option>
+              <option value="energy">Energy</option>
+              <option value="retail">Retail</option>
+            </select>
           </div>
 
           <div class="form-group">
-            <label for="situation">Your situation / context</label>
-            <textarea id="situation" placeholder="Example: I sell compliance software to banks in Southeast Asia and want to know what affects customer conversations."></textarea>
+            <label for="timeframe">Timeframe</label>
+            <select id="timeframe">
+              <option value="30">Last 30 days</option>
+              <option value="60">Last 60 days</option>
+              <option value="90">Last 90 days</option>
+              <option value="180">Last 180 days</option>
+              <option value="360">Last 360 days</option>
+            </select>
           </div>
         </div>
 
         <div class="form-group">
-          <label for="prompt">Your request</label>
-          <textarea id="prompt" placeholder="Type what you want the AI to do"></textarea>
+          <label for="topic">Topic / company / issue</label>
+          <input
+            id="topic"
+            type="text"
+            placeholder="Example: AI regulation for banks in Singapore"
+          >
         </div>
 
-        <button id="send">Send</button>
+        <div class="form-group">
+          <label for="situation">Your situation / context</label>
+          <textarea
+            id="situation"
+            placeholder="Example: I sell compliance software to banks in Southeast Asia and want to know what affects customer conversations."
+          ></textarea>
+        </div>
 
-        <div id="output">The reply will appear here.</div>
+        <div class="form-group">
+          <label for="prompt">What do you want the analysis to focus on?</label>
+          <textarea
+            id="prompt"
+            placeholder="Example: Summarize the most relevant developments and tell me what matters for my sales conversations."
+          ></textarea>
+        </div>
+
+        <button id="send">Research</button>
+
+        <div class="results-grid">
+          <div class="result-card">
+            <h2>Analysis</h2>
+            <div id="analysisOutput">The analysis will appear here.</div>
+          </div>
+
+          <div class="result-card">
+            <h2>Sources</h2>
+            <div id="sourcesOutput">The source links will appear here.</div>
+          </div>
+        </div>
       </div>
     </div>
 
