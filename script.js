@@ -52,10 +52,32 @@ function renderFx(fx) {
     return;
   }
 
+  if (!fx.series || fx.series.length === 0) {
+    fxOutput.textContent = "No FX data available.";
+    return;
+  }
+
+  const rows = fx.series.map(item => `
+    <tr>
+      <td>${item.date}</td>
+      <td>${item.rate}</td>
+    </tr>
+  `).join("");
+
   fxOutput.innerHTML = `
-    <div class="fx-rate">1 ${fx.base} = ${fx.rate} THB</div>
+    <div class="fx-rate">${fx.pair}</div>
+    <table class="fx-table">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Rate (${fx.base} → THB)</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows}
+      </tbody>
+    </table>
     <div class="fx-meta">
-      Pair: ${fx.pair}<br>
       Source: ${fx.source}<br>
       Retrieved: ${fx.retrieved_at}
     </div>
