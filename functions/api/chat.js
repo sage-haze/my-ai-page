@@ -18,9 +18,29 @@ export async function onRequestPost(context) {
 
     const data = await openaiResponse.json();
 
+    if (!openaiResponse.ok) {
+      return new Response(
+        JSON.stringify({
+          reply: data.error?.message || "OpenAI request failed."
+        }),
+        {
+          status: openaiResponse.status,
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+    }
+
+    let reply = data.output_text;
+
+    if (!reply && Array.isArray(data.output)) {
+      const firstItem = data.output[0];
+      const firstContent = firstItem?.content?.[0];
+      reply = firstContent?.text;
+    }
+
     return new Response(
       JSON.stringify({
-        reply: data.output_text || "No reply returned."
+        reply: reply || "No reply returned."
       }),
       {
         headers: { "Content-Type": "application/json" }
@@ -32,8 +52,8 @@ export async function onRequestPost(context) {
         reply: "Something went wrong on the server."
       }),
       {
-        headers: { "Content-Type": "application/json" },
-        status: 500
+        status: 500,
+        headers: { "Content-Type": "application/json" }
       }
     );
   }
