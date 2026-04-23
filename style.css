@@ -41,12 +41,14 @@ label {
 
 select,
 textarea,
-button {
+button,
+input {
   font: inherit;
 }
 
 select,
-textarea {
+textarea,
+input {
   width: 100%;
   padding: 12px;
   border: 1px solid #ccc;
@@ -83,4 +85,8 @@ button:disabled {
   background: #fafafa;
   min-height: 120px;
   white-space: pre-wrap;
+}
+
+.hidden {
+  display: none;
 }
