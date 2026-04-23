@@ -46,5 +46,16 @@
     <button id="send">Send</button>
 
     <div id="output">The reply will appear here.</div>
+
+    <script>
+      const button = document.getElementById("send");
+      const promptBox = document.getElementById("prompt");
+      const outputBox = document.getElementById("output");
+
+      button.addEventListener("click", function () {
+        const message = promptBox.value;
+        outputBox.textContent = "You typed: " + message;
+      });
+    </script>
   </body>
 </html>
