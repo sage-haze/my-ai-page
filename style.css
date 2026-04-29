@@ -28,6 +28,11 @@ h2 {
   font-size: 20px;
 }
 
+h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
 .intro {
   margin-top: 0;
   margin-bottom: 24px;
@@ -69,6 +74,11 @@ input[type="text"] {
   background: #fff;
 }
 
+input:disabled {
+  background: #eee;
+  color: #777;
+}
+
 textarea {
   min-height: 130px;
   resize: vertical;
@@ -89,6 +99,40 @@ textarea {
   border-radius: 999px;
   padding: 8px 12px;
   background: #fff;
+}
+
+.checkbox-column {
+  display: grid;
+  gap: 10px;
+}
+
+.checkbox-column label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: normal;
+}
+
+.inline-other {
+  gap: 10px;
+}
+
+.inline-other input[type="text"] {
+  max-width: 420px;
+  margin-left: 4px;
+}
+
+.trajectory-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.trajectory-card {
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  background: #fff;
+  padding: 14px;
 }
 
 button {
@@ -186,36 +230,23 @@ button:disabled {
   font-weight: bold;
 }
 
-.fx-block {
+.fx-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
   margin-top: 18px;
-  padding-top: 16px;
-  border-top: 1px solid #ddd;
 }
 
-.fx-block:first-child {
-  margin-top: 0;
-  padding-top: 0;
-  border-top: none;
+.fx-block {
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  background: #fff;
+  padding: 14px;
 }
 
 .fx-title {
   font-weight: bold;
   margin-bottom: 8px;
-}
-
-.fx-chart-wrap {
-  margin: 10px 0 14px;
-  border: 1px solid #ddd;
-  border-radius: 10px;
-  background: #fff;
-  padding: 10px;
-}
-
-.fx-chart {
-  width: 100%;
-  height: 100px;
-  display: block;
-  color: #2563eb;
 }
 
 .fx-meta {
@@ -225,7 +256,19 @@ button:disabled {
 }
 
 @media (max-width: 900px) {
-  .form-grid {
+  .form-grid,
+  .trajectory-grid,
+  .fx-grid {
     grid-template-columns: 1fr;
+  }
+
+  .inline-other {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .inline-other input[type="text"] {
+    max-width: none;
+    margin-left: 0;
   }
 }
