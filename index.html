@@ -10,7 +10,7 @@
     <div class="page">
       <div class="card">
         <h1>Conversation builder</h1>
-        <p class="intro">Build a news-informed conversation brief using sector context, business changes, trajectory, FX rates, and source links.</p>
+        <p class="intro">Build a news-informed customer conversation brief.</p>
 
         <div class="form-grid">
           <div class="form-group">
@@ -51,71 +51,17 @@
         </div>
 
         <div class="form-group">
-          <label for="topic">Topic / company / issue</label>
-          <input id="topic" type="text" placeholder="Example: Thailand banking digital lending regulation">
-        </div>
-
-        <div class="form-group">
-          <label>Business context</label>
-          <div class="checkbox-column">
-            <label><input type="checkbox" name="businessContext" value="No change / Unknown" id="contextNoChange" checked> No change / Unknown</label>
-            <label><input type="checkbox" name="businessContext" value="Project, product, business line change"> Project, product, business line change</label>
-            <label><input type="checkbox" name="businessContext" value="Plant, factory setup change"> Plant, factory setup change</label>
-            <label><input type="checkbox" name="businessContext" value="Management, shareholder, company structure change"> Management, shareholder, company structure change</label>
-            <label><input type="checkbox" name="businessContext" value="Acquisition, divestment, restructuring"> Acquisition, divestment, restructuring</label>
-            <label><input type="checkbox" name="businessContext" value="Supplier, buyer change"> Supplier, buyer change</label>
-            <label class="inline-other">
-              <input type="checkbox" name="businessContext" value="Others" id="contextOthers">
-              Others
-              <input id="contextOtherText" type="text" placeholder="Describe other change" disabled>
-            </label>
+          <label>Countries / markets relevant to the client</label>
+          <div class="country-picker">
+            <input id="countrySearch" type="text" placeholder="Search countries...">
+            <div id="countryDropdown" class="country-dropdown"></div>
           </div>
+          <div id="selectedCountries" class="selected-country-row"></div>
         </div>
 
         <div class="form-group">
-          <label>Business trajectory in next 12 months</label>
-          <div class="trajectory-grid">
-            <div class="trajectory-card">
-              <h3>Domestic Purchase</h3>
-              <select id="trajectoryDomesticPurchase">
-                <option value="No change / Unknown">No change / Unknown</option>
-                <option value="Significant uptrend">Significant uptrend</option>
-                <option value="Significant downtrend">Significant downtrend</option>
-              </select>
-            </div>
-
-            <div class="trajectory-card">
-              <h3>Domestic Sales</h3>
-              <select id="trajectoryDomesticSales">
-                <option value="No change / Unknown">No change / Unknown</option>
-                <option value="Significant uptrend">Significant uptrend</option>
-                <option value="Significant downtrend">Significant downtrend</option>
-              </select>
-            </div>
-
-            <div class="trajectory-card">
-              <h3>Import</h3>
-              <select id="trajectoryImport">
-                <option value="No change / Unknown">No change / Unknown</option>
-                <option value="Significant uptrend">Significant uptrend</option>
-                <option value="Significant downtrend">Significant downtrend</option>
-              </select>
-            </div>
-
-            <div class="trajectory-card">
-              <h3>Export</h3>
-              <select id="trajectoryExport">
-                <option value="No change / Unknown">No change / Unknown</option>
-                <option value="Significant uptrend">Significant uptrend</option>
-                <option value="Significant downtrend">Significant downtrend</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label for="prompt">What do you want the analysis to focus on?</label>
-          <textarea id="prompt" placeholder="Example: Explain what matters most for client conversations."></textarea>
+          <label for="defaultPrompt">Default Prompt</label>
+          <textarea id="defaultPrompt">You are a relationship manager for a Thailand-based bank talking to a customer with the following profile. Based on the recent news, could you suggest what are 3-5 relevant themes that will affect the customer.</textarea>
         </div>
 
         <button id="send">Research</button>
