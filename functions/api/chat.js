@@ -1,63 +1,248 @@
-const APPROVED_DOMAIN_MAP = {
-  banking: [
-    "reuters.com",
-    "bloomberg.com",
-    "ft.com",
-    "wsj.com",
-    "mas.gov.sg",
-    "bis.org"
-  ],
-  insurance: [
-    "reuters.com",
-    "bloomberg.com",
-    "ft.com",
-    "insurancebusinessmag.com",
-    "iaisweb.org"
-  ],
-  healthcare: [
-    "reuters.com",
-    "statnews.com",
-    "fiercehealthcare.com",
-    "who.int",
-    "fda.gov"
-  ],
-  semiconductors: [
-    "reuters.com",
-    "bloomberg.com",
-    "ft.com",
-    "digitimes.com",
-    "tomshardware.com"
-  ],
-  telecommunications: [
-    "reuters.com",
-    "lightreading.com",
-    "fierce-network.com",
-    "telecoms.com"
-  ],
-  cybersecurity: [
-    "reuters.com",
-    "therecord.media",
-    "bleepingcomputer.com",
-    "securityweek.com",
-    "cisa.gov"
-  ],
-  energy: [
-    "reuters.com",
-    "bloomberg.com",
-    "ft.com",
-    "spglobal.com",
-    "iea.org"
-  ],
-  retail: [
-    "reuters.com",
-    "bloomberg.com",
-    "ft.com",
-    "retaildive.com",
-    "chainstoreage.com"
-  ]
-};
+const DEFAULT_APPROVED_DOMAINS = [
+  "reuters.com",
+  "bloomberg.com",
+  "ft.com",
+  "wsj.com",
+  "worldbank.org",
+  "imf.org",
+  "bis.org",
+  "bot.or.th"
+];
 
 const ALLOWED_CURRENCIES = ["THB", "USD", "JPY", "EUR", "CNY"];
+
+const SUBSECTOR_KEYWORD_MAP = {
+  "Thai commercial bank": [
+    "Thai commercial bank",
+    "Thailand banking",
+    "Bank of Thailand",
+    "BOT regulation",
+    "digital banking",
+    "loan growth",
+    "credit risk",
+    "NPL",
+    "capital adequacy",
+    "compliance"
+  ],
+  "Restricted bank": [
+    "restricted bank Thailand",
+    "Bank of Thailand",
+    "banking license",
+    "banking regulation",
+    "financial supervision"
+  ],
+  "Branches of foreign bank": [
+    "foreign bank branch Thailand",
+    "cross-border banking",
+    "Bank of Thailand",
+    "foreign bank regulation",
+    "capital requirements"
+  ],
+  "Foreign bank": [
+    "foreign bank Thailand",
+    "international banking",
+    "cross-border finance",
+    "Bank of Thailand",
+    "foreign bank regulation"
+  ],
+  "Retail bank": [
+    "retail banking",
+    "consumer banking",
+    "digital banking",
+    "deposits",
+    "personal loans",
+    "mortgages"
+  ],
+  "Insurance, reinsurance and pension funding, except compulsory social security": [
+    "insurance Thailand",
+    "reinsurance",
+    "insurance regulation",
+    "premiums",
+    "claims",
+    "solvency",
+    "risk management"
+  ],
+  "Reinsurance (life)": [
+    "life reinsurance",
+    "insurance risk",
+    "actuarial risk",
+    "life insurance",
+    "capital adequacy"
+  ],
+  "Reinsurance (non-life)": [
+    "non-life reinsurance",
+    "property casualty insurance",
+    "catastrophe risk",
+    "claims",
+    "underwriting"
+  ],
+  "Securities company": [
+    "securities company",
+    "brokerage",
+    "capital markets",
+    "stock exchange",
+    "securities regulation"
+  ],
+  "Asset management": [
+    "asset management",
+    "fund management",
+    "investment management",
+    "mutual funds",
+    "portfolio management"
+  ],
+  "Manufacture of computer, electronic and optical products": [
+    "electronics manufacturing",
+    "semiconductors",
+    "supply chain",
+    "exports",
+    "Thailand electronics",
+    "chip components"
+  ],
+  "Manufacture of motor vehicles, trailers and semi-trailers": [
+    "automotive manufacturing",
+    "electric vehicles",
+    "EV supply chain",
+    "auto parts",
+    "vehicle production"
+  ],
+  "Manufacture of chemicals and chemical products": [
+    "chemical manufacturing",
+    "petrochemicals",
+    "industrial chemicals",
+    "chemical exports",
+    "feedstock prices"
+  ],
+  "Manufacture of food products": [
+    "food manufacturing",
+    "food processing",
+    "agri-food",
+    "food exports",
+    "commodity prices"
+  ],
+  "Real estate development for condominium and flat for sale": [
+    "condominium market",
+    "Thailand property",
+    "real estate development",
+    "housing demand",
+    "property regulation"
+  ],
+  "Real estate development for residential housing": [
+    "residential real estate",
+    "housing market",
+    "property development",
+    "mortgage demand",
+    "Thailand housing"
+  ],
+  "Office building business for sale and rent": [
+    "office real estate",
+    "office leasing",
+    "commercial property",
+    "occupancy rates",
+    "workplace demand"
+  ],
+  "Shopping center business and department store for sale and rent": [
+    "shopping mall",
+    "retail property",
+    "department store",
+    "consumer spending",
+    "foot traffic"
+  ],
+  "Construction of private residential housing": [
+    "residential construction",
+    "housing construction",
+    "construction costs",
+    "building permits",
+    "Thailand property"
+  ],
+  "Construction of private condominium": [
+    "condominium construction",
+    "property development",
+    "residential construction",
+    "construction costs",
+    "housing demand"
+  ],
+  "Civil engineering": [
+    "infrastructure",
+    "civil engineering",
+    "public works",
+    "transport infrastructure",
+    "construction contracts"
+  ],
+  "Computer programming, consultancy and related activities": [
+    "software services",
+    "IT consulting",
+    "digital transformation",
+    "cloud services",
+    "cybersecurity",
+    "AI adoption"
+  ],
+  "Telecommunications": [
+    "telecom",
+    "5G",
+    "mobile network",
+    "spectrum",
+    "broadband",
+    "network infrastructure"
+  ],
+  "Electricity, gas, steam and air conditioning supply": [
+    "electricity market",
+    "power generation",
+    "energy prices",
+    "grid reliability",
+    "renewable energy",
+    "utilities"
+  ],
+  "Water collection, treatment and supply": [
+    "water supply",
+    "water infrastructure",
+    "utilities",
+    "water treatment",
+    "drought risk"
+  ],
+  "Food and beverage service activities": [
+    "restaurants",
+    "food service",
+    "consumer spending",
+    "tourism",
+    "operating costs",
+    "food inflation"
+  ],
+  "Accommodation": [
+    "hotel industry",
+    "tourism",
+    "hospitality",
+    "occupancy rates",
+    "travel demand"
+  ],
+  "Air transport": [
+    "aviation",
+    "airlines",
+    "air cargo",
+    "passenger traffic",
+    "airport operations"
+  ],
+  "Warehousing and support activities for transportation": [
+    "logistics",
+    "warehousing",
+    "supply chain",
+    "freight",
+    "transport infrastructure"
+  ],
+  "Human health activities": [
+    "healthcare",
+    "hospitals",
+    "medical services",
+    "health regulation",
+    "patient care"
+  ],
+  "Education": [
+    "education sector",
+    "schools",
+    "universities",
+    "edtech",
+    "education policy"
+  ]
+};
 
 function formatDate(date) {
   return date.toISOString().slice(0, 10);
@@ -72,6 +257,40 @@ function getDateRange(timeframeDays) {
     start_date: formatDate(start),
     end_date: formatDate(end)
   };
+}
+
+function inferKeywordsFromText(text) {
+  const stopWords = new Set([
+    "and", "with", "from", "except", "other", "activities",
+    "activity", "service", "services", "related", "supply",
+    "including", "not", "elsewhere", "classified", "own",
+    "leased", "goods", "bodies", "organizations", "organisation",
+    "undifferentiated", "compulsory", "social"
+  ]);
+
+  return String(text || "")
+    .toLowerCase()
+    .replace(/[;,.()/-]/g, " ")
+    .split(/\s+/)
+    .map(word => word.trim())
+    .filter(word => word.length > 3)
+    .filter(word => !stopWords.has(word));
+}
+
+function uniqueArray(items) {
+  return [...new Set(items.filter(Boolean))];
+}
+
+function getSearchKeywords({ sector, subsector }) {
+  const manualKeywords = SUBSECTOR_KEYWORD_MAP[subsector] || [];
+  const inferredSubsectorKeywords = inferKeywordsFromText(subsector);
+  const inferredSectorKeywords = inferKeywordsFromText(sector);
+
+  return uniqueArray([
+    ...manualKeywords,
+    ...inferredSubsectorKeywords,
+    ...inferredSectorKeywords
+  ]).slice(0, 20);
 }
 
 function normalizeTavilyResults(results, sourceGroup) {
@@ -135,8 +354,17 @@ async function tavilySearch({ apiKey, query, startDate, endDate, includeDomains 
   return data.results || [];
 }
 
-function buildQuery({ industry, topic }) {
-  return `${topic} ${industry} latest developments`;
+function buildQuery({ sector, subsector, topic }) {
+  const keywords = getSearchKeywords({ sector, subsector });
+
+  return uniqueArray([
+    topic,
+    subsector,
+    sector,
+    "Thailand",
+    "latest news",
+    ...keywords
+  ]).join(" ");
 }
 
 function buildArticleContext(sources) {
@@ -246,36 +474,58 @@ async function fetchYahooFxRate(baseCurrency) {
   };
 }
 
+async function fetchFxRates(currencies) {
+  const uniqueCurrencies = [...new Set(currencies)];
+
+  return Promise.all(
+    uniqueCurrencies.map(currency =>
+      fetchYahooFxRate(currency).catch(error => ({
+        skip: false,
+        base: currency,
+        quote: "THB",
+        error: error.message || "FX lookup failed."
+      }))
+    )
+  );
+}
+
+function buildFxInstruction(fxList) {
+  const usableFx = fxList.filter(fx => !fx.skip && !fx.error);
+
+  if (usableFx.length === 0) {
+    return "No non-THB FX conversion data is available or needed.";
+  }
+
+  return usableFx.map(fx =>
+    `${fx.pair}: latest ${fx.latest_rate}, 7-day high ${fx.highest_rate} on ${fx.highest_date}, 7-day low ${fx.lowest_rate} on ${fx.lowest_date}.`
+  ).join("\n");
+}
+
 export async function onRequestPost(context) {
   try {
     const { request, env } = context;
     const body = await request.json();
 
-    const industry = (body.industry || "").trim();
+    const sector = (body.sector || "").trim();
+    const subsector = (body.subsector || "").trim();
     const timeframe = (body.timeframe || "30").trim();
-    const currency = (body.currency || "THB").trim().toUpperCase();
+    const currencies = Array.isArray(body.currencies)
+      ? body.currencies.map(c => String(c).toUpperCase())
+      : [];
     const topic = (body.topic || "").trim();
     const situation = (body.situation || "").trim();
     const prompt = (body.prompt || "").trim();
 
-    if (!industry) {
-      return Response.json({ error: "Please select an industry." }, { status: 400 });
-    }
+    if (!sector) return Response.json({ error: "Please select a sector." }, { status: 400 });
+    if (!subsector) return Response.json({ error: "Please select a subsector." }, { status: 400 });
+    if (currencies.length === 0) return Response.json({ error: "Please select at least one currency." }, { status: 400 });
+    if (!topic) return Response.json({ error: "Please enter a topic / company / issue." }, { status: 400 });
+    if (!situation) return Response.json({ error: "Please describe your situation." }, { status: 400 });
+    if (!prompt) return Response.json({ error: "Please describe what you want the analysis to focus on." }, { status: 400 });
 
-    if (!topic) {
-      return Response.json({ error: "Please enter a topic / company / issue." }, { status: 400 });
-    }
-
-    if (!situation) {
-      return Response.json({ error: "Please describe your situation." }, { status: 400 });
-    }
-
-    if (!prompt) {
-      return Response.json({ error: "Please describe what you want the analysis to focus on." }, { status: 400 });
-    }
-
-    if (!ALLOWED_CURRENCIES.includes(currency)) {
-      return Response.json({ error: "Unsupported currency selected." }, { status: 400 });
+    const unsupported = currencies.filter(currency => !ALLOWED_CURRENCIES.includes(currency));
+    if (unsupported.length > 0) {
+      return Response.json({ error: `Unsupported currency selected: ${unsupported.join(", ")}` }, { status: 400 });
     }
 
     if (!env.TAVILY_API_KEY) {
@@ -287,16 +537,16 @@ export async function onRequestPost(context) {
     }
 
     const { start_date, end_date } = getDateRange(timeframe);
-    const approvedDomains = APPROVED_DOMAIN_MAP[industry] || [];
-    const query = buildQuery({ industry, topic });
+    const searchKeywords = getSearchKeywords({ sector, subsector });
+    const query = buildQuery({ sector, subsector, topic });
 
-    const [approvedResults, broadResults, fxResult] = await Promise.all([
+    const [approvedResults, broadResults, fxResults] = await Promise.all([
       tavilySearch({
         apiKey: env.TAVILY_API_KEY,
         query,
         startDate: start_date,
         endDate: end_date,
-        includeDomains: approvedDomains,
+        includeDomains: DEFAULT_APPROVED_DOMAINS,
         maxResults: 5
       }),
       tavilySearch({
@@ -307,12 +557,7 @@ export async function onRequestPost(context) {
         includeDomains: null,
         maxResults: 8
       }),
-      fetchYahooFxRate(currency).catch(error => ({
-        skip: false,
-        base: currency,
-        quote: "THB",
-        error: error.message || "FX lookup failed."
-      }))
+      fetchFxRates(currencies)
     ]);
 
     const approvedSources = normalizeTavilyResults(approvedResults, "approved");
@@ -329,22 +574,19 @@ export async function onRequestPost(context) {
     }
 
     const articleContext = buildArticleContext(mergedSources);
-
-    const fxInstruction = currency === "THB"
-      ? "The user selected THB, so no FX conversion is needed."
-      : fxResult.error
-        ? `The user selected ${currency}, but the prototype FX lookup failed.`
-        : `The user selected ${currency}. Over the last 7 days, the latest prototype FX lookup indicates 1 ${currency} = ${fxResult.latest_rate} THB, with a high of ${fxResult.highest_rate} and a low of ${fxResult.lowest_rate}. Use this only as supporting context if relevant.`;
+    const fxInstruction = buildFxInstruction(fxResults);
 
     const analysisPrompt = `
 You are a research assistant.
 
 Analyze the news sources provided below for the user's situation.
 
-Industry: ${industry}
+Sector: ${sector}
+Subsector: ${subsector}
 Timeframe: last ${timeframe} days
 Topic: ${topic}
-Selected currency: ${currency}
+Search keywords used: ${searchKeywords.join(", ")}
+Selected currencies: ${currencies.join(", ")}
 
 User's situation:
 ${situation}
@@ -352,7 +594,7 @@ ${situation}
 Requested focus:
 ${prompt}
 
-Additional financial context:
+Additional FX context:
 ${fxInstruction}
 
 Instructions:
@@ -363,7 +605,7 @@ Instructions:
 - Separate signal from noise
 - Mention source recency where relevant
 - Do not repeat long source lists inside the analysis; the UI shows sources separately
-- If the FX rate is relevant, mention it briefly and carefully as supporting context, not as the main conclusion
+- If FX movements are relevant, mention them briefly and carefully as supporting context
 
 Please write:
 1. A short summary of the main developments
@@ -396,11 +638,10 @@ ${articleContext}
       }, { status: 500 });
     }
 
-    const analysis = extractOutputText(openaiData);
-
     return Response.json({
-      analysis: analysis || "No analysis returned.",
-      fx: fxResult,
+      analysis: extractOutputText(openaiData) || "No analysis returned.",
+      fx: fxResults,
+      search_keywords: searchKeywords,
       sources: mergedSources.map(source => ({
         title: source.title,
         url: source.url,
