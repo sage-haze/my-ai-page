@@ -180,25 +180,46 @@ const SECTOR_DATA = {
   ]
 };
 
+const COUNTRIES = [
+  ["Afghanistan", "AF"], ["Albania", "AL"], ["Algeria", "DZ"], ["Andorra", "AD"],
+  ["Angola", "AO"], ["Argentina", "AR"], ["Armenia", "AM"], ["Australia", "AU"],
+  ["Austria", "AT"], ["Azerbaijan", "AZ"], ["Bahamas", "BS"], ["Bahrain", "BH"],
+  ["Bangladesh", "BD"], ["Barbados", "BB"], ["Belarus", "BY"], ["Belgium", "BE"],
+  ["Belize", "BZ"], ["Benin", "BJ"], ["Bhutan", "BT"], ["Bolivia", "BO"],
+  ["Bosnia and Herzegovina", "BA"], ["Botswana", "BW"], ["Brazil", "BR"], ["Brunei Darussalam", "BN"],
+  ["Bulgaria", "BG"], ["Burkina Faso", "BF"], ["Cambodia", "KH"], ["Cameroon", "CM"],
+  ["Canada", "CA"], ["Chile", "CL"], ["China", "CN"], ["Colombia", "CO"],
+  ["Costa Rica", "CR"], ["Croatia", "HR"], ["Cyprus", "CY"], ["Czechia", "CZ"],
+  ["Denmark", "DK"], ["Ecuador", "EC"], ["Egypt", "EG"], ["Estonia", "EE"],
+  ["Finland", "FI"], ["France", "FR"], ["Germany", "DE"], ["Ghana", "GH"],
+  ["Greece", "GR"], ["Hong Kong", "HK"], ["Hungary", "HU"], ["India", "IN"],
+  ["Indonesia", "ID"], ["Ireland", "IE"], ["Israel", "IL"], ["Italy", "IT"],
+  ["Japan", "JP"], ["Kazakhstan", "KZ"], ["Kenya", "KE"], ["Korea, Republic of", "KR"],
+  ["Kuwait", "KW"], ["Lao People's Democratic Republic", "LA"], ["Latvia", "LV"], ["Lithuania", "LT"],
+  ["Luxembourg", "LU"], ["Malaysia", "MY"], ["Mexico", "MX"], ["Morocco", "MA"],
+  ["Myanmar", "MM"], ["Netherlands", "NL"], ["New Zealand", "NZ"], ["Nigeria", "NG"],
+  ["Norway", "NO"], ["Oman", "OM"], ["Pakistan", "PK"], ["Peru", "PE"],
+  ["Philippines", "PH"], ["Poland", "PL"], ["Portugal", "PT"], ["Qatar", "QA"],
+  ["Romania", "RO"], ["Saudi Arabia", "SA"], ["Singapore", "SG"], ["South Africa", "ZA"],
+  ["Spain", "ES"], ["Sri Lanka", "LK"], ["Sweden", "SE"], ["Switzerland", "CH"],
+  ["Taiwan", "TW"], ["Thailand", "TH"], ["Türkiye", "TR"], ["United Arab Emirates", "AE"],
+  ["United Kingdom", "GB"], ["United States", "US"], ["Viet Nam", "VN"]
+];
+
 const button = document.getElementById("send");
 const sectorBox = document.getElementById("sector");
 const subsectorBox = document.getElementById("subsector");
 const timeframeBox = document.getElementById("timeframe");
-const topicBox = document.getElementById("topic");
-const promptBox = document.getElementById("prompt");
-
-const contextNoChange = document.getElementById("contextNoChange");
-const contextOthers = document.getElementById("contextOthers");
-const contextOtherText = document.getElementById("contextOtherText");
-
-const trajectoryDomesticPurchase = document.getElementById("trajectoryDomesticPurchase");
-const trajectoryDomesticSales = document.getElementById("trajectoryDomesticSales");
-const trajectoryImport = document.getElementById("trajectoryImport");
-const trajectoryExport = document.getElementById("trajectoryExport");
+const countrySearch = document.getElementById("countrySearch");
+const countryDropdown = document.getElementById("countryDropdown");
+const selectedCountriesBox = document.getElementById("selectedCountries");
+const defaultPromptBox = document.getElementById("defaultPrompt");
 
 const analysisOutput = document.getElementById("analysisOutput");
 const sourcesOutput = document.getElementById("sourcesOutput");
 const fxOutput = document.getElementById("fxOutput");
+
+let selectedCountries = [];
 
 function populateSectors() {
   Object.keys(SECTOR_DATA).forEach(sector => {
@@ -235,34 +256,71 @@ function getSelectedCurrencies() {
     .map(input => input.value);
 }
 
-function getSelectedBusinessContext() {
-  return Array.from(document.querySelectorAll('input[name="businessContext"]:checked'))
-    .map(input => input.value);
+function countryLabel(country) {
+  return `${country.name} (${country.code})`;
 }
 
-function updateBusinessContextRules(changedInput) {
-  const allContextInputs = Array.from(document.querySelectorAll('input[name="businessContext"]'));
-  const nonNoChangeInputs = allContextInputs.filter(input => input !== contextNoChange);
+function renderCountryDropdown() {
+  const search = countrySearch.value.trim().toLowerCase();
 
-  if (changedInput === contextNoChange && contextNoChange.checked) {
-    nonNoChangeInputs.forEach(input => {
-      input.checked = false;
+  const filtered = COUNTRIES
+    .map(([name, code]) => ({ name, code }))
+    .filter(country => {
+      const label = countryLabel(country).toLowerCase();
+      return label.includes(search);
     });
+
+  countryDropdown.innerHTML = filtered.map(country => {
+    const checked = selectedCountries.some(item => item.code === country.code) ? "checked" : "";
+
+    return `
+      <label class="country-option">
+        <input type="checkbox" value="${country.code}" ${checked}>
+        ${countryLabel(country)}
+      </label>
+    `;
+  }).join("");
+
+  countryDropdown.querySelectorAll("input").forEach(input => {
+    input.addEventListener("change", function () {
+      const country = COUNTRIES
+        .map(([name, code]) => ({ name, code }))
+        .find(item => item.code === input.value);
+
+      if (input.checked) {
+        if (!selectedCountries.some(item => item.code === country.code)) {
+          selectedCountries.push(country);
+        }
+      } else {
+        selectedCountries = selectedCountries.filter(item => item.code !== country.code);
+      }
+
+      renderSelectedCountries();
+      renderCountryDropdown();
+    });
+  });
+}
+
+function renderSelectedCountries() {
+  if (selectedCountries.length === 0) {
+    selectedCountriesBox.innerHTML = "";
+    return;
   }
 
-  if (changedInput !== contextNoChange && changedInput.checked) {
-    contextNoChange.checked = false;
-  }
+  selectedCountriesBox.innerHTML = selectedCountries.map(country => `
+    <span class="country-chip">
+      ${countryLabel(country)}
+      <button type="button" data-code="${country.code}">×</button>
+    </span>
+  `).join("");
 
-  const anyChecked = allContextInputs.some(input => input.checked);
-  if (!anyChecked) {
-    contextNoChange.checked = true;
-  }
-
-  contextOtherText.disabled = !contextOthers.checked;
-  if (!contextOthers.checked) {
-    contextOtherText.value = "";
-  }
+  selectedCountriesBox.querySelectorAll("button").forEach(button => {
+    button.addEventListener("click", function () {
+      selectedCountries = selectedCountries.filter(country => country.code !== button.dataset.code);
+      renderSelectedCountries();
+      renderCountryDropdown();
+    });
+  });
 }
 
 function renderSources(sources) {
@@ -271,7 +329,8 @@ function renderSources(sources) {
     return;
   }
 
-  sourcesOutput.innerHTML = sources.map(source => {
+  sourcesOutput.innerHTML = sources.map((source, index) => {
+    const sourceNumber = index + 1;
     const published = source.published_at || "Unknown date";
     const domain = source.domain || source.source || "Unknown source";
     const label = source.source_group === "approved" ? "Approved source" : "Broad web";
@@ -279,7 +338,7 @@ function renderSources(sources) {
     return `
       <div class="source-item">
         <a class="source-title" href="${source.url}" target="_blank" rel="noopener noreferrer">
-          ${source.title || source.url}
+          [${sourceNumber}] ${source.title || source.url}
         </a>
         <div class="source-meta">${domain} • ${published} • ${label}</div>
         <div class="source-link">${source.url}</div>
@@ -296,10 +355,9 @@ function renderFx(fxList) {
 
   const nonThbFx = fxList.filter(fx => !fx.skip && !fx.error);
   const errors = fxList.filter(fx => fx.error);
-  const hasThb = fxList.some(fx => fx.skip);
 
-  if (nonThbFx.length === 0 && errors.length === 0 && hasThb) {
-    fxOutput.innerHTML = `<div class="fx-meta">THB selected. No FX conversion needed.</div>`;
+  if (nonThbFx.length === 0 && errors.length === 0) {
+    fxOutput.textContent = "No non-THB FX rates selected.";
     return;
   }
 
@@ -360,10 +418,7 @@ function renderFx(fxList) {
     </div>
   `).join("");
 
-  const thbNote = hasThb ? `<div class="fx-meta">THB selected. No FX conversion needed for THB.</div>` : "";
-
   fxOutput.innerHTML = `
-    ${thbNote}
     ${summaryTable}
     <div class="fx-grid">
       ${detailBlocks}
@@ -373,30 +428,23 @@ function renderFx(fxList) {
 }
 
 populateSectors();
-sectorBox.addEventListener("change", populateSubsectors);
+populateSubsectors();
+renderCountryDropdown();
 
-document.querySelectorAll('input[name="businessContext"]').forEach(input => {
-  input.addEventListener("change", function () {
-    updateBusinessContextRules(input);
-  });
-});
+sectorBox.addEventListener("change", populateSubsectors);
+countrySearch.addEventListener("input", renderCountryDropdown);
 
 button.addEventListener("click", async function () {
   const sector = sectorBox.value;
   const subsector = subsectorBox.value;
   const timeframe = timeframeBox.value;
   const currencies = getSelectedCurrencies();
-  const topic = topicBox.value.trim();
-  const prompt = promptBox.value.trim();
-  const businessContext = getSelectedBusinessContext();
-  const businessContextOther = contextOtherText.value.trim();
-
-  const trajectory = {
-    domesticPurchase: trajectoryDomesticPurchase.value,
-    domesticSales: trajectoryDomesticSales.value,
-    import: trajectoryImport.value,
-    export: trajectoryExport.value
-  };
+  const countries = selectedCountries.map(country => ({
+    name: country.name,
+    code: country.code,
+    label: countryLabel(country)
+  }));
+  const defaultPrompt = defaultPromptBox.value.trim();
 
   if (!sector) {
     analysisOutput.textContent = "Please select a sector.";
@@ -413,23 +461,13 @@ button.addEventListener("click", async function () {
     return;
   }
 
-  if (businessContext.length === 0) {
-    analysisOutput.textContent = "Please select at least one business context option.";
+  if (countries.length === 0) {
+    analysisOutput.textContent = "Please select at least one country / market.";
     return;
   }
 
-  if (businessContext.includes("Others") && !businessContextOther) {
-    analysisOutput.textContent = "Please describe the 'Others' business context.";
-    return;
-  }
-
-  if (!topic) {
-    analysisOutput.textContent = "Please enter a topic / company / issue.";
-    return;
-  }
-
-  if (!prompt) {
-    analysisOutput.textContent = "Please describe what you want the analysis to focus on.";
+  if (!defaultPrompt) {
+    analysisOutput.textContent = "Please enter a default prompt.";
     return;
   }
 
@@ -449,11 +487,8 @@ button.addEventListener("click", async function () {
         subsector,
         timeframe,
         currencies,
-        topic,
-        businessContext,
-        businessContextOther,
-        trajectory,
-        prompt
+        countries,
+        defaultPrompt
       })
     });
 
