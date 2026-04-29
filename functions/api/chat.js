@@ -354,14 +354,15 @@ async function tavilySearch({ apiKey, query, startDate, endDate, includeDomains 
   return data.results || [];
 }
 
-function buildQuery({ sector, subsector, topic }) {
+function buildQuery({ sector, subsector, countries, defaultPrompt }) {
   const keywords = getSearchKeywords({ sector, subsector });
+  const countryText = countries.map(country => country.name).join(" ");
 
   return uniqueArray([
-    topic,
-    subsector,
     sector,
-    "Thailand",
+    subsector,
+    countryText,
+    defaultPrompt,
     "latest news",
     ...keywords
   ]).join(" ");
@@ -512,21 +513,14 @@ export async function onRequestPost(context) {
     const currencies = Array.isArray(body.currencies)
       ? body.currencies.map(c => String(c).toUpperCase())
       : [];
-    const topic = (body.topic || "").trim();
-    const businessContext = Array.isArray(body.businessContext) ? body.businessContext : [];
-    const businessContextOther = (body.businessContextOther || "").trim();
-    const trajectory = body.trajectory || {};
-    const prompt = (body.prompt || "").trim();
+    const countries = Array.isArray(body.countries) ? body.countries : [];
+    const defaultPrompt = (body.defaultPrompt || "").trim();
 
     if (!sector) return Response.json({ error: "Please select a sector." }, { status: 400 });
     if (!subsector) return Response.json({ error: "Please select a subsector." }, { status: 400 });
     if (currencies.length === 0) return Response.json({ error: "Please select at least one currency." }, { status: 400 });
-    if (businessContext.length === 0) return Response.json({ error: "Please select at least one business context option." }, { status: 400 });
-    if (businessContext.includes("Others") && !businessContextOther) {
-      return Response.json({ error: "Please describe the 'Others' business context." }, { status: 400 });
-    }
-    if (!topic) return Response.json({ error: "Please enter a topic / company / issue." }, { status: 400 });
-    if (!prompt) return Response.json({ error: "Please describe what you want the analysis to focus on." }, { status: 400 });
+    if (countries.length === 0) return Response.json({ error: "Please select at least one country / market." }, { status: 400 });
+    if (!defaultPrompt) return Response.json({ error: "Please enter a default prompt." }, { status: 400 });
 
     const unsupported = currencies.filter(currency => !ALLOWED_CURRENCIES.includes(currency));
     if (unsupported.length > 0) {
@@ -543,7 +537,7 @@ export async function onRequestPost(context) {
 
     const { start_date, end_date } = getDateRange(timeframe);
     const searchKeywords = getSearchKeywords({ sector, subsector });
-    const query = buildQuery({ sector, subsector, topic });
+    const query = buildQuery({ sector, subsector, countries, defaultPrompt });
 
     const [approvedResults, broadResults, fxResults] = await Promise.all([
       tavilySearch({
@@ -570,7 +564,11 @@ export async function onRequestPost(context) {
 
     const mergedSources = dedupeSources([...approvedSources, ...broadSources])
       .sort((a, b) => (b.score || 0) - (a.score || 0))
-      .slice(0, 10);
+      .slice(0, 10)
+      .map((source, index) => ({
+        ...source,
+        source_number: index + 1
+      }));
 
     if (mergedSources.length === 0) {
       return Response.json({
@@ -578,64 +576,53 @@ export async function onRequestPost(context) {
       }, { status: 400 });
     }
 
-    const businessContextText = businessContext.includes("No change / Unknown")
-      ? "No change / Unknown"
-      : businessContext
-          .map(item => item === "Others" ? `Others: ${businessContextOther}` : item)
-          .join("; ");
+    const countryText = countries.map(country => country.label || `${country.name} (${country.code})`).join(", ");
+    const articleContext = mergedSources.map(source => {
+      const text = source.raw_content || source.summary || "";
+      const trimmedText = text.length > 2500 ? text.slice(0, 2500) + "…" : text;
 
-    const trajectoryText = `
-- Domestic Purchase: ${trajectory.domesticPurchase || "No change / Unknown"}
-- Domestic Sales: ${trajectory.domesticSales || "No change / Unknown"}
-- Import: ${trajectory.import || "No change / Unknown"}
-- Export: ${trajectory.export || "No change / Unknown"}
+      return `
+[${source.source_number}]
+Title: ${source.title}
+URL: ${source.url}
+Publisher: ${source.domain || source.source || "Unknown"}
+Published: ${source.published_at || "Unknown"}
+Source type: ${source.source_group}
+Content:
+${trimmedText}
 `.trim();
+    }).join("\n\n");
 
-    const articleContext = buildArticleContext(mergedSources);
     const fxInstruction = buildFxInstruction(fxResults);
 
     const analysisPrompt = `
-You are a research assistant helping prepare a business conversation brief.
+${defaultPrompt}
 
-Analyze the news sources provided below for the user's business situation.
-
-Sector: ${sector}
-Subsector: ${subsector}
-Timeframe: last ${timeframe} days
-Topic: ${topic}
-Search keywords used: ${searchKeywords.join(", ")}
-Selected currencies: ${currencies.join(", ")}
-
-Business context:
-${businessContextText}
-
-Business trajectory in next 12 months:
-${trajectoryText}
-
-Requested focus:
-${prompt}
+Customer profile:
+- Sector: ${sector}
+- Subsector: ${subsector}
+- Countries / markets relevant to the client: ${countryText}
+- Timeframe for news search: last ${timeframe} days
+- Selected currencies: ${currencies.join(", ")}
+- Search keywords used: ${searchKeywords.join(", ")}
 
 Additional FX context:
 ${fxInstruction}
 
 Instructions:
-- Use only the provided news sources below for the news analysis
+- Use only the provided news sources below
 - Do not invent additional sources
+- Produce 3 to 5 themes
+- Format each theme exactly as:
+  Theme 1: [Theme heading]
+  [One paragraph of justification]
+  Supporting information:
+  - [bullet point with source reference like [1]]
+  - [bullet point with source reference like [2]]
+- Use source references like [1], [2], [3] that match the numbered source list
 - If evidence is mixed or incomplete, say so clearly
-- Prioritize practical implications for a business conversation
-- Address the selected business context and trajectory where relevant
-- Separate signal from noise
-- Mention source recency where relevant
-- Do not repeat long source lists inside the analysis; the UI shows sources separately
-- If FX movements are relevant, mention them briefly and carefully as supporting context
-
-Please write:
-1. A short summary of the main developments
-2. 3 to 5 key talking points for the conversation
-3. Risks to raise
-4. Opportunities to explore
-5. Suggested questions to ask the customer/client
-6. A short bottom-line conclusion
+- Do not include a long source list in the analysis because the UI shows sources separately
+- Mention FX movements only if relevant
 
 Provided sources:
 ${articleContext}
@@ -666,6 +653,7 @@ ${articleContext}
       fx: fxResults,
       search_keywords: searchKeywords,
       sources: mergedSources.map(source => ({
+        number: source.source_number,
         title: source.title,
         url: source.url,
         source: source.source,
