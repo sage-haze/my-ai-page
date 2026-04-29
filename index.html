@@ -53,15 +53,20 @@
         <div class="form-group">
           <label>Countries / markets relevant to the client</label>
           <div class="country-picker">
-            <input id="countrySearch" type="text" placeholder="Search countries...">
-            <div id="countryDropdown" class="country-dropdown"></div>
+            <input
+              id="countrySearch"
+              type="text"
+              placeholder="Search and select countries..."
+              autocomplete="off"
+            >
+            <div id="countryDropdown" class="country-dropdown hidden"></div>
           </div>
           <div id="selectedCountries" class="selected-country-row"></div>
         </div>
 
         <div class="form-group">
           <label for="defaultPrompt">Default Prompt</label>
-          <textarea id="defaultPrompt">You are a relationship manager for a Thailand-based bank talking to a customer with the following profile. Based on the recent news, could you suggest what are 3-5 relevant themes that will affect the customer.</textarea>
+          <textarea id="defaultPrompt" rows="6">You are a relationship manager for a Thailand-based bank talking to a customer with the following profile. Based on the recent news, could you suggest what are 3-5 relevant themes that will affect the customer.</textarea>
         </div>
 
         <button id="send">Research</button>
