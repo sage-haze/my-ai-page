@@ -180,335 +180,515 @@ const SECTOR_DATA = {
   ]
 };
 
-const COUNTRIES = [
-  ["Afghanistan", "AF"], ["Albania", "AL"], ["Algeria", "DZ"], ["Andorra", "AD"],
-  ["Angola", "AO"], ["Argentina", "AR"], ["Armenia", "AM"], ["Australia", "AU"],
-  ["Austria", "AT"], ["Azerbaijan", "AZ"], ["Bahamas", "BS"], ["Bahrain", "BH"],
-  ["Bangladesh", "BD"], ["Barbados", "BB"], ["Belarus", "BY"], ["Belgium", "BE"],
-  ["Belize", "BZ"], ["Benin", "BJ"], ["Bhutan", "BT"], ["Bolivia", "BO"],
-  ["Bosnia and Herzegovina", "BA"], ["Botswana", "BW"], ["Brazil", "BR"], ["Brunei Darussalam", "BN"],
-  ["Bulgaria", "BG"], ["Burkina Faso", "BF"], ["Cambodia", "KH"], ["Cameroon", "CM"],
-  ["Canada", "CA"], ["Chile", "CL"], ["China", "CN"], ["Colombia", "CO"],
-  ["Costa Rica", "CR"], ["Croatia", "HR"], ["Cyprus", "CY"], ["Czechia", "CZ"],
-  ["Denmark", "DK"], ["Ecuador", "EC"], ["Egypt", "EG"], ["Estonia", "EE"],
-  ["Finland", "FI"], ["France", "FR"], ["Germany", "DE"], ["Ghana", "GH"],
-  ["Greece", "GR"], ["Hong Kong", "HK"], ["Hungary", "HU"], ["India", "IN"],
-  ["Indonesia", "ID"], ["Ireland", "IE"], ["Israel", "IL"], ["Italy", "IT"],
-  ["Japan", "JP"], ["Kazakhstan", "KZ"], ["Kenya", "KE"], ["Korea, Republic of", "KR"],
-  ["Kuwait", "KW"], ["Lao People's Democratic Republic", "LA"], ["Latvia", "LV"], ["Lithuania", "LT"],
-  ["Luxembourg", "LU"], ["Malaysia", "MY"], ["Mexico", "MX"], ["Morocco", "MA"],
-  ["Myanmar", "MM"], ["Netherlands", "NL"], ["New Zealand", "NZ"], ["Nigeria", "NG"],
-  ["Norway", "NO"], ["Oman", "OM"], ["Pakistan", "PK"], ["Peru", "PE"],
-  ["Philippines", "PH"], ["Poland", "PL"], ["Portugal", "PT"], ["Qatar", "QA"],
-  ["Romania", "RO"], ["Saudi Arabia", "SA"], ["Singapore", "SG"], ["South Africa", "ZA"],
-  ["Spain", "ES"], ["Sri Lanka", "LK"], ["Sweden", "SE"], ["Switzerland", "CH"],
-  ["Taiwan", "TW"], ["Thailand", "TH"], ["Türkiye", "TR"], ["United Arab Emirates", "AE"],
-  ["United Kingdom", "GB"], ["United States", "US"], ["Viet Nam", "VN"]
-];
-
+// ---------- DOM ----------
 const button = document.getElementById("send");
+
 const sectorBox = document.getElementById("sector");
 const subsectorBox = document.getElementById("subsector");
 const timeframeBox = document.getElementById("timeframe");
+
 const countrySearch = document.getElementById("countrySearch");
 const countryDropdown = document.getElementById("countryDropdown");
 const selectedCountriesBox = document.getElementById("selectedCountries");
+
 const defaultPromptBox = document.getElementById("defaultPrompt");
 
 const analysisOutput = document.getElementById("analysisOutput");
 const sourcesOutput = document.getElementById("sourcesOutput");
 const fxOutput = document.getElementById("fxOutput");
 
+
+// ---------- COUNTRY DATA (expand later if desired) ----------
+const COUNTRIES = [
+["Singapore","SG"],
+["Malaysia","MY"],
+["Thailand","TH"],
+["Indonesia","ID"],
+["Philippines","PH"],
+["Vietnam","VN"],
+["Japan","JP"],
+["China","CN"],
+["India","IN"],
+["Hong Kong","HK"],
+["Taiwan","TW"],
+["South Korea","KR"],
+["Australia","AU"],
+["United States","US"],
+["United Kingdom","GB"],
+["Germany","DE"],
+["France","FR"],
+["Netherlands","NL"],
+["Switzerland","CH"],
+["United Arab Emirates","AE"],
+["Saudi Arabia","SA"],
+["Brazil","BR"],
+["Mexico","MX"],
+["Canada","CA"],
+["South Africa","ZA"]
+];
+
 let selectedCountries = [];
 
-function populateSectors() {
-  Object.keys(SECTOR_DATA).forEach(sector => {
-    const option = document.createElement("option");
-    option.value = sector;
-    option.textContent = sector;
+
+// ---------- HELPERS ----------
+function countryLabel(country){
+  return `${country.name} (${country.code})`;
+}
+
+function getSelectedCurrencies(){
+  return Array
+    .from(document.querySelectorAll('input[name="currency"]:checked'))
+    .map(i => i.value);
+}
+
+
+// ---------- SECTOR / SUBSECTOR ----------
+function populateSectors(){
+  Object.keys(SECTOR_DATA).forEach(sector=>{
+    const option=document.createElement("option");
+    option.value=sector;
+    option.textContent=sector;
     sectorBox.appendChild(option);
   });
 }
 
-function populateSubsectors() {
-  const sector = sectorBox.value;
-  subsectorBox.innerHTML = "";
+function populateSubsectors(){
+  const sector=sectorBox.value;
 
-  if (!sector) {
-    subsectorBox.disabled = true;
-    subsectorBox.innerHTML = '<option value="">Select a sector first</option>';
+  subsectorBox.innerHTML="";
+
+  if(!sector){
+    subsectorBox.disabled=true;
+    subsectorBox.innerHTML=`<option value="">Select a sector first</option>`;
     return;
   }
 
-  subsectorBox.disabled = false;
-  subsectorBox.innerHTML = '<option value="">Select a subsector</option>';
+  subsectorBox.disabled=false;
 
-  SECTOR_DATA[sector].forEach(subsector => {
-    const option = document.createElement("option");
-    option.value = subsector;
-    option.textContent = subsector;
+  subsectorBox.innerHTML=`
+<option value="">Select a subsector</option>
+`;
+
+  SECTOR_DATA[sector].forEach(sub=>{
+    const option=document.createElement("option");
+    option.value=sub;
+    option.textContent=sub;
     subsectorBox.appendChild(option);
   });
 }
 
-function getSelectedCurrencies() {
-  return Array.from(document.querySelectorAll('input[name="currency"]:checked'))
-    .map(input => input.value);
-}
 
-function countryLabel(country) {
-  return `${country.name} (${country.code})`;
-}
+// ---------- COUNTRIES ----------
+function renderCountryDropdown(){
 
-function renderCountryDropdown() {
-  const search = countrySearch.value.trim().toLowerCase();
+  const search=(countrySearch.value || "").toLowerCase().trim();
 
-  const filtered = COUNTRIES
-    .map(([name, code]) => ({ name, code }))
-    .filter(country => {
-      const label = countryLabel(country).toLowerCase();
-      return label.includes(search);
+  const filtered=COUNTRIES
+    .map(([name,code])=>({name,code}))
+    .filter(country=>{
+      return countryLabel(country)
+        .toLowerCase()
+        .includes(search);
     });
 
-  countryDropdown.innerHTML = filtered.map(country => {
-    const checked = selectedCountries.some(item => item.code === country.code) ? "checked" : "";
+  countryDropdown.innerHTML=filtered.map(country=>{
+
+    const checked=
+      selectedCountries.some(
+        c=>c.code===country.code
+      ) ? "checked":"";
 
     return `
-      <label class="country-option">
-        <input type="checkbox" value="${country.code}" ${checked}>
-        ${countryLabel(country)}
-      </label>
-    `;
+<label class="country-option">
+<input type="checkbox"
+ value="${country.code}"
+ ${checked}>
+${countryLabel(country)}
+</label>
+`;
+
   }).join("");
 
-  countryDropdown.querySelectorAll("input").forEach(input => {
-    input.addEventListener("change", function () {
-      const country = COUNTRIES
-        .map(([name, code]) => ({ name, code }))
-        .find(item => item.code === input.value);
+  countryDropdown
+    .querySelectorAll("input")
+    .forEach(box=>{
 
-      if (input.checked) {
-        if (!selectedCountries.some(item => item.code === country.code)) {
-          selectedCountries.push(country);
+      box.addEventListener("change",function(){
+
+        const country=
+          COUNTRIES
+            .map(([name,code])=>({name,code}))
+            .find(
+              c=>c.code===box.value
+            );
+
+        if(box.checked){
+
+          if(
+            !selectedCountries.some(
+             c=>c.code===country.code
+            )
+          ){
+            selectedCountries.push(country);
+          }
+
+        } else {
+
+          selectedCountries=
+            selectedCountries.filter(
+             c=>c.code!==country.code
+            );
         }
-      } else {
-        selectedCountries = selectedCountries.filter(item => item.code !== country.code);
-      }
 
-      renderSelectedCountries();
-      renderCountryDropdown();
+        renderSelectedCountries();
+
+        countrySearch.value="";
+        countryDropdown.classList.add("hidden");
+
+        renderCountryDropdown();
+
+      });
+
     });
-  });
+
 }
 
-function renderSelectedCountries() {
-  if (selectedCountries.length === 0) {
-    selectedCountriesBox.innerHTML = "";
+
+function renderSelectedCountries(){
+
+  if(selectedCountries.length===0){
+    selectedCountriesBox.innerHTML="";
     return;
   }
 
-  selectedCountriesBox.innerHTML = selectedCountries.map(country => `
-    <span class="country-chip">
-      ${countryLabel(country)}
-      <button type="button" data-code="${country.code}">×</button>
-    </span>
-  `).join("");
+  selectedCountriesBox.innerHTML=
+    selectedCountries
+      .map(country=>`
+<span class="country-chip">
+${countryLabel(country)}
+<button
+type="button"
+data-code="${country.code}">
+×
+</button>
+</span>
+`).join("");
 
-  selectedCountriesBox.querySelectorAll("button").forEach(button => {
-    button.addEventListener("click", function () {
-      selectedCountries = selectedCountries.filter(country => country.code !== button.dataset.code);
-      renderSelectedCountries();
-      renderCountryDropdown();
-    });
-  });
+ selectedCountriesBox
+   .querySelectorAll("button")
+   .forEach(btn=>{
+
+      btn.addEventListener("click",function(){
+
+        selectedCountries=
+          selectedCountries.filter(
+            c=>c.code!==btn.dataset.code
+          );
+
+        renderSelectedCountries();
+        renderCountryDropdown();
+
+      });
+
+   });
 }
 
-function renderSources(sources) {
-  if (!sources || sources.length === 0) {
-    sourcesOutput.textContent = "No sources found.";
-    return;
-  }
 
-  sourcesOutput.innerHTML = sources.map((source, index) => {
-    const sourceNumber = index + 1;
-    const published = source.published_at || "Unknown date";
-    const domain = source.domain || source.source || "Unknown source";
-    const label = source.source_group === "approved" ? "Approved source" : "Broad web";
 
-    return `
-      <div class="source-item">
-        <a class="source-title" href="${source.url}" target="_blank" rel="noopener noreferrer">
-          [${sourceNumber}] ${source.title || source.url}
-        </a>
-        <div class="source-meta">${domain} • ${published} • ${label}</div>
-        <div class="source-link">${source.url}</div>
-      </div>
-    `;
-  }).join("");
+// ---------- FX ----------
+function renderFx(fxList){
+
+ if(!fxList || fxList.length===0){
+   fxOutput.textContent="No FX data returned.";
+   return;
+ }
+
+ const nonThb=
+   fxList.filter(
+     fx=>!fx.skip && !fx.error
+   );
+
+ if(nonThb.length===0){
+   fxOutput.textContent="No non-THB FX selected.";
+   return;
+ }
+
+ const summaryRows=
+ nonThb.map(fx=>`
+<tr>
+<td>${fx.pair}</td>
+<td>${fx.latest_rate}</td>
+<td>${fx.highest_rate}</td>
+<td>${fx.highest_date}</td>
+<td>${fx.lowest_rate}</td>
+<td>${fx.lowest_date}</td>
+</tr>
+`).join("");
+
+ const summaryTable=`
+<table class="fx-summary-table">
+<thead>
+<tr>
+<th>Pair</th>
+<th>Latest</th>
+<th>7D High</th>
+<th>High Date</th>
+<th>7D Low</th>
+<th>Low Date</th>
+</tr>
+</thead>
+<tbody>
+${summaryRows}
+</tbody>
+</table>
+`;
+
+ const detailBlocks=
+ nonThb.map(fx=>{
+
+   const rows=
+   fx.series.map(item=>`
+<tr>
+<td>${item.date}</td>
+<td>${item.rate}</td>
+</tr>
+`).join("");
+
+ return `
+<div class="fx-block">
+<div class="fx-title">${fx.pair}</div>
+
+<table class="fx-detail-table">
+<thead>
+<tr>
+<th>Date</th>
+<th>${fx.base} → THB</th>
+</tr>
+</thead>
+
+<tbody>
+${rows}
+</tbody>
+</table>
+</div>
+`;
+
+ }).join("");
+
+ fxOutput.innerHTML=`
+${summaryTable}
+
+<div class="fx-grid">
+${detailBlocks}
+</div>
+`;
+
 }
 
-function renderFx(fxList) {
-  if (!fxList || fxList.length === 0) {
-    fxOutput.textContent = "No FX information returned.";
-    return;
-  }
 
-  const nonThbFx = fxList.filter(fx => !fx.skip && !fx.error);
-  const errors = fxList.filter(fx => fx.error);
 
-  if (nonThbFx.length === 0 && errors.length === 0) {
-    fxOutput.textContent = "No non-THB FX rates selected.";
-    return;
-  }
+// ---------- SOURCES ----------
+function renderSources(sources){
 
-  const summaryRows = nonThbFx.map(fx => `
-    <tr>
-      <td>${fx.pair}</td>
-      <td>${fx.latest_rate}</td>
-      <td>${fx.highest_rate}</td>
-      <td>${fx.highest_date}</td>
-      <td>${fx.lowest_rate}</td>
-      <td>${fx.lowest_date}</td>
-    </tr>
-  `).join("");
+ if(!sources || sources.length===0){
+   sourcesOutput.textContent="No sources found.";
+   return;
+ }
 
-  const summaryTable = nonThbFx.length > 0 ? `
-    <table class="fx-summary-table">
-      <thead>
-        <tr>
-          <th>Pair</th>
-          <th>Latest</th>
-          <th>7D High</th>
-          <th>High Date</th>
-          <th>7D Low</th>
-          <th>Low Date</th>
-        </tr>
-      </thead>
-      <tbody>${summaryRows}</tbody>
-    </table>
-  ` : "";
+ sourcesOutput.innerHTML=
+ sources.map((source,i)=>`
+<div class="source-item">
 
-  const detailBlocks = nonThbFx.map(fx => {
-    const rows = fx.series.map(item => `
-      <tr>
-        <td>${item.date}</td>
-        <td>${item.rate}</td>
-      </tr>
-    `).join("");
+<a
+class="source-title"
+href="${source.url}"
+target="_blank"
+rel="noopener noreferrer">
 
-    return `
-      <div class="fx-block">
-        <div class="fx-title">${fx.pair}</div>
-        <table class="fx-detail-table">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Rate (${fx.base} → THB)</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>
-    `;
-  }).join("");
+[${i+1}] ${source.title}
 
-  const errorBlocks = errors.map(fx => `
-    <div class="fx-block">
-      <span class="error">${fx.base}THB: ${fx.error}</span>
-    </div>
-  `).join("");
+</a>
 
-  fxOutput.innerHTML = `
-    ${summaryTable}
-    <div class="fx-grid">
-      ${detailBlocks}
-      ${errorBlocks}
-    </div>
-  `;
+<div class="source-meta">
+${source.domain || source.source}
+•
+${source.published_at || "Unknown date"}
+</div>
+
+<div class="source-link">
+${source.url}
+</div>
+
+</div>
+`).join("");
+
 }
 
+
+
+// ---------- COUNTRY DROPDOWN UX ----------
+countrySearch.addEventListener(
+"focus",
+function(){
+ countryDropdown.classList.remove("hidden");
+ renderCountryDropdown();
+}
+);
+
+countrySearch.addEventListener(
+"input",
+function(){
+ countryDropdown.classList.remove("hidden");
+ renderCountryDropdown();
+}
+);
+
+document.addEventListener(
+"click",
+function(e){
+
+ if(
+   !e.target.closest(".country-picker")
+ ){
+   countryDropdown.classList.add("hidden");
+ }
+
+}
+);
+
+
+// ---------- SUBMIT ----------
+button.addEventListener(
+"click",
+async function(){
+
+ const sector=sectorBox.value;
+ const subsector=subsectorBox.value;
+ const timeframe=timeframeBox.value;
+
+ const currencies=getSelectedCurrencies();
+
+ const countries=
+ selectedCountries.map(c=>({
+   name:c.name,
+   code:c.code,
+   label:countryLabel(c)
+ }));
+
+ const defaultPrompt=
+ defaultPromptBox.value.trim();
+
+ if(!sector){
+   analysisOutput.textContent=
+   "Please select a sector.";
+   return;
+ }
+
+ if(!subsector){
+   analysisOutput.textContent=
+   "Please select a subsector.";
+   return;
+ }
+
+ if(currencies.length===0){
+   analysisOutput.textContent=
+   "Please select at least one currency.";
+   return;
+ }
+
+ if(countries.length===0){
+   analysisOutput.textContent=
+   "Please select at least one country.";
+   return;
+ }
+
+ if(!defaultPrompt){
+   analysisOutput.textContent=
+   "Please enter a prompt.";
+   return;
+ }
+
+ button.disabled=true;
+
+ fxOutput.innerHTML=
+ `<span class="loading">Checking FX...</span>`;
+
+ analysisOutput.innerHTML=
+ `<span class="loading">Researching news...</span>`;
+
+ sourcesOutput.innerHTML=
+ `<span class="loading">Loading sources...</span>`;
+
+ try{
+
+   const response=
+   await fetch(
+     "/api/chat",
+     {
+       method:"POST",
+       headers:{
+         "Content-Type":"application/json"
+       },
+       body:JSON.stringify({
+         sector,
+         subsector,
+         timeframe,
+         currencies,
+         countries,
+         defaultPrompt
+       })
+     }
+   );
+
+   const data=
+     await response.json();
+
+   if(!response.ok){
+
+      analysisOutput.innerHTML=
+      `<span class="error">
+      ${data.error || "Request failed."}
+      </span>`;
+
+      fxOutput.textContent="";
+      sourcesOutput.textContent="";
+      return;
+   }
+
+   renderFx(data.fx || []);
+   renderSources(data.sources || []);
+
+   analysisOutput.textContent=
+      data.analysis ||
+      "No analysis returned.";
+
+ }
+
+ catch(error){
+
+   analysisOutput.innerHTML=
+   `<span class="error">
+   Network error.
+   </span>`;
+
+   fxOutput.textContent="";
+   sourcesOutput.textContent="";
+ }
+
+ finally{
+   button.disabled=false;
+ }
+
+}
+);
+
+
+// ---------- INIT ----------
 populateSectors();
 populateSubsectors();
 renderCountryDropdown();
 
-sectorBox.addEventListener("change", populateSubsectors);
-countrySearch.addEventListener("input", renderCountryDropdown);
-
-button.addEventListener("click", async function () {
-  const sector = sectorBox.value;
-  const subsector = subsectorBox.value;
-  const timeframe = timeframeBox.value;
-  const currencies = getSelectedCurrencies();
-  const countries = selectedCountries.map(country => ({
-    name: country.name,
-    code: country.code,
-    label: countryLabel(country)
-  }));
-  const defaultPrompt = defaultPromptBox.value.trim();
-
-  if (!sector) {
-    analysisOutput.textContent = "Please select a sector.";
-    return;
-  }
-
-  if (!subsector) {
-    analysisOutput.textContent = "Please select a subsector.";
-    return;
-  }
-
-  if (currencies.length === 0) {
-    analysisOutput.textContent = "Please select at least one currency.";
-    return;
-  }
-
-  if (countries.length === 0) {
-    analysisOutput.textContent = "Please select at least one country / market.";
-    return;
-  }
-
-  if (!defaultPrompt) {
-    analysisOutput.textContent = "Please enter a default prompt.";
-    return;
-  }
-
-  button.disabled = true;
-  fxOutput.innerHTML = '<span class="loading">Checking FX rates...</span>';
-  analysisOutput.innerHTML = '<span class="loading">Researching recent news...</span>';
-  sourcesOutput.innerHTML = '<span class="loading">Gathering sources...</span>';
-
-  try {
-    const response = await fetch("/api/chat", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        sector,
-        subsector,
-        timeframe,
-        currencies,
-        countries,
-        defaultPrompt
-      })
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      analysisOutput.innerHTML = `<span class="error">${data.error || "Request failed."}</span>`;
-      fxOutput.textContent = "";
-      sourcesOutput.textContent = "";
-      return;
-    }
-
-    renderFx(data.fx || []);
-    analysisOutput.textContent = data.analysis || "No analysis returned.";
-    renderSources(data.sources || []);
-  } catch (error) {
-    analysisOutput.innerHTML = '<span class="error">Network error. Please try again.</span>';
-    fxOutput.textContent = "";
-    sourcesOutput.textContent = "";
-  } finally {
-    button.disabled = false;
-  }
-});
+sectorBox.addEventListener(
+"change",
+populateSubsectors
+);
