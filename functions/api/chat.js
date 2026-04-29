@@ -513,14 +513,19 @@ export async function onRequestPost(context) {
       ? body.currencies.map(c => String(c).toUpperCase())
       : [];
     const topic = (body.topic || "").trim();
-    const situation = (body.situation || "").trim();
+    const businessContext = Array.isArray(body.businessContext) ? body.businessContext : [];
+    const businessContextOther = (body.businessContextOther || "").trim();
+    const trajectory = body.trajectory || {};
     const prompt = (body.prompt || "").trim();
 
     if (!sector) return Response.json({ error: "Please select a sector." }, { status: 400 });
     if (!subsector) return Response.json({ error: "Please select a subsector." }, { status: 400 });
     if (currencies.length === 0) return Response.json({ error: "Please select at least one currency." }, { status: 400 });
+    if (businessContext.length === 0) return Response.json({ error: "Please select at least one business context option." }, { status: 400 });
+    if (businessContext.includes("Others") && !businessContextOther) {
+      return Response.json({ error: "Please describe the 'Others' business context." }, { status: 400 });
+    }
     if (!topic) return Response.json({ error: "Please enter a topic / company / issue." }, { status: 400 });
-    if (!situation) return Response.json({ error: "Please describe your situation." }, { status: 400 });
     if (!prompt) return Response.json({ error: "Please describe what you want the analysis to focus on." }, { status: 400 });
 
     const unsupported = currencies.filter(currency => !ALLOWED_CURRENCIES.includes(currency));
@@ -573,13 +578,26 @@ export async function onRequestPost(context) {
       }, { status: 400 });
     }
 
+    const businessContextText = businessContext.includes("No change / Unknown")
+      ? "No change / Unknown"
+      : businessContext
+          .map(item => item === "Others" ? `Others: ${businessContextOther}` : item)
+          .join("; ");
+
+    const trajectoryText = `
+- Domestic Purchase: ${trajectory.domesticPurchase || "No change / Unknown"}
+- Domestic Sales: ${trajectory.domesticSales || "No change / Unknown"}
+- Import: ${trajectory.import || "No change / Unknown"}
+- Export: ${trajectory.export || "No change / Unknown"}
+`.trim();
+
     const articleContext = buildArticleContext(mergedSources);
     const fxInstruction = buildFxInstruction(fxResults);
 
     const analysisPrompt = `
-You are a research assistant.
+You are a research assistant helping prepare a business conversation brief.
 
-Analyze the news sources provided below for the user's situation.
+Analyze the news sources provided below for the user's business situation.
 
 Sector: ${sector}
 Subsector: ${subsector}
@@ -588,8 +606,11 @@ Topic: ${topic}
 Search keywords used: ${searchKeywords.join(", ")}
 Selected currencies: ${currencies.join(", ")}
 
-User's situation:
-${situation}
+Business context:
+${businessContextText}
+
+Business trajectory in next 12 months:
+${trajectoryText}
 
 Requested focus:
 ${prompt}
@@ -601,7 +622,8 @@ Instructions:
 - Use only the provided news sources below for the news analysis
 - Do not invent additional sources
 - If evidence is mixed or incomplete, say so clearly
-- Prioritize practical implications for the user's situation
+- Prioritize practical implications for a business conversation
+- Address the selected business context and trajectory where relevant
 - Separate signal from noise
 - Mention source recency where relevant
 - Do not repeat long source lists inside the analysis; the UI shows sources separately
@@ -609,10 +631,11 @@ Instructions:
 
 Please write:
 1. A short summary of the main developments
-2. 3 to 5 key insights for the user's situation
-3. Risks
-4. Opportunities
-5. A short bottom-line conclusion
+2. 3 to 5 key talking points for the conversation
+3. Risks to raise
+4. Opportunities to explore
+5. Suggested questions to ask the customer/client
+6. A short bottom-line conclusion
 
 Provided sources:
 ${articleContext}
