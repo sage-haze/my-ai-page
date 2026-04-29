@@ -292,3 +292,34 @@ button:disabled {
     max-width: 100%;
   }
 }
+
+.theme-card {
+  border: 1px solid #ddd;
+  border-radius: 14px;
+  background: #fff;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.theme-card h3 {
+  margin-top: 0;
+  margin-bottom: 10px;
+  font-size: 18px;
+  font-weight: bold;
+  text-decoration: underline;
+}
+
+.theme-card p {
+  margin-top: 0;
+  line-height: 1.6;
+}
+
+.theme-card ul {
+  margin-bottom: 0;
+  padding-left: 22px;
+}
+
+.theme-card li {
+  margin-bottom: 6px;
+  line-height: 1.5;
+}
