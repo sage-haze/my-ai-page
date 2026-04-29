@@ -60,7 +60,7 @@ button {
 
 select,
 textarea,
-input {
+input[type="text"] {
   width: 100%;
   padding: 12px;
   border: 1px solid #ccc;
@@ -72,6 +72,23 @@ input {
 textarea {
   min-height: 130px;
   resize: vertical;
+}
+
+.checkbox-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.checkbox-row label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: normal;
+  border: 1px solid #ddd;
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: #fff;
 }
 
 button {
@@ -89,9 +106,8 @@ button:disabled {
   cursor: not-allowed;
 }
 
-.results-grid {
+.results-stack {
   display: grid;
-  grid-template-columns: 2fr 1fr;
   gap: 20px;
   margin-top: 28px;
 }
@@ -103,24 +119,14 @@ button:disabled {
   padding: 16px;
 }
 
-.result-card-full {
-  grid-column: 1 / -1;
-}
-
 #analysisOutput {
-  min-height: 240px;
+  min-height: 220px;
   white-space: pre-wrap;
   line-height: 1.6;
-}
-
-#fxOutput {
-  min-height: 120px;
-  line-height: 1.6;
-  white-space: pre-wrap;
 }
 
 #sourcesOutput {
-  min-height: 220px;
+  min-height: 160px;
 }
 
 .source-item {
@@ -157,98 +163,44 @@ button:disabled {
   color: #b00020;
 }
 
-.fx-rate {
-  font-size: 28px;
-  font-weight: bold;
-  margin-bottom: 8px;
-}
-
-.fx-meta {
-  color: #666;
-  font-size: 14px;
-}
-
-@media (max-width: 900px) {
-  .form-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .results-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .result-card-full {
-    grid-column: auto;
-  }
-}
-
-.fx-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 10px;
-  font-size: 14px;
-}
-
-.fx-table th,
-.fx-table td {
-  border: 1px solid #ddd;
-  padding: 8px;
-  text-align: left;
-}
-
-.fx-table th {
-  background: #f0f3f8;
-  font-weight: bold;
-}
-
-.fx-table {
+.fx-summary-table,
+.fx-detail-table {
   width: 100%;
   border-collapse: collapse;
   margin-top: 12px;
   font-size: 14px;
 }
 
-.fx-table th,
-.fx-table td {
+.fx-summary-table th,
+.fx-summary-table td,
+.fx-detail-table th,
+.fx-detail-table td {
   border: 1px solid #ddd;
   padding: 8px;
   text-align: left;
 }
 
-.fx-table th {
+.fx-summary-table th,
+.fx-detail-table th {
   background: #f0f3f8;
   font-weight: bold;
 }
 
-.fx-stats {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  margin: 12px 0 14px;
+.fx-block {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #ddd;
 }
 
-.fx-stat-card {
-  border: 1px solid #ddd;
-  border-radius: 10px;
-  background: #fff;
-  padding: 10px;
+.fx-block:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
 }
 
-.fx-stat-label {
-  font-size: 12px;
-  color: #666;
-  margin-bottom: 4px;
-}
-
-.fx-stat-value {
-  font-size: 20px;
+.fx-title {
   font-weight: bold;
-}
-
-.fx-stat-sub {
-  font-size: 12px;
-  color: #666;
-  margin-top: 4px;
+  margin-bottom: 8px;
 }
 
 .fx-chart-wrap {
@@ -261,13 +213,19 @@ button:disabled {
 
 .fx-chart {
   width: 100%;
-  height: 120px;
+  height: 100px;
   display: block;
   color: #2563eb;
 }
 
-@media (max-width: 700px) {
-  .fx-stats {
+.fx-meta {
+  color: #666;
+  font-size: 14px;
+  margin-top: 10px;
+}
+
+@media (max-width: 900px) {
+  .form-grid {
     grid-template-columns: 1fr;
   }
 }
