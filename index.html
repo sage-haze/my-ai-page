@@ -3,14 +3,14 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>News Research Assistant</title>
+    <title>Conversation builder</title>
     <link rel="stylesheet" href="style.css">
   </head>
   <body>
     <div class="page">
       <div class="card">
-        <h1>News Research Assistant</h1>
-        <p class="intro">Search recent news, review FX movements, and analyze implications for your situation.</p>
+        <h1>Conversation builder</h1>
+        <p class="intro">Build a news-informed conversation brief using sector context, business changes, trajectory, FX rates, and source links.</p>
 
         <div class="form-grid">
           <div class="form-group">
@@ -52,17 +52,70 @@
 
         <div class="form-group">
           <label for="topic">Topic / company / issue</label>
-          <input id="topic" type="text" placeholder="Example: AI regulation in Thai financial institutions">
+          <input id="topic" type="text" placeholder="Example: Thailand banking digital lending regulation">
         </div>
 
         <div class="form-group">
-          <label for="situation">Your situation / context</label>
-          <textarea id="situation" placeholder="Example: I sell compliance software to Thai banks and want to understand what affects customer conversations."></textarea>
+          <label>Business context</label>
+          <div class="checkbox-column">
+            <label><input type="checkbox" name="businessContext" value="No change / Unknown" id="contextNoChange" checked> No change / Unknown</label>
+            <label><input type="checkbox" name="businessContext" value="Project, product, business line change"> Project, product, business line change</label>
+            <label><input type="checkbox" name="businessContext" value="Plant, factory setup change"> Plant, factory setup change</label>
+            <label><input type="checkbox" name="businessContext" value="Management, shareholder, company structure change"> Management, shareholder, company structure change</label>
+            <label><input type="checkbox" name="businessContext" value="Acquisition, divestment, restructuring"> Acquisition, divestment, restructuring</label>
+            <label><input type="checkbox" name="businessContext" value="Supplier, buyer change"> Supplier, buyer change</label>
+            <label class="inline-other">
+              <input type="checkbox" name="businessContext" value="Others" id="contextOthers">
+              Others
+              <input id="contextOtherText" type="text" placeholder="Describe other change" disabled>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Business trajectory in next 12 months</label>
+          <div class="trajectory-grid">
+            <div class="trajectory-card">
+              <h3>Domestic Purchase</h3>
+              <select id="trajectoryDomesticPurchase">
+                <option value="No change / Unknown">No change / Unknown</option>
+                <option value="Significant uptrend">Significant uptrend</option>
+                <option value="Significant downtrend">Significant downtrend</option>
+              </select>
+            </div>
+
+            <div class="trajectory-card">
+              <h3>Domestic Sales</h3>
+              <select id="trajectoryDomesticSales">
+                <option value="No change / Unknown">No change / Unknown</option>
+                <option value="Significant uptrend">Significant uptrend</option>
+                <option value="Significant downtrend">Significant downtrend</option>
+              </select>
+            </div>
+
+            <div class="trajectory-card">
+              <h3>Import</h3>
+              <select id="trajectoryImport">
+                <option value="No change / Unknown">No change / Unknown</option>
+                <option value="Significant uptrend">Significant uptrend</option>
+                <option value="Significant downtrend">Significant downtrend</option>
+              </select>
+            </div>
+
+            <div class="trajectory-card">
+              <h3>Export</h3>
+              <select id="trajectoryExport">
+                <option value="No change / Unknown">No change / Unknown</option>
+                <option value="Significant uptrend">Significant uptrend</option>
+                <option value="Significant downtrend">Significant downtrend</option>
+              </select>
+            </div>
+          </div>
         </div>
 
         <div class="form-group">
           <label for="prompt">What do you want the analysis to focus on?</label>
-          <textarea id="prompt" placeholder="Example: Summarize the most relevant developments and explain commercial implications."></textarea>
+          <textarea id="prompt" placeholder="Example: Explain what matters most for client conversations."></textarea>
         </div>
 
         <button id="send">Research</button>
