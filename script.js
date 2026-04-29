@@ -1,7 +1,189 @@
+const SECTOR_DATA = {
+  "Agriculture, forestry and fishing": [
+    "Crop and animal production, hunting and related service activities",
+    "Forestry and logging",
+    "Fishing and aquaculture"
+  ],
+  "Mining and quarrying": [
+    "Mining of coal and lignite",
+    "Extraction of crude petroleum and natural gas",
+    "Mining of metal ores",
+    "Other mining and quarrying",
+    "Mining support service activities"
+  ],
+  "Manufacturing": [
+    "Manufacture of food products",
+    "Manufacture of beverages",
+    "Manufacture of tobacco products",
+    "Manufacture of textiles",
+    "Manufacture of wearing apparel",
+    "Manufacture of leather and related products",
+    "Manufacture of wood and of products of wood and cork, except furniture; manufacture of articles of straw and plaiting materials",
+    "Manufacture of paper and paper products",
+    "Printing and reproduction of recorded media",
+    "Manufacture of coke and refined petroleum products",
+    "Manufacture of chemicals and chemical products",
+    "Manufacture of basic pharmaceutical products and pharmaceutical preparations",
+    "Manufacture of rubber and plastics products",
+    "Manufacture of other non-metallic mineral products",
+    "Manufacture of basic metals",
+    "Manufacture of fabricated metal products, except machinery and equipment",
+    "Manufacture of computer, electronic and optical products",
+    "Manufacture of electrical equipment",
+    "Manufacture of machinery and equipment, not elsewhere classified",
+    "Manufacture of motor vehicles, trailers and semi-trailers",
+    "Manufacture of other transport equipment",
+    "Manufacture of furniture",
+    "Other manufacturing",
+    "Repair and installation of machinery and equipment"
+  ],
+  "Electricity, gas, steam and air conditioning supply": [
+    "Electricity, gas, steam and air conditioning supply"
+  ],
+  "Water supply; sewerage, waste management and remediation activities": [
+    "Water collection, treatment and supply",
+    "Sewerage",
+    "Waste collection, treatment and disposal activities; materials recovery",
+    "Remediation activities and other waste management services"
+  ],
+  "Construction": [
+    "Construction of buildings",
+    "Construction of private residential housing",
+    "Construction of private condominium",
+    "Construction of private apartment and service apartment",
+    "Construction of government residential housing and condominium",
+    "Construction of private commercial building",
+    "Construction of private office building",
+    "Construction of private shopping center and department store",
+    "Construction of private hotel and resort",
+    "Construction of private factory",
+    "Civil engineering",
+    "Specialized construction activities"
+  ],
+  "Wholesale and retail trade; repair of motor vehicles and motorcycles": [
+    "Wholesale and retail trade and repair of motor vehicles and motorcycles",
+    "Wholesale trade, except of motor vehicles and motorcycles",
+    "Retail trade, except of motor vehicles and motorcycles"
+  ],
+  "Transportation and storage": [
+    "Land transport and transport via pipelines",
+    "Water transport",
+    "Air transport",
+    "Warehousing and support activities for transportation",
+    "Postal and courier activities"
+  ],
+  "Accommodation and food service activities": [
+    "Accommodation",
+    "Food and beverage service activities"
+  ],
+  "Information and communication": [
+    "Publishing activities",
+    "Motion picture, video and television programme production, sound recording and music publishing activities",
+    "Programming and broadcasting activities",
+    "Telecommunications",
+    "Computer programming, consultancy and related activities",
+    "Information service activities"
+  ],
+  "Financial and insurance activities": [
+    "Financial service activities, except insurance and pension funding",
+    "Thai commercial bank",
+    "Restricted bank",
+    "Branches of foreign bank",
+    "International banking facilities of foreign bank",
+    "Representative office of foreign bank",
+    "Foreign bank",
+    "Retail bank",
+    "Subsidiary of foreign bank",
+    "Other commercial bank",
+    "Agricultural cooperative including the agricultural co-operative federation",
+    "Thrift and credit cooperatives including the federation of savings and credit cooperatives",
+    "Factoring activities",
+    "Writing of swaps, options and other hedging instruments",
+    "Others distribution of funds activities",
+    "Insurance, reinsurance and pension funding, except compulsory social security",
+    "Reinsurance (life)",
+    "Reinsurance (non-life)",
+    "Activities auxiliary to financial service and insurance activities",
+    "Securities company",
+    "Securities brokers and traders",
+    "Underwriters",
+    "Others securities brokerage activities",
+    "Authorized company",
+    "Authorized person",
+    "International money transfer",
+    "Other activities of bureaux de change",
+    "Asset management",
+    "Other of other activities auxiliary to financial service activities, not elsewhere classified",
+    "Mutual fund management",
+    "Others investment fund management, including hedge fund"
+  ],
+  "Real estate activities": [
+    "Real estate activities",
+    "Real estate development for residential housing",
+    "Real estate development for condominium and flat for sale",
+    "Land development for residential housing",
+    "Real estate development for commercial building",
+    "Land development for agriculture",
+    "Land development for industry",
+    "Real estate development for apartment and service apartment for rent",
+    "Office building business for sale and rent",
+    "Shopping center business and department store for sale and rent",
+    "Land development for cemetery",
+    "Golf course business",
+    "Other of other real estate activities with own or leased property"
+  ],
+  "Professional, scientific and technical activities": [
+    "Legal and accounting activities",
+    "Activities of head offices; management consultancy activities",
+    "Architectural and engineering activities; technical testing and analysis",
+    "Scientific research and development",
+    "Advertising and market research",
+    "Other professional, scientific and technical activities",
+    "Veterinary activities"
+  ],
+  "Administrative and support service activities": [
+    "Rental and leasing activities",
+    "Employment activities",
+    "Travel agency, tour operator, reservation service and related activities",
+    "Security and investigation activities",
+    "Services to buildings and landscape activities",
+    "Office administrative, office support and other business support activities"
+  ],
+  "Public administration and defence; compulsory social security": [
+    "Public administration and defence; compulsory social security"
+  ],
+  "Education": [
+    "Education"
+  ],
+  "Human health and social work activities": [
+    "Human health activities",
+    "Residential care activities",
+    "Social work activities without accommodation"
+  ],
+  "Arts, entertainment and recreation": [
+    "Creative, arts and entertainment activities",
+    "Libraries, archives, museums and other cultural activities",
+    "Gambling and betting activities",
+    "Sports activities and amusement and recreation activities"
+  ],
+  "Other service activities": [
+    "Activities of membership organizations",
+    "Repair of computers and personal and household goods",
+    "Other personal service activities"
+  ],
+  "Activities of households as employers; undifferentiated goods- and services-producing activities of households for own use": [
+    "Activities of households as employers of domestic personnel",
+    "Undifferentiated goods- and services-producing activities of private households for own use"
+  ],
+  "Activities of extraterritorial organizations and bodies": [
+    "Activities of extraterritorial organizations and bodies"
+  ]
+};
+
 const button = document.getElementById("send");
-const industryBox = document.getElementById("industry");
+const sectorBox = document.getElementById("sector");
+const subsectorBox = document.getElementById("subsector");
 const timeframeBox = document.getElementById("timeframe");
-const currencyBox = document.getElementById("currency");
 const topicBox = document.getElementById("topic");
 const situationBox = document.getElementById("situation");
 const promptBox = document.getElementById("prompt");
@@ -9,6 +191,41 @@ const promptBox = document.getElementById("prompt");
 const analysisOutput = document.getElementById("analysisOutput");
 const sourcesOutput = document.getElementById("sourcesOutput");
 const fxOutput = document.getElementById("fxOutput");
+
+function populateSectors() {
+  Object.keys(SECTOR_DATA).forEach(sector => {
+    const option = document.createElement("option");
+    option.value = sector;
+    option.textContent = sector;
+    sectorBox.appendChild(option);
+  });
+}
+
+function populateSubsectors() {
+  const sector = sectorBox.value;
+  subsectorBox.innerHTML = "";
+
+  if (!sector) {
+    subsectorBox.disabled = true;
+    subsectorBox.innerHTML = '<option value="">Select a sector first</option>';
+    return;
+  }
+
+  subsectorBox.disabled = false;
+  subsectorBox.innerHTML = '<option value="">Select a subsector</option>';
+
+  SECTOR_DATA[sector].forEach(subsector => {
+    const option = document.createElement("option");
+    option.value = subsector;
+    option.textContent = subsector;
+    subsectorBox.appendChild(option);
+  });
+}
+
+function getSelectedCurrencies() {
+  return Array.from(document.querySelectorAll('input[name="currency"]:checked'))
+    .map(input => input.value);
+}
 
 function renderSources(sources) {
   if (!sources || sources.length === 0) {
@@ -48,94 +265,121 @@ function buildMiniChartPath(series, width, height, padding) {
   }).join(" ");
 }
 
-function renderFx(fx) {
-  if (!fx) {
+function renderFx(fxList) {
+  if (!fxList || fxList.length === 0) {
     fxOutput.textContent = "No FX information returned.";
     return;
   }
 
-  if (fx.skip) {
+  const nonThbFx = fxList.filter(fx => !fx.skip && !fx.error);
+  const errors = fxList.filter(fx => fx.error);
+  const hasThb = fxList.some(fx => fx.skip);
+
+  if (nonThbFx.length === 0 && errors.length === 0 && hasThb) {
     fxOutput.innerHTML = `
-      <div class="fx-rate">THB selected</div>
-      <div class="fx-meta">No FX conversion needed.</div>
+      <div class="fx-meta">THB selected. No FX conversion needed.</div>
     `;
     return;
   }
 
-  if (fx.error) {
-    fxOutput.innerHTML = `<span class="error">${fx.error}</span>`;
-    return;
-  }
-
-  if (!fx.series || fx.series.length === 0) {
-    fxOutput.textContent = "No FX data available.";
-    return;
-  }
-
-  const rows = fx.series.map(item => `
+  const summaryRows = nonThbFx.map(fx => `
     <tr>
-      <td>${item.date}</td>
-      <td>${item.rate}</td>
+      <td>${fx.pair}</td>
+      <td>${fx.latest_rate}</td>
+      <td>${fx.highest_rate}</td>
+      <td>${fx.highest_date}</td>
+      <td>${fx.lowest_rate}</td>
+      <td>${fx.lowest_date}</td>
     </tr>
   `).join("");
 
-  const chartPath = buildMiniChartPath(fx.series, 320, 120, 12);
-
-  fxOutput.innerHTML = `
-    <div class="fx-rate">${fx.pair}</div>
-
-    <div class="fx-stats">
-      <div class="fx-stat-card">
-        <div class="fx-stat-label">Latest</div>
-        <div class="fx-stat-value">${fx.latest_rate}</div>
-      </div>
-      <div class="fx-stat-card">
-        <div class="fx-stat-label">Highest</div>
-        <div class="fx-stat-value">${fx.highest_rate}</div>
-        <div class="fx-stat-sub">${fx.highest_date}</div>
-      </div>
-      <div class="fx-stat-card">
-        <div class="fx-stat-label">Lowest</div>
-        <div class="fx-stat-value">${fx.lowest_rate}</div>
-        <div class="fx-stat-sub">${fx.lowest_date}</div>
-      </div>
-    </div>
-
-    <div class="fx-chart-wrap">
-      <svg class="fx-chart" viewBox="0 0 320 120" preserveAspectRatio="none" aria-label="FX trend chart">
-        <path d="${chartPath}" fill="none" stroke="currentColor" stroke-width="2" />
-      </svg>
-    </div>
-
-    <table class="fx-table">
+  const summaryTable = nonThbFx.length > 0 ? `
+    <table class="fx-summary-table">
       <thead>
         <tr>
-          <th>Date</th>
-          <th>Rate (${fx.base} → THB)</th>
+          <th>Pair</th>
+          <th>Latest</th>
+          <th>7D High</th>
+          <th>High Date</th>
+          <th>7D Low</th>
+          <th>Low Date</th>
         </tr>
       </thead>
-      <tbody>
-        ${rows}
-      </tbody>
+      <tbody>${summaryRows}</tbody>
     </table>
+  ` : "";
 
-    <div class="fx-meta">
-      Source: ${fx.source}<br>
-      Retrieved: ${fx.retrieved_at}
+  const detailBlocks = nonThbFx.map(fx => {
+    const chartPath = buildMiniChartPath(fx.series, 320, 100, 10);
+
+    const rows = fx.series.map(item => `
+      <tr>
+        <td>${item.date}</td>
+        <td>${item.rate}</td>
+      </tr>
+    `).join("");
+
+    return `
+      <div class="fx-block">
+        <div class="fx-title">${fx.pair}</div>
+        <div class="fx-chart-wrap">
+          <svg class="fx-chart" viewBox="0 0 320 100" preserveAspectRatio="none">
+            <path d="${chartPath}" fill="none" stroke="currentColor" stroke-width="2"></path>
+          </svg>
+        </div>
+        <table class="fx-detail-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Rate (${fx.base} → THB)</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `;
+  }).join("");
+
+  const errorBlocks = errors.map(fx => `
+    <div class="fx-block">
+      <span class="error">${fx.base}THB: ${fx.error}</span>
     </div>
+  `).join("");
+
+  const thbNote = hasThb ? `<div class="fx-meta">THB selected. No FX conversion needed for THB.</div>` : "";
+
+  fxOutput.innerHTML = `
+    ${thbNote}
+    ${summaryTable}
+    ${detailBlocks}
+    ${errorBlocks}
   `;
 }
 
+populateSectors();
+sectorBox.addEventListener("change", populateSubsectors);
+
 button.addEventListener("click", async function () {
-  const industry = industryBox.value;
+  const sector = sectorBox.value;
+  const subsector = subsectorBox.value;
   const timeframe = timeframeBox.value;
-  const currency = currencyBox.value;
+  const currencies = getSelectedCurrencies();
   const topic = topicBox.value.trim();
   const situation = situationBox.value.trim();
   const prompt = promptBox.value.trim();
 
-  if (!industry) {
-    analysisOutput.textContent = "Please select an industry.";
+  if (!sector) {
+    analysisOutput.textContent = "Please select a sector.";
+    return;
+  }
+
+  if (!subsector) {
+    analysisOutput.textContent = "Please select a subsector.";
+    return;
+  }
+
+  if (currencies.length === 0) {
+    analysisOutput.textContent = "Please select at least one currency.";
     return;
   }
 
@@ -155,9 +399,9 @@ button.addEventListener("click", async function () {
   }
 
   button.disabled = true;
+  fxOutput.innerHTML = '<span class="loading">Checking FX rates...</span>';
   analysisOutput.innerHTML = '<span class="loading">Researching recent news...</span>';
   sourcesOutput.innerHTML = '<span class="loading">Gathering sources...</span>';
-  fxOutput.innerHTML = '<span class="loading">Checking FX rate...</span>';
 
   try {
     const response = await fetch("/api/chat", {
@@ -166,9 +410,10 @@ button.addEventListener("click", async function () {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        industry,
+        sector,
+        subsector,
         timeframe,
-        currency,
+        currencies,
         topic,
         situation,
         prompt
@@ -179,18 +424,18 @@ button.addEventListener("click", async function () {
 
     if (!response.ok) {
       analysisOutput.innerHTML = `<span class="error">${data.error || "Request failed."}</span>`;
-      sourcesOutput.textContent = "";
       fxOutput.textContent = "";
+      sourcesOutput.textContent = "";
       return;
     }
 
+    renderFx(data.fx || []);
     analysisOutput.textContent = data.analysis || "No analysis returned.";
     renderSources(data.sources || []);
-    renderFx(data.fx || null);
   } catch (error) {
     analysisOutput.innerHTML = '<span class="error">Network error. Please try again.</span>';
-    sourcesOutput.textContent = "";
     fxOutput.textContent = "";
+    sourcesOutput.textContent = "";
   } finally {
     button.disabled = false;
   }
