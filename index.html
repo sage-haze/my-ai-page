@@ -10,23 +10,20 @@
     <div class="page">
       <div class="card">
         <h1>News Research Assistant</h1>
-        <p class="intro">
-          Search recent news, analyze it for a specific situation, and review the source links separately.
-        </p>
+        <p class="intro">Search recent news, review FX movements, and analyze implications for your situation.</p>
 
         <div class="form-grid">
           <div class="form-group">
-            <label for="industry">Industry</label>
-            <select id="industry">
-              <option value="">Select an industry</option>
-              <option value="banking">Banking</option>
-              <option value="insurance">Insurance</option>
-              <option value="healthcare">Healthcare</option>
-              <option value="semiconductors">Semiconductors</option>
-              <option value="telecommunications">Telecommunications</option>
-              <option value="cybersecurity">Cybersecurity</option>
-              <option value="energy">Energy</option>
-              <option value="retail">Retail</option>
+            <label for="sector">Sector</label>
+            <select id="sector">
+              <option value="">Select a sector</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="subsector">Subsector</label>
+            <select id="subsector" disabled>
+              <option value="">Select a sector first</option>
             </select>
           </div>
 
@@ -40,58 +37,48 @@
               <option value="360">Last 360 days</option>
             </select>
           </div>
+        </div>
 
-          <div class="form-group">
-            <label for="currency">Currency</label>
-            <select id="currency">
-              <option value="THB">THB</option>
-              <option value="USD">USD</option>
-              <option value="JPY">JPY</option>
-              <option value="EUR">EUR</option>
-              <option value="CNY">CNY</option>
-            </select>
+        <div class="form-group">
+          <label>Currencies</label>
+          <div class="checkbox-row">
+            <label><input type="checkbox" name="currency" value="THB" checked> THB</label>
+            <label><input type="checkbox" name="currency" value="USD"> USD</label>
+            <label><input type="checkbox" name="currency" value="JPY"> JPY</label>
+            <label><input type="checkbox" name="currency" value="EUR"> EUR</label>
+            <label><input type="checkbox" name="currency" value="CNY"> CNY</label>
           </div>
         </div>
 
         <div class="form-group">
           <label for="topic">Topic / company / issue</label>
-          <input
-            id="topic"
-            type="text"
-            placeholder="Example: AI regulation for banks in Singapore"
-          >
+          <input id="topic" type="text" placeholder="Example: AI regulation in Thai financial institutions">
         </div>
 
         <div class="form-group">
           <label for="situation">Your situation / context</label>
-          <textarea
-            id="situation"
-            placeholder="Example: I sell compliance software to banks in Southeast Asia and want to know what affects customer conversations."
-          ></textarea>
+          <textarea id="situation" placeholder="Example: I sell compliance software to Thai banks and want to understand what affects customer conversations."></textarea>
         </div>
 
         <div class="form-group">
           <label for="prompt">What do you want the analysis to focus on?</label>
-          <textarea
-            id="prompt"
-            placeholder="Example: Summarize the most relevant developments and tell me what matters for my sales conversations."
-          ></textarea>
+          <textarea id="prompt" placeholder="Example: Summarize the most relevant developments and explain commercial implications."></textarea>
         </div>
 
         <button id="send">Research</button>
 
-        <div class="results-grid">
+        <div class="results-stack">
+          <div class="result-card">
+            <h2>FX Rates</h2>
+            <div id="fxOutput">FX rates will appear here.</div>
+          </div>
+
           <div class="result-card">
             <h2>Analysis</h2>
             <div id="analysisOutput">The analysis will appear here.</div>
           </div>
 
           <div class="result-card">
-            <h2>FX Rate</h2>
-            <div id="fxOutput">The FX rate will appear here.</div>
-          </div>
-
-          <div class="result-card result-card-full">
             <h2>Sources</h2>
             <div id="sourcesOutput">The source links will appear here.</div>
           </div>
