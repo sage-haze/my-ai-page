@@ -185,8 +185,16 @@ const sectorBox = document.getElementById("sector");
 const subsectorBox = document.getElementById("subsector");
 const timeframeBox = document.getElementById("timeframe");
 const topicBox = document.getElementById("topic");
-const situationBox = document.getElementById("situation");
 const promptBox = document.getElementById("prompt");
+
+const contextNoChange = document.getElementById("contextNoChange");
+const contextOthers = document.getElementById("contextOthers");
+const contextOtherText = document.getElementById("contextOtherText");
+
+const trajectoryDomesticPurchase = document.getElementById("trajectoryDomesticPurchase");
+const trajectoryDomesticSales = document.getElementById("trajectoryDomesticSales");
+const trajectoryImport = document.getElementById("trajectoryImport");
+const trajectoryExport = document.getElementById("trajectoryExport");
 
 const analysisOutput = document.getElementById("analysisOutput");
 const sourcesOutput = document.getElementById("sourcesOutput");
@@ -227,6 +235,36 @@ function getSelectedCurrencies() {
     .map(input => input.value);
 }
 
+function getSelectedBusinessContext() {
+  return Array.from(document.querySelectorAll('input[name="businessContext"]:checked'))
+    .map(input => input.value);
+}
+
+function updateBusinessContextRules(changedInput) {
+  const allContextInputs = Array.from(document.querySelectorAll('input[name="businessContext"]'));
+  const nonNoChangeInputs = allContextInputs.filter(input => input !== contextNoChange);
+
+  if (changedInput === contextNoChange && contextNoChange.checked) {
+    nonNoChangeInputs.forEach(input => {
+      input.checked = false;
+    });
+  }
+
+  if (changedInput !== contextNoChange && changedInput.checked) {
+    contextNoChange.checked = false;
+  }
+
+  const anyChecked = allContextInputs.some(input => input.checked);
+  if (!anyChecked) {
+    contextNoChange.checked = true;
+  }
+
+  contextOtherText.disabled = !contextOthers.checked;
+  if (!contextOthers.checked) {
+    contextOtherText.value = "";
+  }
+}
+
 function renderSources(sources) {
   if (!sources || sources.length === 0) {
     sourcesOutput.textContent = "No sources found.";
@@ -250,21 +288,6 @@ function renderSources(sources) {
   }).join("");
 }
 
-function buildMiniChartPath(series, width, height, padding) {
-  if (!series || series.length < 2) return "";
-
-  const values = series.map(item => Number(item.rate));
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || 1;
-
-  return series.map((item, index) => {
-    const x = padding + (index * (width - padding * 2)) / (series.length - 1);
-    const y = height - padding - ((Number(item.rate) - min) / range) * (height - padding * 2);
-    return `${index === 0 ? "M" : "L"} ${x} ${y}`;
-  }).join(" ");
-}
-
 function renderFx(fxList) {
   if (!fxList || fxList.length === 0) {
     fxOutput.textContent = "No FX information returned.";
@@ -276,9 +299,7 @@ function renderFx(fxList) {
   const hasThb = fxList.some(fx => fx.skip);
 
   if (nonThbFx.length === 0 && errors.length === 0 && hasThb) {
-    fxOutput.innerHTML = `
-      <div class="fx-meta">THB selected. No FX conversion needed.</div>
-    `;
+    fxOutput.innerHTML = `<div class="fx-meta">THB selected. No FX conversion needed.</div>`;
     return;
   }
 
@@ -310,8 +331,6 @@ function renderFx(fxList) {
   ` : "";
 
   const detailBlocks = nonThbFx.map(fx => {
-    const chartPath = buildMiniChartPath(fx.series, 320, 100, 10);
-
     const rows = fx.series.map(item => `
       <tr>
         <td>${item.date}</td>
@@ -322,11 +341,6 @@ function renderFx(fxList) {
     return `
       <div class="fx-block">
         <div class="fx-title">${fx.pair}</div>
-        <div class="fx-chart-wrap">
-          <svg class="fx-chart" viewBox="0 0 320 100" preserveAspectRatio="none">
-            <path d="${chartPath}" fill="none" stroke="currentColor" stroke-width="2"></path>
-          </svg>
-        </div>
         <table class="fx-detail-table">
           <thead>
             <tr>
@@ -351,13 +365,21 @@ function renderFx(fxList) {
   fxOutput.innerHTML = `
     ${thbNote}
     ${summaryTable}
-    ${detailBlocks}
-    ${errorBlocks}
+    <div class="fx-grid">
+      ${detailBlocks}
+      ${errorBlocks}
+    </div>
   `;
 }
 
 populateSectors();
 sectorBox.addEventListener("change", populateSubsectors);
+
+document.querySelectorAll('input[name="businessContext"]').forEach(input => {
+  input.addEventListener("change", function () {
+    updateBusinessContextRules(input);
+  });
+});
 
 button.addEventListener("click", async function () {
   const sector = sectorBox.value;
@@ -365,8 +387,16 @@ button.addEventListener("click", async function () {
   const timeframe = timeframeBox.value;
   const currencies = getSelectedCurrencies();
   const topic = topicBox.value.trim();
-  const situation = situationBox.value.trim();
   const prompt = promptBox.value.trim();
+  const businessContext = getSelectedBusinessContext();
+  const businessContextOther = contextOtherText.value.trim();
+
+  const trajectory = {
+    domesticPurchase: trajectoryDomesticPurchase.value,
+    domesticSales: trajectoryDomesticSales.value,
+    import: trajectoryImport.value,
+    export: trajectoryExport.value
+  };
 
   if (!sector) {
     analysisOutput.textContent = "Please select a sector.";
@@ -383,13 +413,18 @@ button.addEventListener("click", async function () {
     return;
   }
 
-  if (!topic) {
-    analysisOutput.textContent = "Please enter a topic / company / issue.";
+  if (businessContext.length === 0) {
+    analysisOutput.textContent = "Please select at least one business context option.";
     return;
   }
 
-  if (!situation) {
-    analysisOutput.textContent = "Please describe your situation.";
+  if (businessContext.includes("Others") && !businessContextOther) {
+    analysisOutput.textContent = "Please describe the 'Others' business context.";
+    return;
+  }
+
+  if (!topic) {
+    analysisOutput.textContent = "Please enter a topic / company / issue.";
     return;
   }
 
@@ -415,7 +450,9 @@ button.addEventListener("click", async function () {
         timeframe,
         currencies,
         topic,
-        situation,
+        businessContext,
+        businessContextOther,
+        trajectory,
         prompt
       })
     });
