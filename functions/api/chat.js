@@ -361,18 +361,27 @@ async function tavilySearch({ apiKey, query, startDate, endDate, includeDomains 
   return data.results || [];
 }
 
-function buildQuery({ sector, subsector, countries, defaultPrompt }) {
-  const keywords = getSearchKeywords({ sector, subsector });
-  const countryText = countries.map(country => country.name).join(" ");
+function buildQuery({ sector, subsector, countries }) {
+  const keywords = getSearchKeywords({ sector, subsector }).slice(0, 6);
 
-  return uniqueArray([
+  const countryText = countries
+    .map(c => c.name)
+    .slice(0, 3)
+    .join(" ");
+
+  const base = [
     sector,
     subsector,
     countryText,
-    defaultPrompt,
+    "trade finance",
+    "banking",
     "latest news",
     ...keywords
-  ]).join(" ");
+  ];
+
+  const query = base.join(" ");
+
+  return query.slice(0, 350); // safe buffer under 400
 }
 
 function buildArticleContext(sources) {
