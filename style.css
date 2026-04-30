@@ -311,3 +311,25 @@ button:disabled {
     max-width: 100%;
   }
 }
+
+.country-chip button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 50%;
+  background: #f1f1f1;
+  color: #555;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.country-chip button:hover {
+  background: #ddd;
+  color: #111;
+}
