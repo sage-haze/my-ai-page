@@ -348,7 +348,14 @@ async function tavilySearch({ apiKey, query, startDate, endDate, includeDomains 
   const data = await response.json();
 
   if (!response.ok) {
-    throw new Error(data.detail || data.error || "Tavily search failed.");
+    const message =
+      typeof data.detail === "string"
+        ? data.detail
+        : typeof data.error === "string"
+          ? data.error
+          : JSON.stringify(data.detail || data.error || data);
+  
+    throw new Error(message || "Tavily search failed.");
   }
 
   return data.results || [];
@@ -664,7 +671,10 @@ ${articleContext}
     });
   } catch (error) {
     return Response.json({
-      error: error.message || "Server error."
+      error:
+        typeof error.message === "string"
+          ? error.message
+          : JSON.stringify(error.message || error)
     }, { status: 500 });
   }
 }
