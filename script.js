@@ -15,470 +15,390 @@ const analysisOutput = document.getElementById("analysisOutput");
 const sourcesOutput = document.getElementById("sourcesOutput");
 const fxOutput = document.getElementById("fxOutput");
 
-
-// ---------- COUNTRY DATA (expand later if desired) ----------
 let selectedCountries = [];
 
-
 // ---------- HELPERS ----------
-function countryLabel(country){
+function countryLabel(country) {
   return `${country.name} (${country.code})`;
 }
 
-function getSelectedCurrencies(){
+function getSelectedCurrencies() {
   return Array
     .from(document.querySelectorAll('input[name="currency"]:checked'))
-    .map(i => i.value);
+    .map(input => input.value);
 }
 
-
 // ---------- SECTOR / SUBSECTOR ----------
-function populateSectors(){
-  Object.keys(SECTOR_DATA).forEach(sector=>{
-    const option=document.createElement("option");
-    option.value=sector;
-    option.textContent=sector;
+function populateSectors() {
+  Object.keys(SECTOR_DATA).forEach(sector => {
+    const option = document.createElement("option");
+    option.value = sector;
+    option.textContent = sector;
     sectorBox.appendChild(option);
   });
 }
 
-function populateSubsectors(){
-  const sector=sectorBox.value;
+function populateSubsectors() {
+  const sector = sectorBox.value;
+  subsectorBox.innerHTML = "";
 
-  subsectorBox.innerHTML="";
-
-  if(!sector){
-    subsectorBox.disabled=true;
-    subsectorBox.innerHTML=`<option value="">Select a sector first</option>`;
+  if (!sector) {
+    subsectorBox.disabled = true;
+    subsectorBox.innerHTML = `<option value="">Select a sector first</option>`;
     return;
   }
 
-  subsectorBox.disabled=false;
+  subsectorBox.disabled = false;
+  subsectorBox.innerHTML = `<option value="">Select a subsector</option>`;
 
-  subsectorBox.innerHTML=`
-<option value="">Select a subsector</option>
-`;
-
-  SECTOR_DATA[sector].forEach(sub=>{
-    const option=document.createElement("option");
-    option.value=sub;
-    option.textContent=sub;
+  SECTOR_DATA[sector].forEach(subsector => {
+    const option = document.createElement("option");
+    option.value = subsector;
+    option.textContent = subsector;
     subsectorBox.appendChild(option);
   });
 }
 
-
 // ---------- COUNTRIES ----------
-function renderCountryDropdown(){
+function renderCountryDropdown() {
+  const search = (countrySearch.value || "").toLowerCase().trim();
 
-  const search=(countrySearch.value || "").toLowerCase().trim();
+  const filtered = COUNTRIES
+    .map(([name, code]) => ({ name, code }))
+    .filter(country => countryLabel(country).toLowerCase().includes(search));
 
-  const filtered=COUNTRIES
-    .map(([name,code])=>({name,code}))
-    .filter(country=>{
-      return countryLabel(country)
-        .toLowerCase()
-        .includes(search);
-    });
-
-  countryDropdown.innerHTML=filtered.map(country=>{
-
-    const checked=
-      selectedCountries.some(
-        c=>c.code===country.code
-      ) ? "checked":"";
+  countryDropdown.innerHTML = filtered.map(country => {
+    const checked = selectedCountries.some(c => c.code === country.code) ? "checked" : "";
 
     return `
-<label class="country-option">
-<input type="checkbox"
- value="${country.code}"
- ${checked}>
-${countryLabel(country)}
-</label>
-`;
-
+      <label class="country-option">
+        <input type="checkbox" value="${country.code}" ${checked}>
+        ${countryLabel(country)}
+      </label>
+    `;
   }).join("");
 
-  countryDropdown
-    .querySelectorAll("input")
-    .forEach(box=>{
+  countryDropdown.querySelectorAll("input").forEach(box => {
+    box.addEventListener("change", function () {
+      const country = COUNTRIES
+        .map(([name, code]) => ({ name, code }))
+        .find(c => c.code === box.value);
 
-      box.addEventListener("change",function(){
-
-        const country=
-          COUNTRIES
-            .map(([name,code])=>({name,code}))
-            .find(
-              c=>c.code===box.value
-            );
-
-        if(box.checked){
-
-          if(
-            !selectedCountries.some(
-             c=>c.code===country.code
-            )
-          ){
-            selectedCountries.push(country);
-          }
-
-        } else {
-
-          selectedCountries=
-            selectedCountries.filter(
-             c=>c.code!==country.code
-            );
+      if (box.checked) {
+        if (!selectedCountries.some(c => c.code === country.code)) {
+          selectedCountries.push(country);
         }
+      } else {
+        selectedCountries = selectedCountries.filter(c => c.code !== country.code);
+      }
 
-        renderSelectedCountries();
-
-        countrySearch.value="";
-        countryDropdown.classList.add("hidden");
-
-        renderCountryDropdown();
-
-      });
-
+      renderSelectedCountries();
+      countrySearch.value = "";
+      countryDropdown.classList.add("hidden");
+      renderCountryDropdown();
     });
-
+  });
 }
 
-
-function renderSelectedCountries(){
-
-  if(selectedCountries.length===0){
-    selectedCountriesBox.innerHTML="";
+function renderSelectedCountries() {
+  if (selectedCountries.length === 0) {
+    selectedCountriesBox.innerHTML = "";
     return;
   }
 
-  selectedCountriesBox.innerHTML=
-    selectedCountries
-      .map(country=>`
-<span class="country-chip">
-${countryLabel(country)}
-<button
-type="button"
-data-code="${country.code}">
-×
-</button>
-</span>
-`).join("");
+  selectedCountriesBox.innerHTML = selectedCountries.map(country => `
+    <span class="country-chip">
+      ${countryLabel(country)}
+      <button type="button" data-code="${country.code}">×</button>
+    </span>
+  `).join("");
 
- selectedCountriesBox
-   .querySelectorAll("button")
-   .forEach(btn=>{
-
-      btn.addEventListener("click",function(){
-
-        selectedCountries=
-          selectedCountries.filter(
-            c=>c.code!==btn.dataset.code
-          );
-
-        renderSelectedCountries();
-        renderCountryDropdown();
-
-      });
-
-   });
+  selectedCountriesBox.querySelectorAll("button").forEach(btn => {
+    btn.addEventListener("click", function () {
+      selectedCountries = selectedCountries.filter(c => c.code !== btn.dataset.code);
+      renderSelectedCountries();
+      renderCountryDropdown();
+    });
+  });
 }
-
-
 
 // ---------- FX ----------
-function renderFx(fxList){
+function renderFx(fxList) {
+  if (!fxList || fxList.length === 0) {
+    fxOutput.textContent = "No FX data returned.";
+    return;
+  }
 
- if(!fxList || fxList.length===0){
-   fxOutput.textContent="No FX data returned.";
-   return;
- }
+  const nonThb = fxList.filter(fx => !fx.skip && !fx.error);
+  const errors = fxList.filter(fx => fx.error);
 
- const nonThb=
-   fxList.filter(
-     fx=>!fx.skip && !fx.error
-   );
+  if (nonThb.length === 0 && errors.length === 0) {
+    fxOutput.textContent = "No non-THB FX selected.";
+    return;
+  }
 
- if(nonThb.length===0){
-   fxOutput.textContent="No non-THB FX selected.";
-   return;
- }
+  const summaryRows = nonThb.map(fx => `
+    <tr>
+      <td>${fx.pair}</td>
+      <td>${fx.latest_rate}</td>
+      <td>${fx.highest_rate}</td>
+      <td>${fx.highest_date}</td>
+      <td>${fx.lowest_rate}</td>
+      <td>${fx.lowest_date}</td>
+    </tr>
+  `).join("");
 
- const summaryRows=
- nonThb.map(fx=>`
-<tr>
-<td>${fx.pair}</td>
-<td>${fx.latest_rate}</td>
-<td>${fx.highest_rate}</td>
-<td>${fx.highest_date}</td>
-<td>${fx.lowest_rate}</td>
-<td>${fx.lowest_date}</td>
-</tr>
-`).join("");
+  const summaryTable = nonThb.length > 0 ? `
+    <table class="fx-summary-table">
+      <thead>
+        <tr>
+          <th>Pair</th>
+          <th>Latest</th>
+          <th>7D High</th>
+          <th>High Date</th>
+          <th>7D Low</th>
+          <th>Low Date</th>
+        </tr>
+      </thead>
+      <tbody>${summaryRows}</tbody>
+    </table>
+  ` : "";
 
- const summaryTable=`
-<table class="fx-summary-table">
-<thead>
-<tr>
-<th>Pair</th>
-<th>Latest</th>
-<th>7D High</th>
-<th>High Date</th>
-<th>7D Low</th>
-<th>Low Date</th>
-</tr>
-</thead>
-<tbody>
-${summaryRows}
-</tbody>
-</table>
-`;
+  const detailBlocks = nonThb.map(fx => {
+    const rows = fx.series.map(item => `
+      <tr>
+        <td>${item.date}</td>
+        <td>${item.rate}</td>
+      </tr>
+    `).join("");
 
- const detailBlocks=
- nonThb.map(fx=>{
+    return `
+      <div class="fx-block">
+        <div class="fx-title">${fx.pair}</div>
+        <table class="fx-detail-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>${fx.base} → THB</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `;
+  }).join("");
 
-   const rows=
-   fx.series.map(item=>`
-<tr>
-<td>${item.date}</td>
-<td>${item.rate}</td>
-</tr>
-`).join("");
+  const errorBlocks = errors.map(fx => `
+    <div class="fx-block">
+      <span class="error">${fx.base}THB: ${fx.error}</span>
+    </div>
+  `).join("");
 
- return `
-<div class="fx-block">
-<div class="fx-title">${fx.pair}</div>
-
-<table class="fx-detail-table">
-<thead>
-<tr>
-<th>Date</th>
-<th>${fx.base} → THB</th>
-</tr>
-</thead>
-
-<tbody>
-${rows}
-</tbody>
-</table>
-</div>
-`;
-
- }).join("");
-
- fxOutput.innerHTML=`
-${summaryTable}
-
-<div class="fx-grid">
-${detailBlocks}
-</div>
-`;
-
+  fxOutput.innerHTML = `
+    ${summaryTable}
+    <div class="fx-grid">
+      ${detailBlocks}
+      ${errorBlocks}
+    </div>
+  `;
 }
-
-
 
 // ---------- SOURCES ----------
-function renderSources(sources){
+function renderSources(sources) {
+  if (!sources || sources.length === 0) {
+    sourcesOutput.textContent = "No sources found.";
+    return;
+  }
 
- if(!sources || sources.length===0){
-   sourcesOutput.textContent="No sources found.";
-   return;
- }
+  sourcesOutput.innerHTML = sources.map((source, index) => {
+    const number = source.number || index + 1;
 
- sourcesOutput.innerHTML=
- sources.map((source,i)=>`
-<div class="source-item">
+    return `
+      <div class="source-item">
+        <a
+          class="source-title"
+          href="${source.url}"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          [${number}] ${source.title || source.url}
+        </a>
 
-<a
-class="source-title"
-href="${source.url}"
-target="_blank"
-rel="noopener noreferrer">
+        <div class="source-meta">
+          ${source.domain || source.source || "Unknown source"}
+          •
+          ${source.published_at || "Unknown date"}
+        </div>
 
-[${i+1}] ${source.title}
-
-</a>
-
-<div class="source-meta">
-${source.domain || source.source}
-•
-${source.published_at || "Unknown date"}
-</div>
-
-<div class="source-link">
-${source.url}
-</div>
-
-</div>
-`).join("");
-
+        <div class="source-link">
+          ${source.url}
+        </div>
+      </div>
+    `;
+  }).join("");
 }
 
+// ---------- ANALYSIS ----------
+function renderAnalysis(text) {
+  if (!text) {
+    analysisOutput.textContent = "No analysis returned.";
+    return;
+  }
 
+  const themeBlocks = text
+    .split(/(?=Theme\s+\d+\s*:)/i)
+    .map(block => block.trim())
+    .filter(Boolean);
+
+  if (themeBlocks.length === 0) {
+    analysisOutput.textContent = text;
+    return;
+  }
+
+  analysisOutput.innerHTML = themeBlocks.map(block => {
+    const lines = block
+      .split("\n")
+      .map(line => line.trim())
+      .filter(Boolean);
+
+    const heading = lines[0] || "Theme";
+    const bodyLines = lines.slice(1);
+
+    const bulletLines = bodyLines.filter(line => line.startsWith("-"));
+    const paragraphLines = bodyLines.filter(line =>
+      !line.startsWith("-") &&
+      !line.toLowerCase().startsWith("supporting information")
+    );
+
+    const paragraph = paragraphLines.join(" ");
+
+    const bullets = bulletLines.map(line => {
+      const clean = line.replace(/^-+\s*/, "");
+      return `<li>${clean}</li>`;
+    }).join("");
+
+    return `
+      <div class="theme-card">
+        <h3>${heading}</h3>
+        ${paragraph ? `<p>${paragraph}</p>` : ""}
+        ${bullets ? `<ul>${bullets}</ul>` : ""}
+      </div>
+    `;
+  }).join("");
+}
 
 // ---------- COUNTRY DROPDOWN UX ----------
-countrySearch.addEventListener(
-"focus",
-function(){
- countryDropdown.classList.remove("hidden");
- renderCountryDropdown();
-}
-);
+countrySearch.addEventListener("focus", function () {
+  countryDropdown.classList.remove("hidden");
+  renderCountryDropdown();
+});
 
-countrySearch.addEventListener(
-"input",
-function(){
- countryDropdown.classList.remove("hidden");
- renderCountryDropdown();
-}
-);
+countrySearch.addEventListener("input", function () {
+  countryDropdown.classList.remove("hidden");
+  renderCountryDropdown();
+});
 
-document.addEventListener(
-"click",
-function(e){
-
- if(
-   !e.target.closest(".country-picker")
- ){
-   countryDropdown.classList.add("hidden");
- }
-
-}
-);
-
+document.addEventListener("click", function (event) {
+  if (!event.target.closest(".country-picker")) {
+    countryDropdown.classList.add("hidden");
+  }
+});
 
 // ---------- SUBMIT ----------
-button.addEventListener(
-"click",
-async function(){
+button.addEventListener("click", async function () {
+  const sector = sectorBox.value;
+  const subsector = subsectorBox.value;
+  const timeframe = timeframeBox.value;
+  const currencies = getSelectedCurrencies();
 
- const sector=sectorBox.value;
- const subsector=subsectorBox.value;
- const timeframe=timeframeBox.value;
+  const countries = selectedCountries.map(country => ({
+    name: country.name,
+    code: country.code,
+    label: countryLabel(country)
+  }));
 
- const currencies=getSelectedCurrencies();
+  const defaultPrompt = defaultPromptBox.value.trim();
 
- const countries=
- selectedCountries.map(c=>({
-   name:c.name,
-   code:c.code,
-   label:countryLabel(c)
- }));
+  if (!sector) {
+    analysisOutput.textContent = "Please select a sector.";
+    return;
+  }
 
- const defaultPrompt=
- defaultPromptBox.value.trim();
+  if (!subsector) {
+    analysisOutput.textContent = "Please select a subsector.";
+    return;
+  }
 
- if(!sector){
-   analysisOutput.textContent=
-   "Please select a sector.";
-   return;
- }
+  if (currencies.length === 0) {
+    analysisOutput.textContent = "Please select at least one currency.";
+    return;
+  }
 
- if(!subsector){
-   analysisOutput.textContent=
-   "Please select a subsector.";
-   return;
- }
+  if (countries.length === 0) {
+    analysisOutput.textContent = "Please select at least one country.";
+    return;
+  }
 
- if(currencies.length===0){
-   analysisOutput.textContent=
-   "Please select at least one currency.";
-   return;
- }
+  if (!defaultPrompt) {
+    analysisOutput.textContent = "Please enter a prompt.";
+    return;
+  }
 
- if(countries.length===0){
-   analysisOutput.textContent=
-   "Please select at least one country.";
-   return;
- }
+  button.disabled = true;
+  fxOutput.innerHTML = `<span class="loading">Checking FX...</span>`;
+  analysisOutput.innerHTML = `<span class="loading">Researching news...</span>`;
+  sourcesOutput.innerHTML = `<span class="loading">Loading sources...</span>`;
 
- if(!defaultPrompt){
-   analysisOutput.textContent=
-   "Please enter a prompt.";
-   return;
- }
+  try {
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        sector,
+        subsector,
+        timeframe,
+        currencies,
+        countries,
+        defaultPrompt
+      })
+    });
 
- button.disabled=true;
+    const data = await response.json();
 
- fxOutput.innerHTML=
- `<span class="loading">Checking FX...</span>`;
+    if (!response.ok) {
+      analysisOutput.innerHTML = `
+        <span class="error">
+          ${data.error || "Request failed."}
+        </span>
+      `;
 
- analysisOutput.innerHTML=
- `<span class="loading">Researching news...</span>`;
-
- sourcesOutput.innerHTML=
- `<span class="loading">Loading sources...</span>`;
-
- try{
-
-   const response=
-   await fetch(
-     "/api/chat",
-     {
-       method:"POST",
-       headers:{
-         "Content-Type":"application/json"
-       },
-       body:JSON.stringify({
-         sector,
-         subsector,
-         timeframe,
-         currencies,
-         countries,
-         defaultPrompt
-       })
-     }
-   );
-
-   const data=
-     await response.json();
-
-   if(!response.ok){
-
-      analysisOutput.innerHTML=
-      `<span class="error">
-      ${data.error || "Request failed."}
-      </span>`;
-
-      fxOutput.textContent="";
-      sourcesOutput.textContent="";
+      fxOutput.textContent = "";
+      sourcesOutput.textContent = "";
       return;
-   }
+    }
 
-   renderFx(data.fx || []);
-   renderSources(data.sources || []);
+    renderFx(data.fx || []);
+    renderSources(data.sources || []);
+    renderAnalysis(data.analysis || "No analysis returned.");
+  } catch (error) {
+    analysisOutput.innerHTML = `
+      <span class="error">
+        Network error.
+      </span>
+    `;
 
-   analysisOutput.textContent=
-      data.analysis ||
-      "No analysis returned.";
-
- }
-
- catch(error){
-
-   analysisOutput.innerHTML=
-   `<span class="error">
-   Network error.
-   </span>`;
-
-   fxOutput.textContent="";
-   sourcesOutput.textContent="";
- }
-
- finally{
-   button.disabled=false;
- }
-
-}
-);
-
+    fxOutput.textContent = "";
+    sourcesOutput.textContent = "";
+  } finally {
+    button.disabled = false;
+  }
+});
 
 // ---------- INIT ----------
 populateSectors();
 populateSubsectors();
 renderCountryDropdown();
 
-sectorBox.addEventListener(
-"change",
-populateSubsectors
-);
+sectorBox.addEventListener("change", populateSubsectors);
