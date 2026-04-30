@@ -179,3 +179,85 @@ const SECTOR_DATA = {
     "Activities of extraterritorial organizations and bodies"
   ]
 };
+
+const SUBSECTOR_KEYWORD_MAP = {
+  "Thai commercial bank": [
+    "Thailand banking",
+    "Bank of Thailand",
+    "digital banking",
+    "loan growth",
+    "credit risk",
+    "NPL",
+    "capital adequacy",
+    "compliance"
+  ],
+
+  "Branches of foreign bank": [
+    "foreign bank Thailand",
+    "cross-border banking",
+    "bank regulation",
+    "capital requirements"
+  ],
+
+  "Insurance, reinsurance and pension funding, except compulsory social security": [
+    "insurance Thailand",
+    "reinsurance",
+    "insurance regulation",
+    "premiums",
+    "claims",
+    "solvency"
+  ],
+
+  "Manufacture of computer, electronic and optical products": [
+    "electronics manufacturing",
+    "semiconductors",
+    "chip supply chain",
+    "exports",
+    "Thailand electronics"
+  ],
+
+  "Real estate development for residential housing": [
+    "housing market",
+    "property development",
+    "mortgage demand",
+    "Thailand property"
+  ],
+
+  "Construction of buildings": [
+    "construction sector",
+    "infrastructure",
+    "building costs",
+    "property development"
+  ],
+
+  "Computer programming, consultancy and related activities": [
+    "software services",
+    "IT consulting",
+    "digital transformation",
+    "cloud services",
+    "AI adoption"
+  ],
+
+  "Telecommunications": [
+    "telecom",
+    "5G",
+    "mobile network",
+    "broadband",
+    "infrastructure"
+  ],
+
+  "Electricity, gas, steam and air conditioning supply": [
+    "power generation",
+    "energy prices",
+    "utilities",
+    "renewable energy"
+  ],
+
+  "Food and beverage service activities": [
+    "restaurants",
+    "food service",
+    "consumer spending",
+    "tourism",
+    "food inflation"
+  ]
+};
