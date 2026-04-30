@@ -11,238 +11,8 @@ const DEFAULT_APPROVED_DOMAINS = [
 
 const ALLOWED_CURRENCIES = ["THB", "USD", "JPY", "EUR", "CNY"];
 
-const SUBSECTOR_KEYWORD_MAP = {
-  "Thai commercial bank": [
-    "Thai commercial bank",
-    "Thailand banking",
-    "Bank of Thailand",
-    "BOT regulation",
-    "digital banking",
-    "loan growth",
-    "credit risk",
-    "NPL",
-    "capital adequacy",
-    "compliance"
-  ],
-  "Restricted bank": [
-    "restricted bank Thailand",
-    "Bank of Thailand",
-    "banking license",
-    "banking regulation",
-    "financial supervision"
-  ],
-  "Branches of foreign bank": [
-    "foreign bank branch Thailand",
-    "cross-border banking",
-    "Bank of Thailand",
-    "foreign bank regulation",
-    "capital requirements"
-  ],
-  "Foreign bank": [
-    "foreign bank Thailand",
-    "international banking",
-    "cross-border finance",
-    "Bank of Thailand",
-    "foreign bank regulation"
-  ],
-  "Retail bank": [
-    "retail banking",
-    "consumer banking",
-    "digital banking",
-    "deposits",
-    "personal loans",
-    "mortgages"
-  ],
-  "Insurance, reinsurance and pension funding, except compulsory social security": [
-    "insurance Thailand",
-    "reinsurance",
-    "insurance regulation",
-    "premiums",
-    "claims",
-    "solvency",
-    "risk management"
-  ],
-  "Reinsurance (life)": [
-    "life reinsurance",
-    "insurance risk",
-    "actuarial risk",
-    "life insurance",
-    "capital adequacy"
-  ],
-  "Reinsurance (non-life)": [
-    "non-life reinsurance",
-    "property casualty insurance",
-    "catastrophe risk",
-    "claims",
-    "underwriting"
-  ],
-  "Securities company": [
-    "securities company",
-    "brokerage",
-    "capital markets",
-    "stock exchange",
-    "securities regulation"
-  ],
-  "Asset management": [
-    "asset management",
-    "fund management",
-    "investment management",
-    "mutual funds",
-    "portfolio management"
-  ],
-  "Manufacture of computer, electronic and optical products": [
-    "electronics manufacturing",
-    "semiconductors",
-    "supply chain",
-    "exports",
-    "Thailand electronics",
-    "chip components"
-  ],
-  "Manufacture of motor vehicles, trailers and semi-trailers": [
-    "automotive manufacturing",
-    "electric vehicles",
-    "EV supply chain",
-    "auto parts",
-    "vehicle production"
-  ],
-  "Manufacture of chemicals and chemical products": [
-    "chemical manufacturing",
-    "petrochemicals",
-    "industrial chemicals",
-    "chemical exports",
-    "feedstock prices"
-  ],
-  "Manufacture of food products": [
-    "food manufacturing",
-    "food processing",
-    "agri-food",
-    "food exports",
-    "commodity prices"
-  ],
-  "Real estate development for condominium and flat for sale": [
-    "condominium market",
-    "Thailand property",
-    "real estate development",
-    "housing demand",
-    "property regulation"
-  ],
-  "Real estate development for residential housing": [
-    "residential real estate",
-    "housing market",
-    "property development",
-    "mortgage demand",
-    "Thailand housing"
-  ],
-  "Office building business for sale and rent": [
-    "office real estate",
-    "office leasing",
-    "commercial property",
-    "occupancy rates",
-    "workplace demand"
-  ],
-  "Shopping center business and department store for sale and rent": [
-    "shopping mall",
-    "retail property",
-    "department store",
-    "consumer spending",
-    "foot traffic"
-  ],
-  "Construction of private residential housing": [
-    "residential construction",
-    "housing construction",
-    "construction costs",
-    "building permits",
-    "Thailand property"
-  ],
-  "Construction of private condominium": [
-    "condominium construction",
-    "property development",
-    "residential construction",
-    "construction costs",
-    "housing demand"
-  ],
-  "Civil engineering": [
-    "infrastructure",
-    "civil engineering",
-    "public works",
-    "transport infrastructure",
-    "construction contracts"
-  ],
-  "Computer programming, consultancy and related activities": [
-    "software services",
-    "IT consulting",
-    "digital transformation",
-    "cloud services",
-    "cybersecurity",
-    "AI adoption"
-  ],
-  "Telecommunications": [
-    "telecom",
-    "5G",
-    "mobile network",
-    "spectrum",
-    "broadband",
-    "network infrastructure"
-  ],
-  "Electricity, gas, steam and air conditioning supply": [
-    "electricity market",
-    "power generation",
-    "energy prices",
-    "grid reliability",
-    "renewable energy",
-    "utilities"
-  ],
-  "Water collection, treatment and supply": [
-    "water supply",
-    "water infrastructure",
-    "utilities",
-    "water treatment",
-    "drought risk"
-  ],
-  "Food and beverage service activities": [
-    "restaurants",
-    "food service",
-    "consumer spending",
-    "tourism",
-    "operating costs",
-    "food inflation"
-  ],
-  "Accommodation": [
-    "hotel industry",
-    "tourism",
-    "hospitality",
-    "occupancy rates",
-    "travel demand"
-  ],
-  "Air transport": [
-    "aviation",
-    "airlines",
-    "air cargo",
-    "passenger traffic",
-    "airport operations"
-  ],
-  "Warehousing and support activities for transportation": [
-    "logistics",
-    "warehousing",
-    "supply chain",
-    "freight",
-    "transport infrastructure"
-  ],
-  "Human health activities": [
-    "healthcare",
-    "hospitals",
-    "medical services",
-    "health regulation",
-    "patient care"
-  ],
-  "Education": [
-    "education sector",
-    "schools",
-    "universities",
-    "edtech",
-    "education policy"
-  ]
-};
+/* keep your existing SUBSECTOR_KEYWORD_MAP here if you already have it */
+const SUBSECTOR_KEYWORD_MAP = globalThis.SUBSECTOR_KEYWORD_MAP || {};
 
 function formatDate(date) {
   return date.toISOString().slice(0, 10);
@@ -277,6 +47,25 @@ function inferKeywordsFromText(text) {
     .filter(word => !stopWords.has(word));
 }
 
+function extractPromptKeywords(text) {
+  const stopWords = new Set([
+    "the", "and", "for", "with", "from", "that", "this", "based",
+    "recent", "news", "could", "would", "should", "about", "customer",
+    "profile", "suggest", "relevant", "themes", "affect", "focus",
+    "trade", "finance", "bank", "banking", "relationship", "manager",
+    "thailand", "thai", "speaking", "corporate"
+  ]);
+
+  return String(text || "")
+    .toLowerCase()
+    .replace(/[^\w\s]/g, " ")
+    .split(/\s+/)
+    .map(word => word.trim())
+    .filter(word => word.length > 3)
+    .filter(word => !stopWords.has(word))
+    .slice(0, 4);
+}
+
 function uniqueArray(items) {
   return [...new Set(items.filter(Boolean))];
 }
@@ -291,6 +80,29 @@ function getSearchKeywords({ sector, subsector }) {
     ...inferredSubsectorKeywords,
     ...inferredSectorKeywords
   ]).slice(0, 20);
+}
+
+function buildQuery({ sector, subsector, countries, defaultPrompt }) {
+  const baseKeywords = getSearchKeywords({ sector, subsector }).slice(0, 6);
+  const promptKeywords = extractPromptKeywords(defaultPrompt);
+
+  const countryText = countries
+    .map(country => country.name)
+    .slice(0, 3)
+    .join(" ");
+
+  const query = [
+    sector,
+    subsector,
+    countryText,
+    "trade finance",
+    "banking",
+    "latest news",
+    ...baseKeywords,
+    ...promptKeywords
+  ].join(" ");
+
+  return query.slice(0, 350);
 }
 
 function normalizeTavilyResults(results, sourceGroup) {
@@ -314,6 +126,7 @@ function dedupeSources(items) {
   for (const item of items) {
     if (!item.url) continue;
     if (seen.has(item.url)) continue;
+
     seen.add(item.url);
     deduped.push(item);
   }
@@ -354,74 +167,11 @@ async function tavilySearch({ apiKey, query, startDate, endDate, includeDomains 
         : typeof data.error === "string"
           ? data.error
           : JSON.stringify(data.detail || data.error || data);
-  
+
     throw new Error(message || "Tavily search failed.");
   }
 
   return data.results || [];
-}
-
-function buildQuery({ sector, subsector, countries }) {
-  const keywords = getSearchKeywords({ sector, subsector }).slice(0, 6);
-
-  const countryText = countries
-    .map(c => c.name)
-    .slice(0, 3)
-    .join(" ");
-
-  const base = [
-    sector,
-    subsector,
-    countryText,
-    "trade finance",
-    "banking",
-    "latest news",
-    ...keywords
-  ];
-
-  const query = base.join(" ");
-
-  return query.slice(0, 350); // safe buffer under 400
-}
-
-function buildArticleContext(sources) {
-  return sources.map((source, index) => {
-    const text = source.raw_content || source.summary || "";
-    const trimmedText = text.length > 2500 ? text.slice(0, 2500) + "…" : text;
-
-    return `
-Source ${index + 1}
-Title: ${source.title}
-URL: ${source.url}
-Publisher: ${source.domain || source.source || "Unknown"}
-Published: ${source.published_at || "Unknown"}
-Source type: ${source.source_group}
-Content:
-${trimmedText}
-`.trim();
-  }).join("\n\n");
-}
-
-function extractOutputText(data) {
-  if (data.output_text) return data.output_text;
-
-  if (Array.isArray(data.output)) {
-    let text = "";
-
-    for (const item of data.output) {
-      if (!item.content) continue;
-
-      for (const contentItem of item.content) {
-        if (contentItem.type === "output_text" && contentItem.text) {
-          text += contentItem.text;
-        }
-      }
-    }
-
-    if (text) return text;
-  }
-
-  return "";
 }
 
 async function fetchYahooFxRate(baseCurrency) {
@@ -518,6 +268,28 @@ function buildFxInstruction(fxList) {
   ).join("\n");
 }
 
+function extractOutputText(data) {
+  if (data.output_text) return data.output_text;
+
+  if (Array.isArray(data.output)) {
+    let text = "";
+
+    for (const item of data.output) {
+      if (!item.content) continue;
+
+      for (const contentItem of item.content) {
+        if (contentItem.type === "output_text" && contentItem.text) {
+          text += contentItem.text;
+        }
+      }
+    }
+
+    if (text) return text;
+  }
+
+  return "";
+}
+
 export async function onRequestPost(context) {
   try {
     const { request, env } = context;
@@ -588,11 +360,14 @@ export async function onRequestPost(context) {
 
     if (mergedSources.length === 0) {
       return Response.json({
-        error: "No recent sources were found for that topic and timeframe."
+        error: "No recent sources were found for that sector, market, and timeframe."
       }, { status: 400 });
     }
 
-    const countryText = countries.map(country => country.label || `${country.name} (${country.code})`).join(", ");
+    const countryText = countries
+      .map(country => country.label || `${country.name} (${country.code})`)
+      .join(", ");
+
     const articleContext = mergedSources.map(source => {
       const text = source.raw_content || source.summary || "";
       const trimmedText = text.length > 2500 ? text.slice(0, 2500) + "…" : text;
@@ -629,16 +404,19 @@ Instructions:
 - Use only the provided news sources below
 - Do not invent additional sources
 - Produce 3 to 5 themes
+- Each theme must be relevant to trade finance, such as import/export flows, supply chain disruption, FX exposure, working capital, payment risk, guarantees, letters of credit, documentary collections, receivables, inventory financing, or counterparty risk
 - Format each theme exactly as:
-  Theme 1: [Theme heading]
-  [One paragraph of justification]
+  Theme 1: [Short trade-finance-relevant heading]
+  [One short paragraph explaining why this matters to the customer]
   Supporting information:
-  - [bullet point with source reference like [1]]
-  - [bullet point with source reference like [2]]
+  - [Specific supporting point with source reference like [1]]
+  - [Specific supporting point with source reference like [2]]
 - Use source references like [1], [2], [3] that match the numbered source list
+- Keep paragraphs concise and easy to scan
+- Use bullet points for supporting information
 - If evidence is mixed or incomplete, say so clearly
 - Do not include a long source list in the analysis because the UI shows sources separately
-- Mention FX movements only if relevant
+- Mention FX movements only if relevant to trade finance exposure
 
 Provided sources:
 ${articleContext}
@@ -668,6 +446,7 @@ ${articleContext}
       analysis: extractOutputText(openaiData) || "No analysis returned.",
       fx: fxResults,
       search_keywords: searchKeywords,
+      search_query: query,
       sources: mergedSources.map(source => ({
         number: source.source_number,
         title: source.title,
