@@ -1,5 +1,5 @@
-// ---------- DOM ----------
 const button = document.getElementById("send");
+const updateFxButton = document.getElementById("updateFx");
 
 const sectorBox = document.getElementById("sector");
 const subsectorBox = document.getElementById("subsector");
@@ -17,7 +17,6 @@ const fxOutput = document.getElementById("fxOutput");
 
 let selectedCountries = [];
 
-// ---------- HELPERS ----------
 function countryLabel(country) {
   return `${country.name} (${country.code})`;
 }
@@ -28,7 +27,6 @@ function getSelectedCurrencies() {
     .map(input => input.value);
 }
 
-// ---------- SECTOR / SUBSECTOR ----------
 function populateSectors() {
   Object.keys(SECTOR_DATA).forEach(sector => {
     const option = document.createElement("option");
@@ -59,7 +57,6 @@ function populateSubsectors() {
   });
 }
 
-// ---------- COUNTRIES ----------
 function renderCountryDropdown() {
   const search = (countrySearch.value || "").toLowerCase().trim();
 
@@ -122,7 +119,6 @@ function renderSelectedCountries() {
   });
 }
 
-// ---------- FX ----------
 function renderFx(fxList) {
   if (!fxList || fxList.length === 0) {
     fxOutput.textContent = "No FX data returned.";
@@ -203,7 +199,6 @@ function renderFx(fxList) {
   `;
 }
 
-// ---------- SOURCES ----------
 function renderSources(sources) {
   if (!sources || sources.length === 0) {
     sourcesOutput.textContent = "No sources found.";
@@ -223,22 +218,15 @@ function renderSources(sources) {
         >
           [${number}] ${source.title || source.url}
         </a>
-
         <div class="source-meta">
-          ${source.domain || source.source || "Unknown source"}
-          •
-          ${source.published_at || "Unknown date"}
+          ${source.domain || source.source || "Unknown source"} • ${source.published_at || "Unknown date"}
         </div>
-
-        <div class="source-link">
-          ${source.url}
-        </div>
+        <div class="source-link">${source.url}</div>
       </div>
     `;
   }).join("");
 }
 
-// ---------- ANALYSIS ----------
 function renderAnalysis(text) {
   if (!text) {
     analysisOutput.textContent = "No analysis returned.";
@@ -287,7 +275,41 @@ function renderAnalysis(text) {
   }).join("");
 }
 
-// ---------- COUNTRY DROPDOWN UX ----------
+async function updateFxOnly() {
+  const currencies = getSelectedCurrencies();
+
+  if (currencies.length === 0) {
+    fxOutput.textContent = "Please select at least one currency.";
+    return;
+  }
+
+  updateFxButton.disabled = true;
+  fxOutput.innerHTML = `<span class="loading">Updating FX...</span>`;
+
+  try {
+    const response = await fetch("/api/fx", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ currencies })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      fxOutput.innerHTML = `<span class="error">${data.error || "FX update failed."}</span>`;
+      return;
+    }
+
+    renderFx(data.fx || []);
+  } catch (error) {
+    fxOutput.innerHTML = `<span class="error">FX network error.</span>`;
+  } finally {
+    updateFxButton.disabled = false;
+  }
+}
+
 countrySearch.addEventListener("focus", function () {
   countryDropdown.classList.remove("hidden");
   renderCountryDropdown();
@@ -304,7 +326,6 @@ document.addEventListener("click", function (event) {
   }
 });
 
-// ---------- SUBMIT ----------
 button.addEventListener("click", async function () {
   const sector = sectorBox.value;
   const subsector = subsectorBox.value;
@@ -335,7 +356,7 @@ button.addEventListener("click", async function () {
   }
 
   if (countries.length === 0) {
-    analysisOutput.textContent = "Please select at least one country.";
+    analysisOutput.textContent = "Please select at least one country / market.";
     return;
   }
 
@@ -368,12 +389,7 @@ button.addEventListener("click", async function () {
     const data = await response.json();
 
     if (!response.ok) {
-      analysisOutput.innerHTML = `
-        <span class="error">
-          ${data.error || "Request failed."}
-        </span>
-      `;
-
+      analysisOutput.innerHTML = `<span class="error">${data.error || "Request failed."}</span>`;
       fxOutput.textContent = "";
       sourcesOutput.textContent = "";
       return;
@@ -383,12 +399,7 @@ button.addEventListener("click", async function () {
     renderSources(data.sources || []);
     renderAnalysis(data.analysis || "No analysis returned.");
   } catch (error) {
-    analysisOutput.innerHTML = `
-      <span class="error">
-        Network error.
-      </span>
-    `;
-
+    analysisOutput.innerHTML = `<span class="error">Network error.</span>`;
     fxOutput.textContent = "";
     sourcesOutput.textContent = "";
   } finally {
@@ -396,9 +407,9 @@ button.addEventListener("click", async function () {
   }
 });
 
-// ---------- INIT ----------
 populateSectors();
 populateSubsectors();
 renderCountryDropdown();
 
 sectorBox.addEventListener("change", populateSubsectors);
+updateFxButton.addEventListener("click", updateFxOnly);
