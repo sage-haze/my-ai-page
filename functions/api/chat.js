@@ -787,23 +787,10 @@ ${JSON.stringify(compactSources, null, 2)}
       sources: selectedSources
     };
   } catch (_) {
-    const fallbackSources = sources
-      .filter(source => isThailandRelatedSource(source) || String(source.source_group || "").includes("global"))
-      .sort((a, b) => sourcePriority(b) - sourcePriority(a))
-      .slice(0, 6)
-      .map(source => ({
-        ...source,
-        relevant: true,
-        relevance_level: isThailandRelatedSource(source) ? "HIGH" : "MEDIUM",
-        relevance_justification: isThailandRelatedSource(source)
-          ? "Relevant because it connects directly to Thailand and the client context."
-          : "Relevant because it provides global industry context for the client's trade discussion."
-      }));
-
     return {
-      hasRelevantUpdates: fallbackSources.length > 0,
+      hasRelevantUpdates: false,
       noRelevantUpdateMessage: `No significant relevant news updates were found in the selected ${timeframe}-day period for this client profile.`,
-      sources: fallbackSources
+      sources: []
     };
   }
 }
@@ -831,11 +818,113 @@ function extractOutputText(data) {
 }
 
 
+function extractSourceRefs(text) {
+  const refs = new Set();
+  const regex = /\[(\d+)\]/g;
+  let match;
+
+  while ((match = regex.exec(String(text || ""))) !== null) {
+    refs.add(Number(match[1]));
+  }
+
+  return Array.from(refs).filter(Number.isFinite).sort((a, b) => a - b);
+}
+
+function normalizeNoNewsText(timeframe) {
+  return `No significant or relevant market developments identified for this industry and client context in the selected ${timeframe}-day period.`;
+}
+
+function formatNewsThemesFromJson(parsed) {
+  const themes = Array.isArray(parsed.themes) ? parsed.themes : [];
+
+  return themes.map((theme, index) => {
+    const title = String(theme.title || `Theme ${index + 1}`).replace(/^Theme\s*\d+\s*:\s*/i, "").trim();
+    const paragraph = String(theme.paragraph || theme.explanation || "").trim();
+    const bullets = Array.isArray(theme.supportingInformation || theme.supporting_information || theme.bullets)
+      ? (theme.supportingInformation || theme.supporting_information || theme.bullets)
+      : [];
+
+    const bulletText = bullets
+      .map(item => String(item || "").trim())
+      .filter(Boolean)
+      .map(item => `- ${item}`)
+      .join("\n");
+
+    return [
+      `Theme ${index + 1}: ${title}`,
+      paragraph,
+      bulletText ? "Supporting information:" : "",
+      bulletText
+    ].filter(Boolean).join("\n");
+  }).filter(Boolean).join("\n\n");
+}
+
+function remapSourceNumbersInText(text, numberMap) {
+  return String(text || "").replace(/\[(\d+)\]/g, (full, rawNumber) => {
+    const mapped = numberMap.get(Number(rawNumber));
+    return mapped ? `[${mapped}]` : full;
+  });
+}
+
+function alignSourcesToAnalysis({ sources, newsSection, timeframe }) {
+  if (!newsSection || newsSection.status === "NO_NEWS") {
+    return {
+      newsSection: {
+        status: "NO_NEWS",
+        content: normalizeNoNewsText(timeframe)
+      },
+      sources: []
+    };
+  }
+
+  const usedNumbers = extractSourceRefs(newsSection.content);
+  if (usedNumbers.length === 0) {
+    return {
+      newsSection: {
+        status: "NO_NEWS",
+        content: normalizeNoNewsText(timeframe)
+      },
+      sources: []
+    };
+  }
+
+  const usedSet = new Set(usedNumbers);
+  const usedSources = sources.filter(source => usedSet.has(source.source_number));
+
+  if (usedSources.length === 0) {
+    return {
+      newsSection: {
+        status: "NO_NEWS",
+        content: normalizeNoNewsText(timeframe)
+      },
+      sources: []
+    };
+  }
+
+  const numberMap = new Map();
+  const renumberedSources = usedSources.map((source, index) => {
+    const newNumber = index + 1;
+    numberMap.set(source.source_number, newNumber);
+    return {
+      ...source,
+      source_number: newNumber
+    };
+  });
+
+  return {
+    newsSection: {
+      ...newsSection,
+      content: remapSourceNumbersInText(newsSection.content, numberMap)
+    },
+    sources: renumberedSources
+  };
+}
+
 async function analyzeNewsDevelopments({ env, sources, sector, subsector, industry, tradeRoles, countries, timeframe, deepSearch, plannedQueries, defaultPrompt }) {
   if (!sources.length) {
     return {
       status: "NO_NEWS",
-      content: `No significant or relevant market developments identified for this industry and client context in the selected ${timeframe}-day period.`
+      content: normalizeNoNewsText(timeframe)
     };
   }
 
@@ -863,7 +952,7 @@ ${trimmedText}
   const prompt = `
 You are an analyst supporting a Thailand-based relationship manager.
 
-The user prompt/context is:
+The user's custom focus/context is:
 ${defaultPrompt}
 
 Customer profile:
@@ -885,23 +974,37 @@ Strict rules:
 - Do NOT add general industry knowledge, background assumptions, or evergreen commentary.
 - Do NOT infer beyond what the sources directly support.
 - Do NOT analyze FX rate movements; FX commentary is generated separately.
-- If the sources do not contain meaningful, recent developments relevant to this Thailand-based client context, return exactly: NO_NEWS
+- If the sources do not contain meaningful, recent developments relevant to this Thailand-based client context, return JSON with "status": "NO_NEWS" and an empty themes array.
+- If there is at least one useful news-based theme, return JSON with "status": "OK". Do NOT include the string NO_NEWS anywhere in titles, paragraphs, or bullets.
 - Be assertive. Do not create generic filler just to produce themes.
-- Each theme must be tied to source references like [1], [2].
+- Every theme must cite at least one source number from the provided sources.
+- Every supporting bullet must include a source reference like [1], [2].
+- Only use source numbers that support the specific statement.
+- Do not cite a source unless it is actually used in the theme.
 - Each theme should be relevant to trade finance, such as import/export flows, supply chain disruption, working capital, payment risk, guarantees, letters of credit, documentary collections, receivables, inventory financing, or counterparty risk.
 - Treat selected countries as exposure markets/sourcing markets for the Thai client, not as countries to cross-combine with each other.
 
-Output format if relevant:
-Theme 1: [Short news-based heading]
-[One short paragraph explaining why this current development matters to the Thailand-based client.]
-Supporting information:
-- [Specific source-backed point with source reference like [1]]
-- [Specific source-backed point with source reference like [2]]
+Return JSON only in this exact shape:
+{
+  "status": "OK",
+  "themes": [
+    {
+      "title": "Short news-based heading",
+      "paragraph": "One short paragraph explaining why this current development matters to the Thailand-based client, with source reference(s).",
+      "supportingInformation": [
+        "Specific source-backed point with source reference like [1]",
+        "Specific source-backed point with source reference like [2]"
+      ],
+      "sourceNumbers": [1, 2]
+    }
+  ]
+}
 
-Theme 2: ...
-
-Output format if not relevant:
-NO_NEWS
+If not relevant, return exactly this JSON:
+{
+  "status": "NO_NEWS",
+  "themes": []
+}
 
 Provided sources:
 ${articleContext}
@@ -925,18 +1028,47 @@ ${articleContext}
       throw new Error(data.error?.message || "OpenAI news analysis request failed.");
     }
 
-    const text = (extractOutputText(data) || "").trim();
+    const rawText = (extractOutputText(data) || "").trim();
+    const parsed = parseJsonObject(rawText);
 
-    if (!text || text.toUpperCase() === "NO_NEWS") {
+    if (!parsed) {
+      const cleanedText = rawText.replace(/\bNO_NEWS\b/g, "").trim();
+      const sourceRefs = extractSourceRefs(cleanedText);
+      if (!cleanedText || sourceRefs.length === 0) {
+        return {
+          status: "NO_NEWS",
+          content: normalizeNoNewsText(timeframe)
+        };
+      }
+      return {
+        status: "OK",
+        content: cleanedText
+      };
+    }
+
+    const status = String(parsed.status || "").toUpperCase();
+    const themes = Array.isArray(parsed.themes) ? parsed.themes : [];
+
+    if (status === "NO_NEWS" || themes.length === 0) {
       return {
         status: "NO_NEWS",
-        content: `No significant or relevant market developments identified for this industry and client context in the selected ${timeframe}-day period.`
+        content: normalizeNoNewsText(timeframe)
+      };
+    }
+
+    const content = formatNewsThemesFromJson(parsed).replace(/\bNO_NEWS\b/g, "").trim();
+    const sourceRefs = extractSourceRefs(content);
+
+    if (!content || sourceRefs.length === 0) {
+      return {
+        status: "NO_NEWS",
+        content: normalizeNoNewsText(timeframe)
       };
     }
 
     return {
       status: "OK",
-      content: text
+      content
     };
   } catch (error) {
     throw error;
@@ -1023,8 +1155,6 @@ export async function onRequestPost(context) {
     if (tradeRoles.length === 0) return Response.json({ error: "Please select whether the client is an importer, exporter, or both." }, { status: 400 });
     if (currencies.length === 0) return Response.json({ error: "Please select at least one currency." }, { status: 400 });
     if (countries.length === 0) return Response.json({ error: "Please select at least one country / market." }, { status: 400 });
-    if (!defaultPrompt) return Response.json({ error: "Please enter a default prompt." }, { status: 400 });
-
     const unsupported = currencies.filter(currency => !ALLOWED_CURRENCIES.includes(currency));
     if (unsupported.length > 0) {
       return Response.json({ error: `Unsupported currency selected: ${unsupported.join(", ")}` }, { status: 400 });
@@ -1145,7 +1275,7 @@ export async function onRequestPost(context) {
       });
     }
 
-    const newsSection = await analyzeNewsDevelopments({
+    const rawNewsSection = await analyzeNewsDevelopments({
       env,
       sources: mergedSources,
       sector,
@@ -1159,16 +1289,22 @@ export async function onRequestPost(context) {
       defaultPrompt
     });
 
+    const aligned = alignSourcesToAnalysis({
+      sources: mergedSources,
+      newsSection: rawNewsSection,
+      timeframe
+    });
+
     return Response.json({
-      analysis: newsSection.content,
-      news: newsSection,
+      analysis: aligned.newsSection.content,
+      news: aligned.newsSection,
       context: generalContext,
-      no_relevant_updates: newsSection.status === "NO_NEWS",
+      no_relevant_updates: aligned.newsSection.status === "NO_NEWS",
       fx: fxResults,
       search_keywords: searchKeywords,
       search_queries: plannedQueries,
       search_mode: deepSearch ? "deep" : "standard",
-      sources: newsSection.status === "NO_NEWS" ? [] : mergedSources.map(source => ({
+      sources: aligned.newsSection.status === "NO_NEWS" ? [] : aligned.sources.map(source => ({
         number: source.source_number,
         title: source.title,
         url: source.url,

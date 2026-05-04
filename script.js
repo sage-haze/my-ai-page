@@ -429,11 +429,6 @@ button.addEventListener("click", async function () {
     return;
   }
 
-  if (!defaultPrompt) {
-    analysisOutput.textContent = "Please enter a prompt.";
-    return;
-  }
-
   button.disabled = true;
   fxOutput.innerHTML = `<span class="loading">Checking FX...</span>`;
   analysisOutput.innerHTML = `<span class="loading">Researching news...</span>`;

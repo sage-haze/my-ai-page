@@ -377,3 +377,10 @@ button:disabled {
   margin-bottom: 0.75rem;
   line-height: 1.5;
 }
+
+.context-card {
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  color: inherit;
+}
