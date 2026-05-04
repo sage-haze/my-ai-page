@@ -1153,9 +1153,9 @@ async function generateGeneralContext({ env, sector, subsector, industry, tradeR
     .join(", ");
 
   const prompt = `
-You are supporting a Thailand-based relationship manager.
+You are advising a Thailand-based relationship manager in trade finance.
 
-Provide up to 3 broader industry context points for this client profile.
+Generate 2–3 industry-specific context points for this client profile.
 
 Client context:
 - Sector: ${sector}
@@ -1165,19 +1165,48 @@ Client context:
 - Client base: Thailand
 - Exposure countries / markets: ${countryText}
 
-Rules:
+Return ONLY valid JSON in this exact structure:
+{
+  "points": [
+    {
+      "title": "Specific insight-driven title",
+      "explanation": "3–4 sentences explaining the structural issue and why it matters for this client profile.",
+      "rm_considerations": [
+        "Practical RM point 1",
+        "Practical RM point 2"
+      ]
+    }
+  ]
+}
+
+Strict requirements:
+- Produce 2–3 points only.
+- Each title must be specific, insight-driven, and tied to a real business issue.
+- Do NOT use generic titles such as "Industry Context", "Market Overview", "Key Consideration", "Business Context", or "Trade Finance Context".
+- Do NOT repeat titles.
+- Good title examples:
+  - "FX Mismatch in Export Pricing Contracts"
+  - "Working Capital Pressure from Extended Payment Cycles"
+  - "Supplier Concentration Risk in Regional Manufacturing"
+  - "Inventory Financing Pressure from Seasonal Demand Cycles"
+  - "Payment Risk from Cross-Border Counterparties"
+- Each explanation must be 3–4 concise sentences.
+- Each rm_considerations array must contain 2–3 practical bullets for the relationship manager.
+- RM bullets should focus on what to ask, watch, or discuss with the client, such as financing needs, FX exposure, payment risk, working capital pressure, inventory cycle, supplier concentration, or counterparty risk.
 - Do NOT reference specific news, source numbers, articles, or dates.
 - Do NOT claim something is currently happening.
-- Focus on structural patterns relevant to the client, such as trade flows, FX exposure, working capital, supply chain, payment risk, and counterparty risk.
-- Keep each point practical for a bank RM conversation.
-- Maximum 3 points.
-- Each point should be 1–2 concise sentences.
-
-Output format:
-1. ...
-2. ...
-3. ...
+- Focus on structural industry patterns, not recent developments.
 `.trim();
+
+  const fallbackTitleByIndex = [
+    "Trade Flow and Counterparty Exposure",
+    "Working Capital and Cash Conversion Pressure",
+    "FX and Margin Sensitivity"
+  ];
+
+  function isGenericTitle(title) {
+    return !title || /^(industry context|market overview|key consideration|business context|trade finance context|context|industry-specific context)$/i.test(String(title).trim());
+  }
 
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
@@ -1188,16 +1217,75 @@ Output format:
       },
       body: JSON.stringify({
         model: "gpt-4.1-mini",
-        input: prompt
+        input: prompt,
+        text: {
+          format: {
+            type: "json_schema",
+            name: "industry_context_rm_considerations",
+            strict: true,
+            schema: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                points: {
+                  type: "array",
+                  minItems: 2,
+                  maxItems: 3,
+                  items: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      title: { type: "string" },
+                      explanation: { type: "string" },
+                      rm_considerations: {
+                        type: "array",
+                        minItems: 2,
+                        maxItems: 3,
+                        items: { type: "string" }
+                      }
+                    },
+                    required: ["title", "explanation", "rm_considerations"]
+                  }
+                }
+              },
+              required: ["points"]
+            }
+          }
+        }
       })
     });
 
     const data = await response.json();
-    if (!response.ok) return "";
+    if (!response.ok) return { points: [] };
 
-    return (extractOutputText(data) || "").trim();
+    const parsed = parseJsonObject(extractOutputText(data));
+    const rawPoints = Array.isArray(parsed?.points) ? parsed.points : [];
+
+    const seenTitles = new Set();
+    const points = rawPoints
+      .slice(0, 3)
+      .map((point, index) => {
+        let title = String(point.title || "").trim();
+
+        if (isGenericTitle(title) || seenTitles.has(title.toLowerCase())) {
+          title = fallbackTitleByIndex[index] || `RM Consideration ${index + 1}`;
+        }
+
+        seenTitles.add(title.toLowerCase());
+
+        return {
+          title,
+          explanation: String(point.explanation || "").trim(),
+          rm_considerations: Array.isArray(point.rm_considerations)
+            ? point.rm_considerations.map(item => String(item).trim()).filter(Boolean).slice(0, 3)
+            : []
+        };
+      })
+      .filter(point => point.title && point.explanation);
+
+    return { points };
   } catch (_) {
-    return "";
+    return { points: [] };
   }
 }
 
