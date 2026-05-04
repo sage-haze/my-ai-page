@@ -54,7 +54,6 @@
             <label><input type="checkbox" name="tradeRole" value="importer"> Importer</label>
             <label><input type="checkbox" name="tradeRole" value="exporter"> Exporter</label>
           </div>
-          <p class="field-hint">Select one or both. This helps focus search around supplier, buyer, shipment, and FX exposure.</p>
         </div>
 
         <div class="form-group">
@@ -62,7 +61,7 @@
           <div class="checkbox-row">
             <label><input type="checkbox" id="deepSearch"> Deep Search</label>
           </div>
-          <p class="field-hint">Deep Search uses more targeted Tavily calls for better relevance and uses more Tavily credits.</p>
+          <p class="field-hint">Runs a broader and more detailed search across recent market developments to surface less obvious but potentially relevant insights.</p>
         </div>
 
         <div class="form-group">
@@ -92,7 +91,7 @@
 
         <div class="form-group">
           <label for="defaultPrompt">Custom Focus (Optional)</label>
-          <textarea id="defaultPrompt" rows="6">Focus on trade finance implications relevant to this client, including import/export activity, supply chain dynamics, FX exposure, working capital needs, payment and counterparty risk, documentary trade, guarantees, and opportunities for trade finance solutions. Prioritise insights that are practical for a Thailand-based client with cross-border exposure.</textarea>
+          <textarea id="defaultPrompt" rows="3">Focus on trade finance implications relevant to this client, including import/export activity, supply chain dynamics, FX exposure, working capital needs, payment and counterparty risk, documentary trade, guarantees, and opportunities for trade finance solutions. Prioritise insights that are practical for a Thailand-based client with cross-border exposure.</textarea>
         </div>
 
         <button id="send">Research</button>

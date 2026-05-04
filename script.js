@@ -128,6 +128,42 @@ function renderSelectedCountries() {
   });
 }
 
+function cleanFxPair(fx) {
+  if (!fx) return "";
+
+  const rawPair = String(fx.pair || "").replace("=X", "");
+
+  if (rawPair) return rawPair;
+  if (fx.base) return `${fx.base}THB`;
+
+  return "FX Pair";
+}
+
+function formatFxDate(value) {
+  if (!value) return "—";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "2-digit"
+  });
+}
+
+function formatFxRate(value) {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return value === null || value === undefined || value === "" ? "—" : String(value);
+  }
+
+  return number.toFixed(4);
+}
+
 function renderFx(fxList) {
   if (!fxList || fxList.length === 0) {
     fxOutput.textContent = "No FX data returned.";
@@ -144,12 +180,10 @@ function renderFx(fxList) {
 
   const summaryRows = nonThb.map(fx => `
     <tr>
-      <td>${fx.pair}</td>
-      <td>${fx.latest_rate}</td>
-      <td>${fx.highest_rate}</td>
-      <td>${fx.highest_date}</td>
-      <td>${fx.lowest_rate}</td>
-      <td>${fx.lowest_date}</td>
+      <td>${cleanFxPair(fx)}</td>
+      <td>${formatFxRate(fx.latest_rate)}</td>
+      <td>${formatFxRate(fx.highest_rate)} (${formatFxDate(fx.highest_date)})</td>
+      <td>${formatFxRate(fx.lowest_rate)} (${formatFxDate(fx.lowest_date)})</td>
     </tr>
   `).join("");
 
@@ -160,9 +194,7 @@ function renderFx(fxList) {
           <th>Pair</th>
           <th>Latest</th>
           <th>7D High</th>
-          <th>High Date</th>
           <th>7D Low</th>
-          <th>Low Date</th>
         </tr>
       </thead>
       <tbody>${summaryRows}</tbody>
@@ -170,16 +202,16 @@ function renderFx(fxList) {
   ` : "";
 
   const detailBlocks = nonThb.map(fx => {
-    const rows = fx.series.map(item => `
+    const rows = (fx.series || []).map(item => `
       <tr>
-        <td>${item.date}</td>
-        <td>${item.rate}</td>
+        <td>${formatFxDate(item.date)}</td>
+        <td>${formatFxRate(item.rate)}</td>
       </tr>
     `).join("");
 
     return `
       <div class="fx-block">
-        <div class="fx-title">${fx.pair}</div>
+        <div class="fx-title">${cleanFxPair(fx)}</div>
         <table class="fx-detail-table">
           <thead>
             <tr>

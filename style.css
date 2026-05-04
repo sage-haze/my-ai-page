@@ -60,7 +60,7 @@ input[type="text"] {
 
 #defaultPrompt {
   width: 100%;
-  min-height: 140px;
+  min-height: 78px;
   resize: vertical;
 }
 
@@ -260,6 +260,7 @@ button:disabled {
 .fx-detail-table td {
   border: 1px solid #ddd;
   padding: 6px;
+  text-align: center;
 }
 
 .fx-summary-table th,
