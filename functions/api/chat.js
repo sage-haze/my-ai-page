@@ -167,27 +167,135 @@ function getSearchKeywords({ sector, subsector }) {
   ]).slice(0, 20);
 }
 
-function buildQuery({ sector, subsector, countries, defaultPrompt }) {
-  const baseKeywords = getSearchKeywords({ sector, subsector }).slice(0, 6);
-  const promptKeywords = extractPromptKeywords(defaultPrompt);
+function cleanQueryText(text) {
+  return String(text || "")
+    .replace(/[^a-zA-Z0-9\s&+.-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 350);
+}
 
-  const countryText = countries
-    .map(country => country.name)
-    .slice(0, 3)
-    .join(" ");
+function roleText(tradeRoles) {
+  if (tradeRoles.includes("importer") && tradeRoles.includes("exporter")) return "importer exporter";
+  if (tradeRoles.includes("importer")) return "importer imports suppliers";
+  if (tradeRoles.includes("exporter")) return "exporter exports buyers";
+  return "import export";
+}
 
-  const query = [
-    sector,
-    subsector,
-    countryText,
-    "trade finance",
-    "banking",
-    "latest news",
-    ...baseKeywords,
-    ...promptKeywords
-  ].join(" ");
+function buildFallbackQueries({ sector, subsector, industry, tradeRoles, countries, deepSearch }) {
+  const countryText = countries.map(country => country.name).slice(0, 4).join(" ");
+  const baseKeywords = getSearchKeywords({ sector, subsector }).slice(0, 4).join(" ");
+  const tradeRoleText = roleText(tradeRoles);
 
-  return query.slice(0, 350);
+  const queries = [
+    {
+      label: "industry_role",
+      query: cleanQueryText(`Thailand ${industry} ${tradeRoleText} ${subsector} trade supply chain news`),
+      maxResults: deepSearch ? 4 : 5
+    },
+    {
+      label: "geography_exposure",
+      query: cleanQueryText(`Thailand ${industry} ${countryText} trade exports imports investment supply chain news`),
+      maxResults: deepSearch ? 4 : 5
+    }
+  ];
+
+  if (deepSearch) {
+    queries.push(
+      {
+        label: "global_context",
+        query: cleanQueryText(`global ${industry} ${subsector} ${baseKeywords} demand supply chain trade news`),
+        maxResults: 4
+      },
+      {
+        label: "risk_finance",
+        query: cleanQueryText(`${industry} import export logistics tariffs FX working capital payment risk news`),
+        maxResults: 4
+      }
+    );
+  }
+
+  return queries;
+}
+
+function parseQueryPlan(text) {
+  try {
+    const jsonStart = text.indexOf("{");
+    const jsonEnd = text.lastIndexOf("}");
+    if (jsonStart === -1 || jsonEnd === -1) return null;
+
+    const parsed = JSON.parse(text.slice(jsonStart, jsonEnd + 1));
+    if (!Array.isArray(parsed.queries)) return null;
+
+    return parsed.queries
+      .map(item => ({
+        label: cleanQueryText(item.label || "planned_query").toLowerCase().replace(/\s+/g, "_"),
+        query: cleanQueryText(item.query),
+        maxResults: Number(item.maxResults || 4)
+      }))
+      .filter(item => item.query.length > 0)
+      .slice(0, 4);
+  } catch (_) {
+    return null;
+  }
+}
+
+async function planTavilyQueries({ env, sector, subsector, industry, tradeRoles, countries, timeframe, deepSearch }) {
+  const fallbackQueries = buildFallbackQueries({ sector, subsector, industry, tradeRoles, countries, deepSearch });
+  const countryText = countries.map(country => country.label || `${country.name} (${country.code})`).join(", ");
+  const targetCount = deepSearch ? 4 : 2;
+
+  const plannerPrompt = `
+Create ${targetCount} short Tavily news search queries for a Thailand-based bank RM.
+
+Customer profile:
+- Client base: Thailand
+- Sector: ${sector}
+- Subsector: ${subsector}
+- Specific industry: ${industry}
+- Client trade role: ${tradeRoles.join(", ")}
+- Exposure countries / markets: ${countryText}
+- Timeframe: last ${timeframe} days
+
+Rules:
+- Return JSON only.
+- Tavily is keyword search, not reasoning. Keep each query short and keyword-style.
+- Use Industry as the main anchor.
+- Use importer/exporter status to shape the commercial lens.
+- Include Thailand because the client is based in Thailand.
+- Include selected countries in one geography query.
+- Include global context in deep mode.
+- Avoid prompts, questions, and long sentences.
+- Each query must be under 180 characters.
+
+JSON shape:
+{
+  "queries": [
+    { "label": "industry_role", "query": "...", "maxResults": 4 }
+  ]
+}`.trim();
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${env.OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: "gpt-4.1-mini",
+        input: plannerPrompt
+      })
+    });
+
+    const data = await response.json();
+    if (!response.ok) return fallbackQueries;
+
+    const planned = parseQueryPlan(extractOutputText(data));
+    return planned && planned.length >= 2 ? planned.slice(0, targetCount) : fallbackQueries;
+  } catch (_) {
+    return fallbackQueries;
+  }
 }
 
 function normalizeTavilyResults(results, sourceGroup) {
@@ -219,11 +327,11 @@ function dedupeSources(items) {
   return deduped;
 }
 
-async function tavilySearch({ apiKey, query, startDate, endDate, includeDomains = null, maxResults = 5 }) {
+async function tavilySearch({ apiKey, query, startDate, endDate, includeDomains = null, maxResults = 5, searchDepth = "basic" }) {
   const body = {
     query,
     topic: "news",
-    search_depth: "advanced",
+    search_depth: searchDepth,
     max_results: maxResults,
     include_raw_content: true,
     start_date: startDate,
@@ -424,7 +532,12 @@ export async function onRequestPost(context) {
 
     const sector = (body.sector || "").trim();
     const subsector = (body.subsector || "").trim();
+    const industry = (body.industry || "").trim();
     const timeframe = (body.timeframe || "30").trim();
+    const tradeRoles = Array.isArray(body.tradeRoles)
+      ? body.tradeRoles.map(role => String(role).toLowerCase()).filter(role => ["importer", "exporter"].includes(role))
+      : [];
+    const deepSearch = Boolean(body.deepSearch);
     const currencies = Array.isArray(body.currencies)
       ? body.currencies.map(c => String(c).toUpperCase())
       : [];
@@ -433,6 +546,8 @@ export async function onRequestPost(context) {
 
     if (!sector) return Response.json({ error: "Please select a sector." }, { status: 400 });
     if (!subsector) return Response.json({ error: "Please select a subsector." }, { status: 400 });
+    if (!industry) return Response.json({ error: "Please enter the client's industry." }, { status: 400 });
+    if (tradeRoles.length === 0) return Response.json({ error: "Please select whether the client is an importer, exporter, or both." }, { status: 400 });
     if (currencies.length === 0) return Response.json({ error: "Please select at least one currency." }, { status: 400 });
     if (countries.length === 0) return Response.json({ error: "Please select at least one country / market." }, { status: 400 });
     if (!defaultPrompt) return Response.json({ error: "Please enter a default prompt." }, { status: 400 });
@@ -452,34 +567,37 @@ export async function onRequestPost(context) {
 
     const { start_date, end_date } = getDateRange(timeframe);
     const searchKeywords = getSearchKeywords({ sector, subsector });
-    const query = buildQuery({ sector, subsector, countries, defaultPrompt });
+    const plannedQueries = await planTavilyQueries({
+      env,
+      sector,
+      subsector,
+      industry,
+      tradeRoles,
+      countries,
+      timeframe,
+      deepSearch
+    });
 
-    const [approvedResults, broadResults, fxResults] = await Promise.all([
-      tavilySearch({
-        apiKey: env.TAVILY_API_KEY,
-        query,
-        startDate: start_date,
-        endDate: end_date,
-        includeDomains: DEFAULT_APPROVED_DOMAINS,
-        maxResults: 5
-      }),
-      tavilySearch({
-        apiKey: env.TAVILY_API_KEY,
-        query,
-        startDate: start_date,
-        endDate: end_date,
-        includeDomains: null,
-        maxResults: 8
-      }),
+    const searchDepth = deepSearch ? "advanced" : "basic";
+
+    const [tavilyBatches, fxResults] = await Promise.all([
+      Promise.all(plannedQueries.map(plan =>
+        tavilySearch({
+          apiKey: env.TAVILY_API_KEY,
+          query: plan.query,
+          startDate: start_date,
+          endDate: end_date,
+          includeDomains: null,
+          maxResults: plan.maxResults || (deepSearch ? 4 : 5),
+          searchDepth
+        }).then(results => normalizeTavilyResults(results, plan.label))
+      )),
       fetchFxRates(currencies)
     ]);
 
-    const approvedSources = normalizeTavilyResults(approvedResults, "approved");
-    const broadSources = normalizeTavilyResults(broadResults, "broad");
-
-    const mergedSources = dedupeSources([...approvedSources, ...broadSources])
+    const mergedSources = dedupeSources(tavilyBatches.flat())
       .sort((a, b) => (b.score || 0) - (a.score || 0))
-      .slice(0, 10)
+      .slice(0, deepSearch ? 12 : 10)
       .map((source, index) => ({
         ...source,
         source_number: index + 1
@@ -519,10 +637,15 @@ ${defaultPrompt}
 Customer profile:
 - Sector: ${sector}
 - Subsector: ${subsector}
+- Specific industry: ${industry}
+- Client trade role: ${tradeRoles.join(", ")}
+- Client base: Thailand
 - Countries / markets relevant to the client: ${countryText}
 - Timeframe for news search: last ${timeframe} days
 - Selected currencies: ${currencies.join(", ")}
+- Search mode: ${deepSearch ? "Deep Search" : "Standard Search"}
 - Search keywords used: ${searchKeywords.join(", ")}
+- Tavily queries used: ${plannedQueries.map(plan => `${plan.label}: ${plan.query}`).join(" | ")}
 
 Additional FX context:
 ${fxInstruction}
@@ -532,6 +655,7 @@ Instructions:
 - Do not invent additional sources
 - Produce 3 to 5 themes
 - Each theme must be relevant to trade finance, such as import/export flows, supply chain disruption, FX exposure, working capital, payment risk, guarantees, letters of credit, documentary collections, receivables, inventory financing, or counterparty risk
+- Treat the customer as Thailand-based with exposure to the selected countries; mention global context only where it affects the customer's industry or trade flows
 - Format each theme exactly as:
   Theme 1: [Short trade-finance-relevant heading]
   [One short paragraph explaining why this matters to the customer]
@@ -573,7 +697,8 @@ ${articleContext}
       analysis: extractOutputText(openaiData) || "No analysis returned.",
       fx: fxResults,
       search_keywords: searchKeywords,
-      search_query: query,
+      search_queries: plannedQueries,
+      search_mode: deepSearch ? "deep" : "standard",
       sources: mergedSources.map(source => ({
         number: source.source_number,
         title: source.title,

@@ -3,7 +3,9 @@ const updateFxButton = document.getElementById("updateFx");
 
 const sectorBox = document.getElementById("sector");
 const subsectorBox = document.getElementById("subsector");
+const industryBox = document.getElementById("industry");
 const timeframeBox = document.getElementById("timeframe");
+const deepSearchBox = document.getElementById("deepSearch");
 
 const countrySearch = document.getElementById("countrySearch");
 const countryDropdown = document.getElementById("countryDropdown");
@@ -24,6 +26,12 @@ function countryLabel(country) {
 function getSelectedCurrencies() {
   return Array
     .from(document.querySelectorAll('input[name="currency"]:checked'))
+    .map(input => input.value);
+}
+
+function getSelectedTradeRoles() {
+  return Array
+    .from(document.querySelectorAll('input[name="tradeRole"]:checked'))
     .map(input => input.value);
 }
 
@@ -329,8 +337,11 @@ document.addEventListener("click", function (event) {
 button.addEventListener("click", async function () {
   const sector = sectorBox.value;
   const subsector = subsectorBox.value;
+  const industry = industryBox.value.trim();
   const timeframe = timeframeBox.value;
   const currencies = getSelectedCurrencies();
+  const tradeRoles = getSelectedTradeRoles();
+  const deepSearch = deepSearchBox.checked;
 
   const countries = selectedCountries.map(country => ({
     name: country.name,
@@ -347,6 +358,16 @@ button.addEventListener("click", async function () {
 
   if (!subsector) {
     analysisOutput.textContent = "Please select a subsector.";
+    return;
+  }
+
+  if (!industry) {
+    analysisOutput.textContent = "Please enter the client's industry.";
+    return;
+  }
+
+  if (tradeRoles.length === 0) {
+    analysisOutput.textContent = "Please select whether the client is an importer, exporter, or both.";
     return;
   }
 
@@ -379,6 +400,9 @@ button.addEventListener("click", async function () {
       body: JSON.stringify({
         sector,
         subsector,
+        industry,
+        tradeRoles,
+        deepSearch,
         timeframe,
         currencies,
         countries,

@@ -28,6 +28,15 @@
           </div>
 
           <div class="form-group">
+            <label for="industry">Industry</label>
+            <input
+              id="industry"
+              type="text"
+              placeholder="e.g. frozen seafood packaging, EV battery parts"
+            >
+          </div>
+
+          <div class="form-group">
             <label for="timeframe">Timeframe</label>
             <select id="timeframe">
               <option value="30">Last 30 days</option>
@@ -37,6 +46,23 @@
               <option value="360">Last 360 days</option>
             </select>
           </div>
+        </div>
+
+        <div class="form-group">
+          <label>Client trade role</label>
+          <div class="checkbox-row">
+            <label><input type="checkbox" name="tradeRole" value="importer"> Importer</label>
+            <label><input type="checkbox" name="tradeRole" value="exporter"> Exporter</label>
+          </div>
+          <p class="field-hint">Select one or both. This helps focus search around supplier, buyer, shipment, and FX exposure.</p>
+        </div>
+
+        <div class="form-group">
+          <label>Search mode</label>
+          <div class="checkbox-row">
+            <label><input type="checkbox" id="deepSearch"> Deep Search</label>
+          </div>
+          <p class="field-hint">Deep Search uses more targeted Tavily calls for better relevance and uses more Tavily credits.</p>
         </div>
 
         <div class="form-group">
