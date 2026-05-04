@@ -1,130 +1,20 @@
-<!doctype html>
+<!DOCTYPE html>
 <html>
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Conversation builder</title>
-    <link rel="stylesheet" href="style.css">
-  </head>
-  <body>
-    <div class="page">
-      <div class="card">
-        <h1>Conversation builder</h1>
-        <p class="intro">Build a news-informed customer conversation brief.</p>
+<head>
+  <title>Conversation Builder</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1>Conversation Builder</h1>
 
-        <div class="form-grid">
-          <div class="form-group">
-            <label for="sector">Sector</label>
-            <select id="sector">
-              <option value="">Select a sector</option>
-            </select>
-          </div>
+  <button onclick="runResearch()">Research</button>
 
-          <div class="form-group">
-            <label for="subsector">Subsector</label>
-            <select id="subsector" disabled>
-              <option value="">Select a sector first</option>
-            </select>
-          </div>
+  <div id="fx"></div>
+  <div id="fx-context"></div>
+  <div id="analysis"></div>
+  <div id="context"></div>
+  <div id="sources"></div>
 
-          <div class="form-group">
-            <label for="industry">Industry</label>
-            <input
-              id="industry"
-              type="text"
-              placeholder="e.g. frozen seafood packaging, EV battery parts"
-            >
-          </div>
-
-          <div class="form-group">
-            <label for="timeframe">Timeframe</label>
-            <select id="timeframe">
-              <option value="30">Last 30 days</option>
-              <option value="60">Last 60 days</option>
-              <option value="90">Last 90 days</option>
-              <option value="180">Last 180 days</option>
-              <option value="360">Last 360 days</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label>Client trade role</label>
-          <div class="checkbox-row">
-            <label><input type="checkbox" name="tradeRole" value="importer"> Importer</label>
-            <label><input type="checkbox" name="tradeRole" value="exporter"> Exporter</label>
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label>Search mode</label>
-          <div class="checkbox-row">
-            <label><input type="checkbox" id="deepSearch"> Deep Search</label>
-          </div>
-          <p class="field-hint">Runs a broader and more detailed search across recent market developments to surface less obvious but potentially relevant insights.</p>
-        </div>
-
-        <div class="form-group">
-          <label>Currencies</label>
-          <div class="checkbox-row">
-            <label><input type="checkbox" name="currency" value="THB" checked> THB</label>
-            <label><input type="checkbox" name="currency" value="USD"> USD</label>
-            <label><input type="checkbox" name="currency" value="JPY"> JPY</label>
-            <label><input type="checkbox" name="currency" value="EUR"> EUR</label>
-            <label><input type="checkbox" name="currency" value="CNY"> CNY</label>
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label>Countries / markets relevant to the client</label>
-          <div class="country-picker">
-            <input
-              id="countrySearch"
-              type="text"
-              placeholder="Search and select countries..."
-              autocomplete="off"
-            >
-            <div id="countryDropdown" class="country-dropdown hidden"></div>
-          </div>
-          <div id="selectedCountries" class="selected-country-row"></div>
-        </div>
-
-        <div class="form-group">
-          <label for="defaultPrompt">Custom Focus (Optional)</label>
-          <textarea id="defaultPrompt" rows="3">Focus on trade finance implications relevant to this client, including import/export activity, supply chain dynamics, FX exposure, working capital needs, payment and counterparty risk, documentary trade, guarantees, and opportunities for trade finance solutions. Prioritise insights that are practical for a Thailand-based client with cross-border exposure.</textarea>
-        </div>
-
-        <button id="send">Research</button>
-
-        <div class="results-stack">
-          <div class="result-card">
-            <div class="result-card-header">
-              <h2>FX Rates</h2>
-              <button id="updateFx" type="button" class="secondary-button">Update FX</button>
-            </div>
-            <div id="fxOutput">FX rates will appear here.</div>
-          </div>
-
-          <div class="result-card">
-            <h2>Analysis</h2>
-            <div id="analysisOutput">The analysis will appear here.</div>
-          </div>
-
-          <div class="result-card">
-            <h2>Sources</h2>
-            <div id="sourcesOutput">The source links will appear here.</div>
-          </div>
-
-          <div class="result-card">
-            <h2>Broader Industry Context</h2>
-            <div id="contextOutput">General industry context will appear here.</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <script src="sector-data.js"></script>
-    <script src="country-data.js"></script>
-    <script src="script.js"></script>
-  </body>
+  <script src="script.js"></script>
+</body>
 </html>

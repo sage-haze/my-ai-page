@@ -1,524 +1,71 @@
-const button = document.getElementById("send");
-const updateFxButton = document.getElementById("updateFx");
+async function runResearch() {
+  const res = await fetch('/api/chat', { method: 'POST' });
+  const data = await res.json();
 
-const sectorBox = document.getElementById("sector");
-const subsectorBox = document.getElementById("subsector");
-const industryBox = document.getElementById("industry");
-const timeframeBox = document.getElementById("timeframe");
-const deepSearchBox = document.getElementById("deepSearch");
-
-const countrySearch = document.getElementById("countrySearch");
-const countryDropdown = document.getElementById("countryDropdown");
-const selectedCountriesBox = document.getElementById("selectedCountries");
-
-const defaultPromptBox = document.getElementById("defaultPrompt");
-
-const analysisOutput = document.getElementById("analysisOutput");
-const sourcesOutput = document.getElementById("sourcesOutput");
-const fxOutput = document.getElementById("fxOutput");
-const contextOutput = document.getElementById("contextOutput");
-
-let selectedCountries = [];
-
-function countryLabel(country) {
-  return `${country.name} (${country.code})`;
+  renderFx(data.fx);
+  renderFxContext(data.fx_context);
+  renderAnalysis(data.news?.content);
+  renderContext(data.context);
 }
 
-function getSelectedCurrencies() {
-  return Array
-    .from(document.querySelectorAll('input[name="currency"]:checked'))
-    .map(input => input.value);
+function formatDate(dateStr) {
+  const d = new Date(dateStr);
+  return d.toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
 }
 
-function getSelectedTradeRoles() {
-  return Array
-    .from(document.querySelectorAll('input[name="tradeRole"]:checked'))
-    .map(input => input.value);
+function formatRate(num) {
+  return Number(num).toFixed(4);
 }
 
-function populateSectors() {
-  Object.keys(SECTOR_DATA).forEach(sector => {
-    const option = document.createElement("option");
-    option.value = sector;
-    option.textContent = sector;
-    sectorBox.appendChild(option);
-  });
+function cleanPair(pair) {
+  return pair.replace('=X','');
 }
 
-function populateSubsectors() {
-  const sector = sectorBox.value;
-  subsectorBox.innerHTML = "";
+function renderFx(fx) {
+  if (!fx) return;
+  const container = document.getElementById("fx");
 
-  if (!sector) {
-    subsectorBox.disabled = true;
-    subsectorBox.innerHTML = `<option value="">Select a sector first</option>`;
-    return;
-  }
-
-  subsectorBox.disabled = false;
-  subsectorBox.innerHTML = `<option value="">Select a subsector</option>`;
-
-  SECTOR_DATA[sector].forEach(subsector => {
-    const option = document.createElement("option");
-    option.value = subsector;
-    option.textContent = subsector;
-    subsectorBox.appendChild(option);
-  });
-}
-
-function renderCountryDropdown() {
-  const search = (countrySearch.value || "").toLowerCase().trim();
-
-  const filtered = COUNTRIES
-    .map(([name, code]) => ({ name, code }))
-    .filter(country => countryLabel(country).toLowerCase().includes(search));
-
-  countryDropdown.innerHTML = filtered.map(country => {
-    const checked = selectedCountries.some(c => c.code === country.code) ? "checked" : "";
-
-    return `
-      <label class="country-option">
-        <input type="checkbox" value="${country.code}" ${checked}>
-        ${countryLabel(country)}
-      </label>
-    `;
-  }).join("");
-
-  countryDropdown.querySelectorAll("input").forEach(box => {
-    box.addEventListener("change", function () {
-      const country = COUNTRIES
-        .map(([name, code]) => ({ name, code }))
-        .find(c => c.code === box.value);
-
-      if (box.checked) {
-        if (!selectedCountries.some(c => c.code === country.code)) {
-          selectedCountries.push(country);
-        }
-      } else {
-        selectedCountries = selectedCountries.filter(c => c.code !== country.code);
-      }
-
-      renderSelectedCountries();
-      countrySearch.value = "";
-      countryDropdown.classList.add("hidden");
-      renderCountryDropdown();
-    });
-  });
-}
-
-function renderSelectedCountries() {
-  if (selectedCountries.length === 0) {
-    selectedCountriesBox.innerHTML = "";
-    return;
-  }
-
-  selectedCountriesBox.innerHTML = selectedCountries.map(country => `
-    <span class="country-chip">
-      ${countryLabel(country)}
-      <button type="button" data-code="${country.code}">×</button>
-    </span>
-  `).join("");
-
-  selectedCountriesBox.querySelectorAll("button").forEach(btn => {
-    btn.addEventListener("click", function () {
-      selectedCountries = selectedCountries.filter(c => c.code !== btn.dataset.code);
-      renderSelectedCountries();
-      renderCountryDropdown();
-    });
-  });
-}
-
-function cleanFxPair(fx) {
-  if (!fx) return "";
-
-  const rawPair = String(fx.pair || "").replace("=X", "");
-
-  if (rawPair) return rawPair;
-  if (fx.base) return `${fx.base}THB`;
-
-  return "FX Pair";
-}
-
-function formatFxDate(value) {
-  if (!value) return "—";
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return String(value);
-  }
-
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "2-digit"
-  });
-}
-
-function formatFxRate(value) {
-  const number = Number(value);
-
-  if (!Number.isFinite(number)) {
-    return value === null || value === undefined || value === "" ? "—" : String(value);
-  }
-
-  return number.toFixed(4);
-}
-
-function renderFx(fxList) {
-  if (!fxList || fxList.length === 0) {
-    fxOutput.textContent = "No FX data returned.";
-    return;
-  }
-
-  const nonThb = fxList.filter(fx => !fx.skip && !fx.error);
-  const errors = fxList.filter(fx => fx.error);
-
-  if (nonThb.length === 0 && errors.length === 0) {
-    fxOutput.textContent = "No non-THB FX selected.";
-    return;
-  }
-
-  const summaryRows = nonThb.map(fx => `
-    <tr>
-      <td>${cleanFxPair(fx)}</td>
-      <td>${formatFxRate(fx.latest_rate)}</td>
-      <td>${formatFxRate(fx.highest_rate)} (${formatFxDate(fx.highest_date)})</td>
-      <td>${formatFxRate(fx.lowest_rate)} (${formatFxDate(fx.lowest_date)})</td>
-    </tr>
-  `).join("");
-
-  const summaryTable = nonThb.length > 0 ? `
-    <table class="fx-summary-table">
-      <thead>
-        <tr>
-          <th>Pair</th>
-          <th>Latest</th>
-          <th>7D High</th>
-          <th>7D Low</th>
-        </tr>
-      </thead>
-      <tbody>${summaryRows}</tbody>
-    </table>
-  ` : "";
-
-  const detailBlocks = nonThb.map(fx => {
-    const rows = (fx.series || []).map(item => `
-      <tr>
-        <td>${formatFxDate(item.date)}</td>
-        <td>${formatFxRate(item.rate)}</td>
-      </tr>
-    `).join("");
-
-    return `
-      <div class="fx-block">
-        <div class="fx-title">${cleanFxPair(fx)}</div>
-        <table class="fx-detail-table">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>${fx.base} → THB</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-        ${fx.analysis ? `<div class="fx-analysis">${fx.analysis}</div>` : ""}
-      </div>
-    `;
-  }).join("");
-
-  const errorBlocks = errors.map(fx => `
-    <div class="fx-block">
-      <span class="error">${fx.base}THB: ${fx.error}</span>
+  container.innerHTML = fx.map(f => `
+    <div class="card">
+      <h3>${cleanPair(f.pair)}</h3>
+      <p>Latest: ${formatRate(f.latest_rate)}</p>
+      <p>High: ${formatRate(f.highest_rate)} (${formatDate(f.high_date)})</p>
+      <p>Low: ${formatRate(f.lowest_rate)} (${formatDate(f.low_date)})</p>
     </div>
   `).join("");
+}
 
-  fxOutput.innerHTML = `
-    ${summaryTable}
-    <div class="fx-grid">
-      ${detailBlocks}
-      ${errorBlocks}
+function renderFxContext(text) {
+  if (!text) return;
+  document.getElementById("fx-context").innerHTML = `
+    <div class="card">
+      <h2>FX Context</h2>
+      <p>${text}</p>
     </div>
   `;
-}
-
-function renderSources(sources, noRelevantUpdates = false, fallbackTriggered = false) {
-  if (!sources || sources.length === 0) {
-    sourcesOutput.innerHTML = noRelevantUpdates
-      ? `<div class="empty-state">No relevant sources were included for this period.</div>`
-      : "No sources found.";
-    return;
-  }
-
-  const fallbackNote = fallbackTriggered
-    ? `<div class="source-note">Broader fallback search was used because the first pass found fewer than 3 relevant sources.</div>`
-    : "";
-
-  const sourceCards = sources.map((source, index) => {
-    const number = source.number || index + 1;
-
-    return `
-      <div class="source-item">
-        <a
-          class="source-title"
-          href="${source.url}"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          [${number}] ${source.title || source.url}
-        </a>
-        <div class="source-meta">
-          ${source.domain || source.source || "Unknown source"} • ${source.published_at || "Unknown date"}
-        </div>
-        ${source.justification ? `<div class="source-justification"><strong>Why is it relevant:</strong> ${source.justification}</div>` : ""}
-      </div>
-    `;
-  }).join("");
-
-  sourcesOutput.innerHTML = fallbackNote + sourceCards;
 }
 
 function renderAnalysis(text) {
-  if (!text) {
-    analysisOutput.textContent = "No analysis returned.";
-    return;
-  }
-
-  const themeBlocks = text
-    .split(/(?=Theme\s+\d+\s*:)/i)
-    .map(block => block.trim())
-    .filter(Boolean);
-
-  if (themeBlocks.length === 0) {
-    analysisOutput.textContent = text;
-    return;
-  }
-
-  analysisOutput.innerHTML = themeBlocks.map(block => {
-    const lines = block
-      .split("\n")
-      .map(line => line.trim())
-      .filter(Boolean);
-
-    const heading = lines[0] || "Theme";
-    const bodyLines = lines.slice(1);
-
-    const bulletLines = bodyLines.filter(line => line.startsWith("-"));
-    const paragraphLines = bodyLines.filter(line =>
-      !line.startsWith("-") &&
-      !line.toLowerCase().startsWith("supporting information")
-    );
-
-    const paragraph = paragraphLines.join(" ");
-
-    const bullets = bulletLines.map(line => {
-      const clean = line.replace(/^-+\s*/, "");
-      return `<li>${clean}</li>`;
-    }).join("");
-
-    return `
-      <div class="theme-card">
-        <h3>${heading}</h3>
-        ${paragraph ? `<p>${paragraph}</p>` : ""}
-        ${bullets ? `<ul>${bullets}</ul>` : ""}
-      </div>
-    `;
-  }).join("");
-}
-
-
-function renderContext(text) {
-  if (!contextOutput) return;
-
-  if (!text) {
-    contextOutput.textContent = "No broader industry context returned.";
-    return;
-  }
-
-  const points = String(text)
-    .split(/\n+/)
-    .map(line => line.trim())
-    .filter(Boolean);
-
-  if (points.length === 0) {
-    contextOutput.textContent = text;
-    return;
-  }
-
-  contextOutput.innerHTML = `
-    <div class="context-card context-analysis">
-      <ul>
-        ${points.map(point => `<li>${point.replace(/^\d+[.)]\s*/, "")}</li>`).join("")}
-      </ul>
+  if (!text) return;
+  document.getElementById("analysis").innerHTML = `
+    <div class="card">
+      <h2>Analysis</h2>
+      <p>${text}</p>
     </div>
   `;
 }
 
-async function updateFxOnly() {
-  const currencies = getSelectedCurrencies();
-  const sector = sectorBox.value;
-  const subsector = subsectorBox.value;
-  const industry = industryBox.value.trim();
-  const tradeRoles = getSelectedTradeRoles();
-  const countries = selectedCountries.map(country => ({
-    name: country.name,
-    code: country.code,
-    label: countryLabel(country)
-  }));
+function renderContext(context) {
+  if (!context || !context.points) return;
 
-  if (currencies.length === 0) {
-    fxOutput.textContent = "Please select at least one currency.";
-    return;
-  }
-
-  updateFxButton.disabled = true;
-  fxOutput.innerHTML = `<span class="loading">Updating FX...</span>`;
-
-  try {
-    const response = await fetch("/api/fx", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        currencies,
-        sector,
-        subsector,
-        industry,
-        tradeRoles,
-        countries
-      })
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      fxOutput.innerHTML = `<span class="error">${data.error || "FX update failed."}</span>`;
-      return;
-    }
-
-    renderFx(data.fx || []);
-  } catch (error) {
-    fxOutput.innerHTML = `<span class="error">FX network error.</span>`;
-  } finally {
-    updateFxButton.disabled = false;
-  }
+  document.getElementById("context").innerHTML = `
+    <h2>Industry Context & RM Considerations</h2>
+    ${context.points.map(p => `
+      <div class="card">
+        <h3>${p.title}</h3>
+        <p>${p.explanation}</p>
+        <ul>${p.rm_considerations.map(c => `<li>${c}</li>`).join("")}</ul>
+      </div>
+    `).join("")}
+  `;
 }
-
-countrySearch.addEventListener("focus", function () {
-  countryDropdown.classList.remove("hidden");
-  renderCountryDropdown();
-});
-
-countrySearch.addEventListener("input", function () {
-  countryDropdown.classList.remove("hidden");
-  renderCountryDropdown();
-});
-
-document.addEventListener("click", function (event) {
-  if (!event.target.closest(".country-picker")) {
-    countryDropdown.classList.add("hidden");
-  }
-});
-
-button.addEventListener("click", async function () {
-  const sector = sectorBox.value;
-  const subsector = subsectorBox.value;
-  const industry = industryBox.value.trim();
-  const timeframe = timeframeBox.value;
-  const currencies = getSelectedCurrencies();
-  const tradeRoles = getSelectedTradeRoles();
-  const deepSearch = deepSearchBox.checked;
-
-  const countries = selectedCountries.map(country => ({
-    name: country.name,
-    code: country.code,
-    label: countryLabel(country)
-  }));
-
-  const defaultPrompt = defaultPromptBox.value.trim();
-
-  if (!sector) {
-    analysisOutput.textContent = "Please select a sector.";
-    return;
-  }
-
-  if (!subsector) {
-    analysisOutput.textContent = "Please select a subsector.";
-    return;
-  }
-
-  if (!industry) {
-    analysisOutput.textContent = "Please enter the client's industry.";
-    return;
-  }
-
-  if (tradeRoles.length === 0) {
-    analysisOutput.textContent = "Please select whether the client is an importer, exporter, or both.";
-    return;
-  }
-
-  if (currencies.length === 0) {
-    analysisOutput.textContent = "Please select at least one currency.";
-    return;
-  }
-
-  if (countries.length === 0) {
-    analysisOutput.textContent = "Please select at least one country / market.";
-    return;
-  }
-
-  button.disabled = true;
-  fxOutput.innerHTML = `<span class="loading">Checking FX...</span>`;
-  analysisOutput.innerHTML = `<span class="loading">Researching news...</span>`;
-  sourcesOutput.innerHTML = `<span class="loading">Loading sources...</span>`;
-  if (contextOutput) contextOutput.innerHTML = `<span class="loading">Preparing broader context...</span>`;
-
-  try {
-    const response = await fetch("/api/chat", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        sector,
-        subsector,
-        industry,
-        tradeRoles,
-        deepSearch,
-        timeframe,
-        currencies,
-        countries,
-        defaultPrompt
-      })
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      analysisOutput.innerHTML = `<span class="error">${data.error || "Request failed."}</span>`;
-      fxOutput.textContent = "";
-      sourcesOutput.textContent = "";
-      if (contextOutput) contextOutput.textContent = "";
-      return;
-    }
-
-    renderFx(data.fx || []);
-    renderSources(data.sources || [], Boolean(data.no_relevant_updates), Boolean(data.fallback_triggered));
-    renderAnalysis(data.news?.content || data.analysis || "No analysis returned.");
-    renderContext(data.context || "");
-  } catch (error) {
-    analysisOutput.innerHTML = `<span class="error">Network error.</span>`;
-    fxOutput.textContent = "";
-    sourcesOutput.textContent = "";
-    if (contextOutput) contextOutput.textContent = "";
-  } finally {
-    button.disabled = false;
-  }
-});
-
-populateSectors();
-populateSubsectors();
-renderCountryDropdown();
-
-sectorBox.addEventListener("change", populateSubsectors);
-updateFxButton.addEventListener("click", updateFxOnly);
