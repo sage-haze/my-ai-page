@@ -177,52 +177,62 @@ function cleanQueryText(text) {
 
 function roleText(tradeRoles) {
   if (tradeRoles.includes("importer") && tradeRoles.includes("exporter")) {
-    return "Thailand importer exporter suppliers buyers";
+    return "Thailand importer exporter overseas suppliers buyers";
   }
   if (tradeRoles.includes("importer")) {
-    return "Thailand importer imports from selected markets suppliers";
+    return "Thailand importer overseas suppliers input costs";
   }
   if (tradeRoles.includes("exporter")) {
-    return "Thailand exporter exports to selected markets buyers";
+    return "Thailand exporter overseas buyers demand";
   }
   return "Thailand import export trade";
 }
 
+function exposureTextForRole(tradeRoles, countries) {
+  const countryNames = countries.map(country => country.name).filter(Boolean).slice(0, 4);
+  if (countryNames.length === 0) return "overseas markets";
+
+  const markets = countryNames.join(" ");
+  if (tradeRoles.includes("importer") && tradeRoles.includes("exporter")) {
+    return `Thailand trade exposure ${markets} overseas suppliers buyers`;
+  }
+  if (tradeRoles.includes("importer")) {
+    return `Thailand sourcing exposure ${markets} overseas suppliers`;
+  }
+  if (tradeRoles.includes("exporter")) {
+    return `Thailand export market exposure ${markets} overseas buyers demand`;
+  }
+  return `Thailand market exposure ${markets}`;
+}
+
 function buildFallbackQueries({ sector, subsector, industry, tradeRoles, countries, deepSearch }) {
-  const countryText = countries.map(country => country.name).slice(0, 4).join(" ");
   const baseKeywords = getSearchKeywords({ sector, subsector }).slice(0, 4).join(" ");
-  const tradeRoleText = roleText(tradeRoles);
-  const roleLens = tradeRoles.includes("exporter") && tradeRoles.includes("importer")
-    ? "import export trade flows"
-    : tradeRoles.includes("exporter")
-      ? "Thailand exporter buyers overseas demand"
-      : tradeRoles.includes("importer")
-        ? "Thailand importer overseas suppliers input costs"
-        : "Thailand trade flows";
+  const thaiRoleLens = roleText(tradeRoles);
+  const exposureLens = exposureTextForRole(tradeRoles, countries);
 
   const queries = [
     {
-      label: "strict_client_context",
-      query: cleanQueryText(`Thailand ${industry} ${roleLens} ${countryText} news`),
-      maxResults: deepSearch ? 5 : 5
+      label: "thai_client_context",
+      query: cleanQueryText(`Thailand ${industry} ${thaiRoleLens} news`),
+      maxResults: 5
     },
     {
-      label: "broader_industry_context",
-      query: cleanQueryText(`${industry} ${subsector} ${countryText} global supply chain demand trade news`),
-      maxResults: deepSearch ? 5 : 5
+      label: "global_industry_context",
+      query: cleanQueryText(`${industry} global supply chain demand prices trade news`),
+      maxResults: 5
     }
   ];
 
   if (deepSearch) {
     queries.push(
       {
-        label: "thailand_industry_context",
-        query: cleanQueryText(`Thailand ${industry} ${subsector} exports imports investment supply chain news`),
+        label: "thai_exposure_context",
+        query: cleanQueryText(`${industry} ${exposureLens} trade flows news`),
         maxResults: 5
       },
       {
         label: "risk_finance_context",
-        query: cleanQueryText(`${industry} ${baseKeywords} logistics tariffs demand prices payment risk trade finance news`),
+        query: cleanQueryText(`${industry} ${baseKeywords} logistics tariffs payment risk working capital news`),
         maxResults: 5
       }
     );
@@ -271,20 +281,22 @@ Customer profile:
 - Timeframe: last ${timeframe} days
 
 Goal:
-Generate a mix of precise and relaxed searches so the system finds enough relevant sources without drifting into irrelevant country-level export news.
+Generate a mix of Thailand-prioritised and broader industry searches. Selected countries are exposure markets for the Thai client, not countries to cross-combine with each other.
 
 Rules:
 - Return JSON only.
 - Tavily is keyword search, not reasoning. Keep each query short and keyword-style.
 - Use Industry as the main anchor.
 - Use sector/subsector as context, not as the main anchor.
+- Prioritise Thailand-related news first, then global industry news.
 - Generate queries with DIFFERENT strictness levels:
-  1. One strict query about the Thailand-based client context.
-  2. One broader industry/global query that may include exposure countries but does NOT need to include Thailand.
-  3. In Deep Search only, add one Thailand industry query and one risk/supply-chain/trade-finance query.
-- At least one query must NOT include Thailand, because relevant industry news may be regional or global.
-- If exporter is selected, this means a Thai client exports to overseas buyers/markets. Do NOT search for the selected countries' own exports unless it affects Thai client demand, pricing, supply chain, or trade flows.
-- If importer is selected, this means a Thai client imports from overseas suppliers/markets. Do NOT search for the selected countries' general imports unless it affects Thai sourcing, pricing, supply chain, or trade flows.
+  1. One Thailand/client-context query. This should include Thailand, the industry, and the Thai importer/exporter lens.
+  2. One broader global industry query. This should NOT include Thailand and should usually NOT include the selected countries.
+  3. In Deep Search only, add one Thailand exposure-market query and one risk/supply-chain/trade-finance query.
+- Do NOT create country-pair or country-combination searches such as "China Indonesia", "US Indonesia", or "China exports Indonesia" unless Thailand is explicitly the subject of the trade flow.
+- If exporter is selected, this means a Thai client exports to overseas buyers/markets. Search for Thai export-market demand, buyer demand, pricing, logistics, or trade restrictions that affect Thai exporters.
+- If importer is selected, this means a Thai client imports from overseas suppliers/markets. Search for Thai sourcing, supplier costs, supply chain, logistics, or trade restrictions that affect Thai importers.
+- Selected countries may appear in only ONE Thailand-centered exposure query; do not force them into every query.
 - Avoid over-constraining every query with all countries, role words, sector, and Thailand at the same time.
 - Avoid prompts, questions, and long sentences.
 - Each query must be under 180 characters.
@@ -608,6 +620,26 @@ function parseJsonObject(text) {
   }
 }
 
+function isThailandRelatedSource(source) {
+  const haystack = [
+    source.title,
+    source.domain,
+    source.source,
+    source.summary,
+    source.raw_content
+  ].join(" ").toLowerCase();
+
+  return /\b(thailand|thai|bangkok|bot\.or\.th|bank of thailand)\b/.test(haystack);
+}
+
+function sourcePriority(source) {
+  const levelScore = source.relevance_level === "HIGH" ? 100 : source.relevance_level === "MEDIUM" ? 50 : 0;
+  const thaiScore = isThailandRelatedSource(source) ? 30 : 0;
+  const groupScore = String(source.source_group || "").includes("thai") ? 10 : 0;
+  const tavilyScore = Math.min(Number(source.score || 0) * 10, 10);
+  return levelScore + thaiScore + groupScore + tavilyScore;
+}
+
 async function assessSourceRelevance({ env, sources, sector, subsector, industry, tradeRoles, countries, timeframe, plannedQueries }) {
   if (!sources.length) {
     return {
@@ -650,8 +682,14 @@ Customer profile:
 
 Task:
 Review the candidate news sources and classify their usefulness for a Thailand-based bank RM.
+Prioritise sources in this order:
+1. Thailand-related news connected to the industry or Thai import/export flows.
+2. Global industry news that affects demand, pricing, supply chain, logistics, trade policy, working capital, payment risk, or counterparty risk for a Thailand-based client.
+3. Selected-country news only when it clearly affects Thailand-based sourcing, export demand, buyer/supplier conditions, logistics, pricing, or trade risk.
+
 A useful source should connect to at least one of: the specific industry, import/export flows, supply chain, selected markets, Thailand-based corporate exposure, trade policy, logistics, demand, working capital, payment risk, or counterparty risk.
-Do not include sources just because they mention a keyword. Interpret importer/exporter strictly from the Thailand-based client's perspective; for example, China should be treated as an exposure market/source/destination, not as the exporter unless that directly affects Thai client flows.
+Do not include sources just because they mention a keyword. Interpret importer/exporter strictly from the Thailand-based client's perspective; for example, China/US/Indonesia should be treated as exposure markets/sources/destinations, not as exporters/importers themselves unless that directly affects Thai client flows.
+Country-cross results, such as China-Indonesia, US-Indonesia, or China-US stories, should be LOW unless they have a clear Thailand or global industry implication for the client.
 
 Return JSON only in this exact shape:
 {
@@ -667,9 +705,9 @@ Return JSON only in this exact shape:
 }
 
 Relevance levels:
-- HIGH: directly relevant to the client industry, Thailand, trade role, or selected markets.
-- MEDIUM: useful broader industry/global context that could affect the Thailand-based client's flows, demand, pricing, supply chain, or risk.
-- LOW: weak keyword match, unrelated country export story, unrelated company news, or no clear client implication.
+- HIGH: Thailand-related and directly relevant to the client industry, Thai import/export role, or Thai exposure to selected markets.
+- MEDIUM: useful global industry context, or selected-market context with a clear implication for Thai client flows, demand, pricing, supply chain, or risk.
+- LOW: weak keyword match, unrelated country export/import story, country-pair story without Thai/global industry implication, unrelated company news, or no clear client implication.
 
 Rules:
 - Return HIGH and MEDIUM sources only; omit LOW sources.
@@ -728,9 +766,15 @@ ${JSON.stringify(compactSources, null, 2)}
       })
       .filter(source => source.relevant);
 
-    const highSources = reviewedSources.filter(source => source.relevance_level === "HIGH");
-    const mediumSources = reviewedSources.filter(source => source.relevance_level === "MEDIUM");
-    let selectedSources = [...highSources, ...mediumSources].slice(0, 10);
+    const highSources = reviewedSources
+      .filter(source => source.relevance_level === "HIGH")
+      .sort((a, b) => sourcePriority(b) - sourcePriority(a));
+    const mediumSources = reviewedSources
+      .filter(source => source.relevance_level === "MEDIUM")
+      .sort((a, b) => sourcePriority(b) - sourcePriority(a));
+    let selectedSources = [...highSources, ...mediumSources]
+      .sort((a, b) => sourcePriority(b) - sourcePriority(a))
+      .slice(0, 10);
 
     // Avoid the UI feeling broken when the search has usable broader context but few direct matches.
     // Keep a small floor of Tavily-ranked candidates unless OpenAI says there are genuinely no relevant updates.
@@ -739,11 +783,18 @@ ${JSON.stringify(compactSources, null, 2)}
       const selectedUrls = new Set(selectedSources.map(source => source.url));
       const fallbackSources = sources
         .filter(source => !selectedUrls.has(source.url))
+        .sort((a, b) => {
+          const aThai = isThailandRelatedSource(a) ? 1 : 0;
+          const bThai = isThailandRelatedSource(b) ? 1 : 0;
+          return bThai - aThai || (b.score || 0) - (a.score || 0);
+        })
         .slice(0, minimumSources - selectedSources.length)
         .map(source => ({
           ...source,
           relevance_level: "MEDIUM",
-          relevance_justification: "Included as broader context because directly relevant updates were limited for the selected period.",
+          relevance_justification: isThailandRelatedSource(source)
+            ? "Included as Thailand-related context because directly relevant updates were limited for the selected period."
+            : "Included as broader global industry context because directly relevant updates were limited for the selected period.",
           relevant: true
         }));
 
@@ -864,9 +915,31 @@ export async function onRequestPost(context) {
 
     const fxResults = await analyzeFxRates({ env, fxList: rawFxResults, sector, subsector, industry, tradeRoles, countries });
 
-    const candidateSources = dedupeSources(tavilyBatches.flat())
-      .sort((a, b) => (b.score || 0) - (a.score || 0))
-      .slice(0, deepSearch ? 12 : 10)
+    const allCandidateSources = dedupeSources(tavilyBatches.flat())
+      .sort((a, b) => {
+        const aThai = isThailandRelatedSource(a) ? 1 : 0;
+        const bThai = isThailandRelatedSource(b) ? 1 : 0;
+        const aThaiGroup = String(a.source_group || "").includes("thai") ? 1 : 0;
+        const bThaiGroup = String(b.source_group || "").includes("thai") ? 1 : 0;
+        return bThai - aThai || bThaiGroup - aThaiGroup || (b.score || 0) - (a.score || 0);
+      });
+
+    // Keep the review pool balanced so selected-country/global searches do not crowd out Thailand-related sources.
+    const candidateLimit = deepSearch ? 12 : 10;
+    const perGroupLimit = deepSearch ? 4 : 5;
+    const groupCounts = new Map();
+    const balancedCandidates = [];
+
+    for (const source of allCandidateSources) {
+      const group = source.source_group || "unknown";
+      const currentCount = groupCounts.get(group) || 0;
+      if (currentCount >= perGroupLimit) continue;
+      balancedCandidates.push(source);
+      groupCounts.set(group, currentCount + 1);
+      if (balancedCandidates.length >= candidateLimit) break;
+    }
+
+    const candidateSources = balancedCandidates
       .map((source, index) => ({
         ...source,
         source_number: index + 1
