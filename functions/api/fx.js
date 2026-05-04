@@ -119,9 +119,103 @@ async function fetchFxRates(currencies) {
   );
 }
 
+function extractOutputText(data) {
+  if (data.output_text) return data.output_text;
+
+  if (Array.isArray(data.output)) {
+    let text = "";
+
+    for (const item of data.output) {
+      if (!item.content) continue;
+
+      for (const contentItem of item.content) {
+        if (contentItem.type === "output_text" && contentItem.text) {
+          text += contentItem.text;
+        }
+      }
+    }
+
+    if (text) return text;
+  }
+
+  return "";
+}
+
+async function analyzeFxRates({ env, fxList }) {
+  const usableFx = fxList.filter(fx => !fx.skip && !fx.error && Array.isArray(fx.series) && fx.series.length > 0);
+
+  if (usableFx.length === 0 || !env.OPENAI_API_KEY) return fxList;
+
+  const compactFx = usableFx.map(fx => ({
+    pair: fx.pair,
+    base: fx.base,
+    quote: fx.quote,
+    latest_rate: fx.latest_rate,
+    highest_rate: fx.highest_rate,
+    highest_date: fx.highest_date,
+    lowest_rate: fx.lowest_rate,
+    lowest_date: fx.lowest_date,
+    series: fx.series
+  }));
+
+  const prompt = `
+You are writing short FX movement notes for a Thailand-based relationship manager.
+
+Use only the 7-day FX data below. For each pair, write one concise plain-English note.
+Do not mention news, Tavily sources, client strategy, or recommendations.
+Focus only on observed movement, latest level versus the 7-day range, and whether the base currency has strengthened or weakened against THB over the period.
+
+Return JSON only in this shape:
+{
+  "analyses": [
+    { "pair": "USDTHB=X", "analysis": "..." }
+  ]
+}
+
+FX data:
+${JSON.stringify(compactFx, null, 2)}
+`.trim();
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${env.OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: "gpt-4.1-mini",
+        input: prompt
+      })
+    });
+
+    const data = await response.json();
+    if (!response.ok) return fxList;
+
+    const text = extractOutputText(data);
+    const jsonStart = text.indexOf("{");
+    const jsonEnd = text.lastIndexOf("}");
+    if (jsonStart === -1 || jsonEnd === -1) return fxList;
+
+    const parsed = JSON.parse(text.slice(jsonStart, jsonEnd + 1));
+    const analysisByPair = new Map(
+      (parsed.analyses || [])
+        .filter(item => item.pair && item.analysis)
+        .map(item => [String(item.pair), String(item.analysis).trim()])
+    );
+
+    return fxList.map(fx => ({
+      ...fx,
+      analysis: analysisByPair.get(fx.pair) || fx.analysis || ""
+    }));
+  } catch (_) {
+    return fxList;
+  }
+}
+
 export async function onRequestPost(context) {
   try {
-    const { request } = context;
+    const { request, env } = context;
     const body = await request.json();
 
     const currencies = Array.isArray(body.currencies)
@@ -137,7 +231,8 @@ export async function onRequestPost(context) {
       return Response.json({ error: `Unsupported currency selected: ${unsupported.join(", ")}` }, { status: 400 });
     }
 
-    const fx = await fetchFxRates(currencies);
+    const rawFx = await fetchFxRates(currencies);
+    const fx = await analyzeFxRates({ env, fxList: rawFx });
 
     return Response.json({ fx });
   } catch (error) {

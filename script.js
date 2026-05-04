@@ -188,6 +188,7 @@ function renderFx(fxList) {
           </thead>
           <tbody>${rows}</tbody>
         </table>
+        ${fx.analysis ? `<div class="fx-analysis">${fx.analysis}</div>` : ""}
       </div>
     `;
   }).join("");

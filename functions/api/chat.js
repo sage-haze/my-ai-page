@@ -491,16 +491,76 @@ async function fetchFxRates(currencies) {
   );
 }
 
-function buildFxInstruction(fxList) {
-  const usableFx = fxList.filter(fx => !fx.skip && !fx.error);
+async function analyzeFxRates({ env, fxList }) {
+  const usableFx = fxList.filter(fx => !fx.skip && !fx.error && Array.isArray(fx.series) && fx.series.length > 0);
 
-  if (usableFx.length === 0) {
-    return "No non-THB FX conversion data is available or needed.";
+  if (usableFx.length === 0) return fxList;
+
+  const compactFx = usableFx.map(fx => ({
+    pair: fx.pair,
+    base: fx.base,
+    quote: fx.quote,
+    latest_rate: fx.latest_rate,
+    highest_rate: fx.highest_rate,
+    highest_date: fx.highest_date,
+    lowest_rate: fx.lowest_rate,
+    lowest_date: fx.lowest_date,
+    series: fx.series
+  }));
+
+  const prompt = `
+You are writing short FX movement notes for a Thailand-based relationship manager.
+
+Use only the 7-day FX data below. For each pair, write one concise plain-English note.
+Do not mention news, Tavily sources, client strategy, or recommendations.
+Focus only on observed movement, latest level versus the 7-day range, and whether the base currency has strengthened or weakened against THB over the period.
+
+Return JSON only in this shape:
+{
+  "analyses": [
+    { "pair": "USDTHB=X", "analysis": "..." }
+  ]
+}
+
+FX data:
+${JSON.stringify(compactFx, null, 2)}
+`.trim();
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${env.OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: "gpt-4.1-mini",
+        input: prompt
+      })
+    });
+
+    const data = await response.json();
+    if (!response.ok) return fxList;
+
+    const text = extractOutputText(data);
+    const jsonStart = text.indexOf("{");
+    const jsonEnd = text.lastIndexOf("}");
+    if (jsonStart === -1 || jsonEnd === -1) return fxList;
+
+    const parsed = JSON.parse(text.slice(jsonStart, jsonEnd + 1));
+    const analysisByPair = new Map(
+      (parsed.analyses || [])
+        .filter(item => item.pair && item.analysis)
+        .map(item => [String(item.pair), String(item.analysis).trim()])
+    );
+
+    return fxList.map(fx => ({
+      ...fx,
+      analysis: analysisByPair.get(fx.pair) || fx.analysis || ""
+    }));
+  } catch (_) {
+    return fxList;
   }
-
-  return usableFx.map(fx =>
-    `${fx.pair}: latest ${fx.latest_rate}, 7-day high ${fx.highest_rate} on ${fx.highest_date}, 7-day low ${fx.lowest_rate} on ${fx.lowest_date}.`
-  ).join("\n");
 }
 
 function extractOutputText(data) {
@@ -580,7 +640,7 @@ export async function onRequestPost(context) {
 
     const searchDepth = deepSearch ? "advanced" : "basic";
 
-    const [tavilyBatches, fxResults] = await Promise.all([
+    const [tavilyBatches, rawFxResults] = await Promise.all([
       Promise.all(plannedQueries.map(plan =>
         tavilySearch({
           apiKey: env.TAVILY_API_KEY,
@@ -594,6 +654,8 @@ export async function onRequestPost(context) {
       )),
       fetchFxRates(currencies)
     ]);
+
+    const fxResults = await analyzeFxRates({ env, fxList: rawFxResults });
 
     const mergedSources = dedupeSources(tavilyBatches.flat())
       .sort((a, b) => (b.score || 0) - (a.score || 0))
@@ -629,7 +691,6 @@ ${trimmedText}
 `.trim();
     }).join("\n\n");
 
-    const fxInstruction = buildFxInstruction(fxResults);
 
     const analysisPrompt = `
 ${defaultPrompt}
@@ -642,19 +703,15 @@ Customer profile:
 - Client base: Thailand
 - Countries / markets relevant to the client: ${countryText}
 - Timeframe for news search: last ${timeframe} days
-- Selected currencies: ${currencies.join(", ")}
 - Search mode: ${deepSearch ? "Deep Search" : "Standard Search"}
 - Search keywords used: ${searchKeywords.join(", ")}
 - Tavily queries used: ${plannedQueries.map(plan => `${plan.label}: ${plan.query}`).join(" | ")}
-
-Additional FX context:
-${fxInstruction}
 
 Instructions:
 - Use only the provided news sources below
 - Do not invent additional sources
 - Produce 3 to 5 themes
-- Each theme must be relevant to trade finance, such as import/export flows, supply chain disruption, FX exposure, working capital, payment risk, guarantees, letters of credit, documentary collections, receivables, inventory financing, or counterparty risk
+- Each theme must be relevant to trade finance, such as import/export flows, supply chain disruption, working capital, payment risk, guarantees, letters of credit, documentary collections, receivables, inventory financing, or counterparty risk
 - Treat the customer as Thailand-based with exposure to the selected countries; mention global context only where it affects the customer's industry or trade flows
 - Format each theme exactly as:
   Theme 1: [Short trade-finance-relevant heading]
@@ -667,7 +724,7 @@ Instructions:
 - Use bullet points for supporting information
 - If evidence is mixed or incomplete, say so clearly
 - Do not include a long source list in the analysis because the UI shows sources separately
-- Mention FX movements only if relevant to trade finance exposure
+- Do not analyze FX rate movements or include a separate FX section; FX commentary is generated separately in the FX panel
 
 Provided sources:
 ${articleContext}
