@@ -241,6 +241,74 @@ function buildFallbackQueries({ sector, subsector, industry, tradeRoles, countri
   return queries;
 }
 
+function buildRecoveryQueries({ sector, subsector, industry, tradeRoles, countries, deepSearch }) {
+  const baseKeywords = getSearchKeywords({ sector, subsector }).slice(0, 3).join(" ");
+  const countryNames = countries.map(country => country.name).filter(Boolean).slice(0, 3).join(" ");
+
+  const queries = [
+    {
+      label: "fallback_thailand_industry",
+      query: cleanQueryText(`Thailand ${industry} trade supply chain demand news`),
+      maxResults: 5
+    }
+  ];
+
+  if (deepSearch) {
+    queries.push({
+      label: "fallback_global_industry",
+      query: cleanQueryText(`${industry} global supply chain prices demand trade news`),
+      maxResults: 5
+    });
+  } else if (countryNames) {
+    queries.push({
+      label: "fallback_exposure_context",
+      query: cleanQueryText(`${industry} ${countryNames} global demand supply chain news`),
+      maxResults: 4
+    });
+  }
+
+  if (queries.length < 2 && baseKeywords) {
+    queries.push({
+      label: "fallback_sector_context",
+      query: cleanQueryText(`${industry} ${baseKeywords} global trade news`),
+      maxResults: 4
+    });
+  }
+
+  return queries.filter(item => item.query.length > 0).slice(0, deepSearch ? 2 : 2);
+}
+
+function prepareCandidateSources({ sources, deepSearch }) {
+  const allCandidateSources = dedupeSources(sources)
+    .sort((a, b) => {
+      const aThai = isThailandRelatedSource(a) ? 1 : 0;
+      const bThai = isThailandRelatedSource(b) ? 1 : 0;
+      const aThaiGroup = String(a.source_group || "").includes("thai") ? 1 : 0;
+      const bThaiGroup = String(b.source_group || "").includes("thai") ? 1 : 0;
+      return bThai - aThai || bThaiGroup - aThaiGroup || (b.score || 0) - (a.score || 0);
+    });
+
+  // Keep the review pool balanced so selected-country/global searches do not crowd out Thailand-related sources.
+  const candidateLimit = deepSearch ? 14 : 12;
+  const perGroupLimit = deepSearch ? 4 : 5;
+  const groupCounts = new Map();
+  const balancedCandidates = [];
+
+  for (const source of allCandidateSources) {
+    const group = source.source_group || "unknown";
+    const currentCount = groupCounts.get(group) || 0;
+    if (currentCount >= perGroupLimit) continue;
+    balancedCandidates.push(source);
+    groupCounts.set(group, currentCount + 1);
+    if (balancedCandidates.length >= candidateLimit) break;
+  }
+
+  return balancedCandidates.map((source, index) => ({
+    ...source,
+    source_number: index + 1
+  }));
+}
+
 function parseQueryPlan(text) {
   try {
     const jsonStart = text.indexOf("{");
@@ -1204,47 +1272,75 @@ export async function onRequestPost(context) {
 
     const fxResults = await analyzeFxRates({ env, fxList: rawFxResults, sector, subsector, industry, tradeRoles, countries });
 
-    const allCandidateSources = dedupeSources(tavilyBatches.flat())
-      .sort((a, b) => {
-        const aThai = isThailandRelatedSource(a) ? 1 : 0;
-        const bThai = isThailandRelatedSource(b) ? 1 : 0;
-        const aThaiGroup = String(a.source_group || "").includes("thai") ? 1 : 0;
-        const bThaiGroup = String(b.source_group || "").includes("thai") ? 1 : 0;
-        return bThai - aThai || bThaiGroup - aThaiGroup || (b.score || 0) - (a.score || 0);
-      });
+    const primaryCandidateSources = prepareCandidateSources({
+      sources: tavilyBatches.flat(),
+      deepSearch
+    });
 
-    // Keep the review pool balanced so selected-country/global searches do not crowd out Thailand-related sources.
-    const candidateLimit = deepSearch ? 12 : 10;
-    const perGroupLimit = deepSearch ? 4 : 5;
-    const groupCounts = new Map();
-    const balancedCandidates = [];
-
-    for (const source of allCandidateSources) {
-      const group = source.source_group || "unknown";
-      const currentCount = groupCounts.get(group) || 0;
-      if (currentCount >= perGroupLimit) continue;
-      balancedCandidates.push(source);
-      groupCounts.set(group, currentCount + 1);
-      if (balancedCandidates.length >= candidateLimit) break;
-    }
-
-    const candidateSources = balancedCandidates
-      .map((source, index) => ({
-        ...source,
-        source_number: index + 1
-      }));
-
-    const sourceAssessment = await assessSourceRelevance({
+    let effectiveQueries = [...plannedQueries];
+    let sourceAssessment = await assessSourceRelevance({
       env,
-      sources: candidateSources,
+      sources: primaryCandidateSources,
       sector,
       subsector,
       industry,
       tradeRoles,
       countries,
       timeframe,
-      plannedQueries
+      plannedQueries: effectiveQueries
     });
+
+    let candidateSources = primaryCandidateSources;
+    let fallbackTriggered = false;
+
+    // Controlled fallback: only broaden the search when the strict filter leaves 0–2 usable sources.
+    // This avoids asking users to manually refresh while keeping Tavily usage under control.
+    if (sourceAssessment.sources.length < 3) {
+      const recoveryQueries = buildRecoveryQueries({
+        sector,
+        subsector,
+        industry,
+        tradeRoles,
+        countries,
+        deepSearch
+      });
+
+      const existingQueryText = new Set(effectiveQueries.map(plan => cleanQueryText(plan.query).toLowerCase()));
+      const newRecoveryQueries = recoveryQueries.filter(plan => !existingQueryText.has(cleanQueryText(plan.query).toLowerCase()));
+
+      if (newRecoveryQueries.length > 0) {
+        fallbackTriggered = true;
+        const fallbackBatches = await Promise.all(newRecoveryQueries.map(plan =>
+          tavilySearch({
+            apiKey: env.TAVILY_API_KEY,
+            query: plan.query,
+            startDate: start_date,
+            endDate: end_date,
+            includeDomains: null,
+            maxResults: plan.maxResults || 5,
+            searchDepth: "basic"
+          }).then(results => normalizeTavilyResults(results, plan.label))
+        ));
+
+        effectiveQueries = [...effectiveQueries, ...newRecoveryQueries];
+        candidateSources = prepareCandidateSources({
+          sources: [...tavilyBatches.flat(), ...fallbackBatches.flat()],
+          deepSearch
+        });
+
+        sourceAssessment = await assessSourceRelevance({
+          env,
+          sources: candidateSources,
+          sector,
+          subsector,
+          industry,
+          tradeRoles,
+          countries,
+          timeframe,
+          plannedQueries: effectiveQueries
+        });
+      }
+    }
 
     const mergedSources = sourceAssessment.sources.map((source, index) => ({
       ...source,
@@ -1273,7 +1369,8 @@ export async function onRequestPost(context) {
         no_relevant_updates: true,
         fx: fxResults,
         search_keywords: searchKeywords,
-        search_queries: plannedQueries,
+        search_queries: effectiveQueries,
+        fallback_triggered: fallbackTriggered,
         search_mode: deepSearch ? "deep" : "standard",
         sources: []
       });
@@ -1289,7 +1386,7 @@ export async function onRequestPost(context) {
       countries,
       timeframe,
       deepSearch,
-      plannedQueries,
+      plannedQueries: effectiveQueries,
       defaultPrompt
     });
 
@@ -1306,7 +1403,8 @@ export async function onRequestPost(context) {
       no_relevant_updates: aligned.newsSection.status === "NO_NEWS",
       fx: fxResults,
       search_keywords: searchKeywords,
-      search_queries: plannedQueries,
+      search_queries: effectiveQueries,
+      fallback_triggered: fallbackTriggered,
       search_mode: deepSearch ? "deep" : "standard",
       sources: aligned.newsSection.status === "NO_NEWS" ? [] : aligned.sources.map(source => ({
         number: source.source_number,

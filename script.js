@@ -209,7 +209,7 @@ function renderFx(fxList) {
   `;
 }
 
-function renderSources(sources, noRelevantUpdates = false) {
+function renderSources(sources, noRelevantUpdates = false, fallbackTriggered = false) {
   if (!sources || sources.length === 0) {
     sourcesOutput.innerHTML = noRelevantUpdates
       ? `<div class="empty-state">No relevant sources were included for this period.</div>`
@@ -217,7 +217,11 @@ function renderSources(sources, noRelevantUpdates = false) {
     return;
   }
 
-  sourcesOutput.innerHTML = sources.map((source, index) => {
+  const fallbackNote = fallbackTriggered
+    ? `<div class="source-note">Broader fallback search was used because the first pass found fewer than 3 relevant sources.</div>`
+    : "";
+
+  const sourceCards = sources.map((source, index) => {
     const number = source.number || index + 1;
 
     return `
@@ -237,6 +241,8 @@ function renderSources(sources, noRelevantUpdates = false) {
       </div>
     `;
   }).join("");
+
+  sourcesOutput.innerHTML = fallbackNote + sourceCards;
 }
 
 function renderAnalysis(text) {
@@ -465,7 +471,7 @@ button.addEventListener("click", async function () {
     }
 
     renderFx(data.fx || []);
-    renderSources(data.sources || [], Boolean(data.no_relevant_updates));
+    renderSources(data.sources || [], Boolean(data.no_relevant_updates), Boolean(data.fallback_triggered));
     renderAnalysis(data.news?.content || data.analysis || "No analysis returned.");
     renderContext(data.context || "");
   } catch (error) {

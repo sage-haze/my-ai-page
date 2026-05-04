@@ -395,3 +395,13 @@ button:disabled {
 .context-card li:last-child {
   margin-bottom: 0;
 }
+
+.source-note {
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: #555;
+  background: #f6f8fb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
