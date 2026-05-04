@@ -16,6 +16,7 @@ const defaultPromptBox = document.getElementById("defaultPrompt");
 const analysisOutput = document.getElementById("analysisOutput");
 const sourcesOutput = document.getElementById("sourcesOutput");
 const fxOutput = document.getElementById("fxOutput");
+const contextOutput = document.getElementById("contextOutput");
 
 let selectedCountries = [];
 
@@ -286,6 +287,34 @@ function renderAnalysis(text) {
   }).join("");
 }
 
+
+function renderContext(text) {
+  if (!contextOutput) return;
+
+  if (!text) {
+    contextOutput.textContent = "No broader industry context returned.";
+    return;
+  }
+
+  const points = String(text)
+    .split(/\n+/)
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  if (points.length === 0) {
+    contextOutput.textContent = text;
+    return;
+  }
+
+  contextOutput.innerHTML = `
+    <div class="context-card">
+      <ul>
+        ${points.map(point => `<li>${point.replace(/^\d+[.)]\s*/, "")}</li>`).join("")}
+      </ul>
+    </div>
+  `;
+}
+
 async function updateFxOnly() {
   const currencies = getSelectedCurrencies();
   const sector = sectorBox.value;
@@ -409,6 +438,7 @@ button.addEventListener("click", async function () {
   fxOutput.innerHTML = `<span class="loading">Checking FX...</span>`;
   analysisOutput.innerHTML = `<span class="loading">Researching news...</span>`;
   sourcesOutput.innerHTML = `<span class="loading">Loading sources...</span>`;
+  if (contextOutput) contextOutput.innerHTML = `<span class="loading">Preparing broader context...</span>`;
 
   try {
     const response = await fetch("/api/chat", {
@@ -435,16 +465,19 @@ button.addEventListener("click", async function () {
       analysisOutput.innerHTML = `<span class="error">${data.error || "Request failed."}</span>`;
       fxOutput.textContent = "";
       sourcesOutput.textContent = "";
+      if (contextOutput) contextOutput.textContent = "";
       return;
     }
 
     renderFx(data.fx || []);
     renderSources(data.sources || [], Boolean(data.no_relevant_updates));
-    renderAnalysis(data.analysis || "No analysis returned.");
+    renderAnalysis(data.news?.content || data.analysis || "No analysis returned.");
+    renderContext(data.context || "");
   } catch (error) {
     analysisOutput.innerHTML = `<span class="error">Network error.</span>`;
     fxOutput.textContent = "";
     sourcesOutput.textContent = "";
+    if (contextOutput) contextOutput.textContent = "";
   } finally {
     button.disabled = false;
   }

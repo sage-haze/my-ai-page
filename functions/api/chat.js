@@ -830,6 +830,174 @@ function extractOutputText(data) {
   return "";
 }
 
+
+async function analyzeNewsDevelopments({ env, sources, sector, subsector, industry, tradeRoles, countries, timeframe, deepSearch, plannedQueries, defaultPrompt }) {
+  if (!sources.length) {
+    return {
+      status: "NO_NEWS",
+      content: `No significant or relevant market developments identified for this industry and client context in the selected ${timeframe}-day period.`
+    };
+  }
+
+  const countryText = countries
+    .map(country => country.label || `${country.name} (${country.code})`)
+    .join(", ");
+
+  const articleContext = sources.map(source => {
+    const text = source.raw_content || source.summary || "";
+    const trimmedText = text.length > 2500 ? text.slice(0, 2500) + "…" : text;
+
+    return `
+[${source.source_number}]
+Title: ${source.title}
+URL: ${source.url}
+Publisher: ${source.domain || source.source || "Unknown"}
+Published: ${source.published_at || "Unknown"}
+Source type: ${source.source_group}
+Relevance reviewer note: ${source.relevance_justification || ""}
+Content:
+${trimmedText}
+`.trim();
+  }).join("\n\n");
+
+  const prompt = `
+You are an analyst supporting a Thailand-based relationship manager.
+
+The user prompt/context is:
+${defaultPrompt}
+
+Customer profile:
+- Sector: ${sector}
+- Subsector: ${subsector}
+- Specific industry: ${industry}
+- Client trade role: ${tradeRoles.join(", ")}
+- Client base: Thailand
+- Countries / markets relevant to the client: ${countryText}
+- Timeframe for news search: last ${timeframe} days
+- Search mode: ${deepSearch ? "Deep Search" : "Standard Search"}
+- Tavily queries used: ${plannedQueries.map(plan => `${plan.label}: ${plan.query}`).join(" | ")}
+
+Task:
+Generate NEWS-BASED market developments only from the provided sources.
+
+Strict rules:
+- Use ONLY the provided sources.
+- Do NOT add general industry knowledge, background assumptions, or evergreen commentary.
+- Do NOT infer beyond what the sources directly support.
+- Do NOT analyze FX rate movements; FX commentary is generated separately.
+- If the sources do not contain meaningful, recent developments relevant to this Thailand-based client context, return exactly: NO_NEWS
+- Be assertive. Do not create generic filler just to produce themes.
+- Each theme must be tied to source references like [1], [2].
+- Each theme should be relevant to trade finance, such as import/export flows, supply chain disruption, working capital, payment risk, guarantees, letters of credit, documentary collections, receivables, inventory financing, or counterparty risk.
+- Treat selected countries as exposure markets/sourcing markets for the Thai client, not as countries to cross-combine with each other.
+
+Output format if relevant:
+Theme 1: [Short news-based heading]
+[One short paragraph explaining why this current development matters to the Thailand-based client.]
+Supporting information:
+- [Specific source-backed point with source reference like [1]]
+- [Specific source-backed point with source reference like [2]]
+
+Theme 2: ...
+
+Output format if not relevant:
+NO_NEWS
+
+Provided sources:
+${articleContext}
+`.trim();
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${env.OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: "gpt-4.1-mini",
+        input: prompt
+      })
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error?.message || "OpenAI news analysis request failed.");
+    }
+
+    const text = (extractOutputText(data) || "").trim();
+
+    if (!text || text.toUpperCase() === "NO_NEWS") {
+      return {
+        status: "NO_NEWS",
+        content: `No significant or relevant market developments identified for this industry and client context in the selected ${timeframe}-day period.`
+      };
+    }
+
+    return {
+      status: "OK",
+      content: text
+    };
+  } catch (error) {
+    throw error;
+  }
+}
+
+async function generateGeneralContext({ env, sector, subsector, industry, tradeRoles, countries }) {
+  const countryText = countries
+    .map(country => country.label || `${country.name} (${country.code})`)
+    .join(", ");
+
+  const prompt = `
+You are supporting a Thailand-based relationship manager.
+
+Provide up to 3 broader industry context points for this client profile.
+
+Client context:
+- Sector: ${sector}
+- Subsector: ${subsector}
+- Specific industry: ${industry}
+- Client trade role: ${tradeRoles.join(", ")}
+- Client base: Thailand
+- Exposure countries / markets: ${countryText}
+
+Rules:
+- Do NOT reference specific news, source numbers, articles, or dates.
+- Do NOT claim something is currently happening.
+- Focus on structural patterns relevant to the client, such as trade flows, FX exposure, working capital, supply chain, payment risk, and counterparty risk.
+- Keep each point practical for a bank RM conversation.
+- Maximum 3 points.
+- Each point should be 1–2 concise sentences.
+
+Output format:
+1. ...
+2. ...
+3. ...
+`.trim();
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${env.OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: "gpt-4.1-mini",
+        input: prompt
+      })
+    });
+
+    const data = await response.json();
+    if (!response.ok) return "";
+
+    return (extractOutputText(data) || "").trim();
+  } catch (_) {
+    return "";
+  }
+}
+
+
 export async function onRequestPost(context) {
   try {
     const { request, env } = context;
@@ -949,9 +1117,25 @@ export async function onRequestPost(context) {
       source_number: index + 1
     }));
 
+    const generalContext = await generateGeneralContext({
+      env,
+      sector,
+      subsector,
+      industry,
+      tradeRoles,
+      countries
+    });
+
     if (!sourceAssessment.hasRelevantUpdates || mergedSources.length === 0) {
+      const noNews = {
+        status: "NO_NEWS",
+        content: sourceAssessment.noRelevantUpdateMessage || `No significant or relevant market developments identified for this industry and client context in the selected ${timeframe}-day period.`
+      };
+
       return Response.json({
-        analysis: sourceAssessment.noRelevantUpdateMessage || `No relevant news updates were found in the selected ${timeframe}-day period for this client profile.`,
+        analysis: noNews.content,
+        news: noNews,
+        context: generalContext,
         no_relevant_updates: true,
         fx: fxResults,
         search_keywords: searchKeywords,
@@ -961,92 +1145,30 @@ export async function onRequestPost(context) {
       });
     }
 
-    const countryText = countries
-      .map(country => country.label || `${country.name} (${country.code})`)
-      .join(", ");
-
-    const articleContext = mergedSources.map(source => {
-      const text = source.raw_content || source.summary || "";
-      const trimmedText = text.length > 2500 ? text.slice(0, 2500) + "…" : text;
-
-      return `
-[${source.source_number}]
-Title: ${source.title}
-URL: ${source.url}
-Publisher: ${source.domain || source.source || "Unknown"}
-Published: ${source.published_at || "Unknown"}
-Source type: ${source.source_group}
-Content:
-${trimmedText}
-`.trim();
-    }).join("\n\n");
-
-
-    const analysisPrompt = `
-${defaultPrompt}
-
-Customer profile:
-- Sector: ${sector}
-- Subsector: ${subsector}
-- Specific industry: ${industry}
-- Client trade role: ${tradeRoles.join(", ")}
-- Client base: Thailand
-- Countries / markets relevant to the client: ${countryText}
-- Timeframe for news search: last ${timeframe} days
-- Search mode: ${deepSearch ? "Deep Search" : "Standard Search"}
-- Search keywords used: ${searchKeywords.join(", ")}
-- Tavily queries used: ${plannedQueries.map(plan => `${plan.label}: ${plan.query}`).join(" | ")}
-
-Instructions:
-- Use only the provided news sources below
-- Do not invent additional sources
-- Produce 3 to 5 themes
-- Each theme must be relevant to trade finance, such as import/export flows, supply chain disruption, working capital, payment risk, guarantees, letters of credit, documentary collections, receivables, inventory financing, or counterparty risk
-- Treat the customer as Thailand-based with exposure to the selected countries; mention global context only where it affects the customer's industry or trade flows
-- Format each theme exactly as:
-  Theme 1: [Short trade-finance-relevant heading]
-  [One short paragraph explaining why this matters to the customer]
-  Supporting information:
-  - [Specific supporting point with source reference like [1]]
-  - [Specific supporting point with source reference like [2]]
-- Use source references like [1], [2], [3] that match the numbered source list
-- Keep paragraphs concise and easy to scan
-- Use bullet points for supporting information
-- If evidence is mixed or incomplete, say so clearly
-- Do not include a long source list in the analysis because the UI shows sources separately
-- Do not analyze FX rate movements or include a separate FX section; FX commentary is generated separately in the FX panel
-
-Provided sources:
-${articleContext}
-`.trim();
-
-    const openaiResponse = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${env.OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: "gpt-4.1-mini",
-        input: analysisPrompt
-      })
+    const newsSection = await analyzeNewsDevelopments({
+      env,
+      sources: mergedSources,
+      sector,
+      subsector,
+      industry,
+      tradeRoles,
+      countries,
+      timeframe,
+      deepSearch,
+      plannedQueries,
+      defaultPrompt
     });
 
-    const openaiData = await openaiResponse.json();
-
-    if (!openaiResponse.ok) {
-      return Response.json({
-        error: openaiData.error?.message || "OpenAI request failed."
-      }, { status: 500 });
-    }
-
     return Response.json({
-      analysis: extractOutputText(openaiData) || "No analysis returned.",
+      analysis: newsSection.content,
+      news: newsSection,
+      context: generalContext,
+      no_relevant_updates: newsSection.status === "NO_NEWS",
       fx: fxResults,
       search_keywords: searchKeywords,
       search_queries: plannedQueries,
       search_mode: deepSearch ? "deep" : "standard",
-      sources: mergedSources.map(source => ({
+      sources: newsSection.status === "NO_NEWS" ? [] : mergedSources.map(source => ({
         number: source.source_number,
         title: source.title,
         url: source.url,
