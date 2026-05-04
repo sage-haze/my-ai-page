@@ -307,7 +307,7 @@ function renderContext(text) {
   }
 
   contextOutput.innerHTML = `
-    <div class="context-card">
+    <div class="context-card context-analysis">
       <ul>
         ${points.map(point => `<li>${point.replace(/^\d+[.)]\s*/, "")}</li>`).join("")}
       </ul>

@@ -368,6 +368,20 @@ button:disabled {
   padding: 10px;
 }
 
+.context-card {
+  font-size: 14px;
+  line-height: 1.5;
+  color: #333;
+}
+
+.context-analysis {
+  margin-top: 0;
+  padding-top: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #333;
+}
+
 .context-card ul {
   margin: 0;
   padding-left: 1.1rem;
@@ -378,16 +392,6 @@ button:disabled {
   line-height: 1.5;
 }
 
-.context-card {
-  font-family: inherit;
-  font-size: 14px;
-  line-height: 1.5;
-  color: inherit;
-}
-
-.context-analysis {
-  font-family: 'Inter', sans-serif;
-  font-size: 14px;
-  line-height: 1.5;
-  white-space: normal;
+.context-card li:last-child {
+  margin-bottom: 0;
 }

@@ -981,6 +981,10 @@ Strict rules:
 - Every supporting bullet must include a source reference like [1], [2].
 - Only use source numbers that support the specific statement.
 - Do not cite a source unless it is actually used in the theme.
+- Synthesis rule: where multiple sources naturally relate to the same development, combine them into one stronger theme instead of creating one theme per source.
+- A theme may reference multiple sources, but only when the connection is directly supported. Do not force connections.
+- Prefer fewer, stronger themes over many isolated source summaries.
+- Theme titles should be specific and RM-ready: name the actual development, client implication, and trade-finance angle where possible. Avoid generic titles such as "Supply Chain Risk" or "Market Update".
 - Each theme should be relevant to trade finance, such as import/export flows, supply chain disruption, working capital, payment risk, guarantees, letters of credit, documentary collections, receivables, inventory financing, or counterparty risk.
 - Treat selected countries as exposure markets/sourcing markets for the Thai client, not as countries to cross-combine with each other.
 
@@ -989,7 +993,7 @@ Return JSON only in this exact shape:
   "status": "OK",
   "themes": [
     {
-      "title": "Short news-based heading",
+      "title": "Specific RM-ready news theme title, not a generic category",
       "paragraph": "One short paragraph explaining why this current development matters to the Thailand-based client, with source reference(s).",
       "supportingInformation": [
         "Specific source-backed point with source reference like [1]",
