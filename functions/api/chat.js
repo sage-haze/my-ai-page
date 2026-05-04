@@ -683,13 +683,14 @@ Customer profile:
 Task:
 Review the candidate news sources and classify their usefulness for a Thailand-based bank RM.
 Prioritise sources in this order:
-1. Thailand-related news connected to the industry or Thai import/export flows.
-2. Global industry news that affects demand, pricing, supply chain, logistics, trade policy, working capital, payment risk, or counterparty risk for a Thailand-based client.
+1. Thailand-related news connected to the industry, Thai company flows, Thai supply chains, Thai import/export activity, or Thai macro/trade policy.
+2. Global industry news that clearly affects demand, pricing, supply chain, logistics, trade policy, working capital, payment risk, or counterparty risk for a Thailand-based client.
 3. Selected-country news only when it clearly affects Thailand-based sourcing, export demand, buyer/supplier conditions, logistics, pricing, or trade risk.
 
-A useful source should connect to at least one of: the specific industry, import/export flows, supply chain, selected markets, Thailand-based corporate exposure, trade policy, logistics, demand, working capital, payment risk, or counterparty risk.
-Do not include sources just because they mention a keyword. Interpret importer/exporter strictly from the Thailand-based client's perspective; for example, China/US/Indonesia should be treated as exposure markets/sources/destinations, not as exporters/importers themselves unless that directly affects Thai client flows.
+A useful source must have a clear client implication. It is not enough that the article mentions a selected country, exporter/importer, or broad sector keyword.
+Interpret importer/exporter strictly from the Thailand-based client's perspective; for example, China/US/Indonesia should be treated as exposure markets/sources/destinations, not as exporters/importers themselves unless that directly affects Thai client flows.
 Country-cross results, such as China-Indonesia, US-Indonesia, or China-US stories, should be LOW unless they have a clear Thailand or global industry implication for the client.
+Do not include sources merely to fill a quota. If relevance is weak or indirect, classify it as LOW and omit it.
 
 Return JSON only in this exact shape:
 {
@@ -706,15 +707,17 @@ Return JSON only in this exact shape:
 
 Relevance levels:
 - HIGH: Thailand-related and directly relevant to the client industry, Thai import/export role, or Thai exposure to selected markets.
-- MEDIUM: useful global industry context, or selected-market context with a clear implication for Thai client flows, demand, pricing, supply chain, or risk.
-- LOW: weak keyword match, unrelated country export/import story, country-pair story without Thai/global industry implication, unrelated company news, or no clear client implication.
+- MEDIUM: useful global industry context, or selected-market context with a clear and explainable implication for Thai client flows, demand, pricing, supply chain, or risk.
+- LOW: weak keyword match, unrelated country export/import story, country-pair story without Thai/global industry implication, unrelated company news, old/background content, or no clear client implication.
 
 Rules:
-- Return HIGH and MEDIUM sources only; omit LOW sources.
+- Return HIGH and MEDIUM sources only; omit LOW sources completely.
+- Never include a source because relevant updates are limited. Do not use fallback language such as "limited news", "broader context because", or "may be relevant".
 - Keep all HIGH sources.
-- Include MEDIUM sources when they add broader context, especially if there are fewer than 6 HIGH sources.
-- Justification must be one concise sentence, maximum 28 words.
-- Set hasRelevantUpdates to false only if every source is LOW or there is genuinely no usable industry/global update in the period.
+- Include MEDIUM sources only when the article has a clear, specific client implication.
+- Prefer fewer strong sources over more weak sources.
+- Justification must be one concise sentence, maximum 28 words, written as "Relevant because..." or equivalent.
+- Set hasRelevantUpdates to false if all sources are LOW or if remaining HIGH/MEDIUM sources are too weak to support a client-ready conversation.
 - The noRelevantUpdateMessage must be one concise sentence suitable for display to the user.
 
 Candidate sources:
@@ -772,34 +775,9 @@ ${JSON.stringify(compactSources, null, 2)}
     const mediumSources = reviewedSources
       .filter(source => source.relevance_level === "MEDIUM")
       .sort((a, b) => sourcePriority(b) - sourcePriority(a));
-    let selectedSources = [...highSources, ...mediumSources]
+    const selectedSources = [...highSources, ...mediumSources]
       .sort((a, b) => sourcePriority(b) - sourcePriority(a))
       .slice(0, 10);
-
-    // Avoid the UI feeling broken when the search has usable broader context but few direct matches.
-    // Keep a small floor of Tavily-ranked candidates unless OpenAI says there are genuinely no relevant updates.
-    const minimumSources = 4;
-    if (Boolean(parsed.hasRelevantUpdates) && selectedSources.length > 0 && selectedSources.length < minimumSources) {
-      const selectedUrls = new Set(selectedSources.map(source => source.url));
-      const fallbackSources = sources
-        .filter(source => !selectedUrls.has(source.url))
-        .sort((a, b) => {
-          const aThai = isThailandRelatedSource(a) ? 1 : 0;
-          const bThai = isThailandRelatedSource(b) ? 1 : 0;
-          return bThai - aThai || (b.score || 0) - (a.score || 0);
-        })
-        .slice(0, minimumSources - selectedSources.length)
-        .map(source => ({
-          ...source,
-          relevance_level: "MEDIUM",
-          relevance_justification: isThailandRelatedSource(source)
-            ? "Included as Thailand-related context because directly relevant updates were limited for the selected period."
-            : "Included as broader global industry context because directly relevant updates were limited for the selected period.",
-          relevant: true
-        }));
-
-      selectedSources = [...selectedSources, ...fallbackSources];
-    }
 
     const hasRelevantUpdates = Boolean(parsed.hasRelevantUpdates) && selectedSources.length > 0;
 
@@ -809,14 +787,23 @@ ${JSON.stringify(compactSources, null, 2)}
       sources: selectedSources
     };
   } catch (_) {
-    return {
-      hasRelevantUpdates: true,
-      noRelevantUpdateMessage: "",
-      sources: sources.map(source => ({
+    const fallbackSources = sources
+      .filter(source => isThailandRelatedSource(source) || String(source.source_group || "").includes("global"))
+      .sort((a, b) => sourcePriority(b) - sourcePriority(a))
+      .slice(0, 6)
+      .map(source => ({
         ...source,
         relevant: true,
-        relevance_justification: "Selected because it matched the search profile and may affect the client's trade finance conversation."
-      }))
+        relevance_level: isThailandRelatedSource(source) ? "HIGH" : "MEDIUM",
+        relevance_justification: isThailandRelatedSource(source)
+          ? "Relevant because it connects directly to Thailand and the client context."
+          : "Relevant because it provides global industry context for the client's trade discussion."
+      }));
+
+    return {
+      hasRelevantUpdates: fallbackSources.length > 0,
+      noRelevantUpdateMessage: `No significant relevant news updates were found in the selected ${timeframe}-day period for this client profile.`,
+      sources: fallbackSources
     };
   }
 }
