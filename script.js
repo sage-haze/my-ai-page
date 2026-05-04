@@ -233,7 +233,6 @@ function renderSources(sources, noRelevantUpdates = false) {
           ${source.domain || source.source || "Unknown source"} • ${source.published_at || "Unknown date"}
         </div>
         ${source.justification ? `<div class="source-justification"><strong>Why is it relevant:</strong> ${source.justification}</div>` : ""}
-        <div class="source-link">${source.url}</div>
       </div>
     `;
   }).join("");

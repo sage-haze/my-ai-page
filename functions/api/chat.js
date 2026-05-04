@@ -192,31 +192,38 @@ function buildFallbackQueries({ sector, subsector, industry, tradeRoles, countri
   const countryText = countries.map(country => country.name).slice(0, 4).join(" ");
   const baseKeywords = getSearchKeywords({ sector, subsector }).slice(0, 4).join(" ");
   const tradeRoleText = roleText(tradeRoles);
+  const roleLens = tradeRoles.includes("exporter") && tradeRoles.includes("importer")
+    ? "import export trade flows"
+    : tradeRoles.includes("exporter")
+      ? "Thailand exporter buyers overseas demand"
+      : tradeRoles.includes("importer")
+        ? "Thailand importer overseas suppliers input costs"
+        : "Thailand trade flows";
 
   const queries = [
     {
-      label: "industry_role",
-      query: cleanQueryText(`Thailand ${industry} ${tradeRoleText} ${subsector} trade supply chain news`),
-      maxResults: deepSearch ? 4 : 5
+      label: "strict_client_context",
+      query: cleanQueryText(`Thailand ${industry} ${roleLens} ${countryText} news`),
+      maxResults: deepSearch ? 5 : 5
     },
     {
-      label: "geography_exposure",
-      query: cleanQueryText(`Thailand ${industry} ${tradeRoleText} ${countryText} trade supply chain demand news`),
-      maxResults: deepSearch ? 4 : 5
+      label: "broader_industry_context",
+      query: cleanQueryText(`${industry} ${subsector} ${countryText} global supply chain demand trade news`),
+      maxResults: deepSearch ? 5 : 5
     }
   ];
 
   if (deepSearch) {
     queries.push(
       {
-        label: "global_context",
-        query: cleanQueryText(`global ${industry} ${subsector} ${baseKeywords} demand supply chain trade news`),
-        maxResults: 4
+        label: "thailand_industry_context",
+        query: cleanQueryText(`Thailand ${industry} ${subsector} exports imports investment supply chain news`),
+        maxResults: 5
       },
       {
-        label: "risk_finance",
-        query: cleanQueryText(`Thailand ${industry} ${tradeRoleText} logistics tariffs working capital payment risk news`),
-        maxResults: 4
+        label: "risk_finance_context",
+        query: cleanQueryText(`${industry} ${baseKeywords} logistics tariffs demand prices payment risk trade finance news`),
+        maxResults: 5
       }
     );
   }
@@ -263,23 +270,31 @@ Customer profile:
 - Exposure countries / markets: ${countryText}
 - Timeframe: last ${timeframe} days
 
+Goal:
+Generate a mix of precise and relaxed searches so the system finds enough relevant sources without drifting into irrelevant country-level export news.
+
 Rules:
 - Return JSON only.
 - Tavily is keyword search, not reasoning. Keep each query short and keyword-style.
 - Use Industry as the main anchor.
-- Use importer/exporter status to shape the commercial lens, but always from the Thailand-based client's perspective.
-- If exporter is selected, search for Thailand exporters selling/exporting to the selected countries; do not search for the selected countries' own exports.
-- If importer is selected, search for Thailand importers buying/importing from the selected countries; do not search for the selected countries' own domestic import/export activity unless it affects Thailand.
-- Include Thailand because the client is based in Thailand.
-- Include selected countries as exposure markets/destinations/sources in one geography query.
-- Include global context in deep mode.
+- Use sector/subsector as context, not as the main anchor.
+- Generate queries with DIFFERENT strictness levels:
+  1. One strict query about the Thailand-based client context.
+  2. One broader industry/global query that may include exposure countries but does NOT need to include Thailand.
+  3. In Deep Search only, add one Thailand industry query and one risk/supply-chain/trade-finance query.
+- At least one query must NOT include Thailand, because relevant industry news may be regional or global.
+- If exporter is selected, this means a Thai client exports to overseas buyers/markets. Do NOT search for the selected countries' own exports unless it affects Thai client demand, pricing, supply chain, or trade flows.
+- If importer is selected, this means a Thai client imports from overseas suppliers/markets. Do NOT search for the selected countries' general imports unless it affects Thai sourcing, pricing, supply chain, or trade flows.
+- Avoid over-constraining every query with all countries, role words, sector, and Thailand at the same time.
 - Avoid prompts, questions, and long sentences.
 - Each query must be under 180 characters.
+- Use maxResults 5 for each query.
 
 JSON shape:
 {
   "queries": [
-    { "label": "industry_role", "query": "...", "maxResults": 4 }
+    { "label": "strict_client_context", "query": "...", "maxResults": 5 },
+    { "label": "broader_industry_context", "query": "...", "maxResults": 5 }
   ]
 }`.trim();
 
@@ -634,10 +649,9 @@ Customer profile:
 - Tavily queries used: ${plannedQueries.map(plan => `${plan.label}: ${plan.query}`).join(" | ")}
 
 Task:
-Review the candidate news sources and decide which are genuinely relevant enough to include.
-A relevant source should have a clear connection to at least one of: the specific industry, import/export flows, supply chain, selected markets, Thailand-based corporate exposure, trade policy, logistics, demand, working capital, payment risk, or counterparty risk.
+Review the candidate news sources and classify their usefulness for a Thailand-based bank RM.
+A useful source should connect to at least one of: the specific industry, import/export flows, supply chain, selected markets, Thailand-based corporate exposure, trade policy, logistics, demand, working capital, payment risk, or counterparty risk.
 Do not include sources just because they mention a keyword. Interpret importer/exporter strictly from the Thailand-based client's perspective; for example, China should be treated as an exposure market/source/destination, not as the exporter unless that directly affects Thai client flows.
-If there are no genuinely relevant updates in the selected period, say so clearly.
 
 Return JSON only in this exact shape:
 {
@@ -646,16 +660,23 @@ Return JSON only in this exact shape:
   "sources": [
     {
       "number": 1,
-      "relevant": true,
-      "justification": "One sentence explaining why this source was selected for this client profile."
+      "relevanceLevel": "HIGH",
+      "justification": "One sentence explaining why this source is relevant for this client profile."
     }
   ]
 }
 
+Relevance levels:
+- HIGH: directly relevant to the client industry, Thailand, trade role, or selected markets.
+- MEDIUM: useful broader industry/global context that could affect the Thailand-based client's flows, demand, pricing, supply chain, or risk.
+- LOW: weak keyword match, unrelated country export story, unrelated company news, or no clear client implication.
+
 Rules:
-- Include a source only if relevant is true.
+- Return HIGH and MEDIUM sources only; omit LOW sources.
+- Keep all HIGH sources.
+- Include MEDIUM sources when they add broader context, especially if there are fewer than 6 HIGH sources.
 - Justification must be one concise sentence, maximum 28 words.
-- If no sources are relevant, set hasRelevantUpdates to false and sources to [].
+- Set hasRelevantUpdates to false only if every source is LOW or there is genuinely no usable industry/global update in the period.
 - The noRelevantUpdateMessage must be one concise sentence suitable for display to the user.
 
 Candidate sources:
@@ -685,29 +706,56 @@ ${JSON.stringify(compactSources, null, 2)}
     const reviewsByNumber = new Map(
       sourceReviews
         .filter(item => Number.isFinite(Number(item.number)))
-        .map(item => [Number(item.number), {
-          relevant: Boolean(item.relevant),
-          justification: String(item.justification || "").trim()
-        }])
+        .map(item => {
+          const level = String(item.relevanceLevel || item.relevance_level || (item.relevant ? "HIGH" : "LOW")).toUpperCase();
+          return [Number(item.number), {
+            relevanceLevel: ["HIGH", "MEDIUM", "LOW"].includes(level) ? level : "LOW",
+            justification: String(item.justification || "").trim()
+          }];
+        })
     );
 
     const reviewedSources = sources
       .map(source => {
         const review = reviewsByNumber.get(source.source_number);
+        const relevanceLevel = review?.relevanceLevel || "LOW";
         return {
           ...source,
-          relevance_justification: review?.justification || "Selected because it appears relevant to the client profile and selected markets.",
-          relevant: review ? review.relevant : false
+          relevance_level: relevanceLevel,
+          relevance_justification: review?.justification || "Relevant as broader context for the client's industry, markets, or trade finance discussion.",
+          relevant: relevanceLevel === "HIGH" || relevanceLevel === "MEDIUM"
         };
       })
       .filter(source => source.relevant);
 
-    const hasRelevantUpdates = Boolean(parsed.hasRelevantUpdates) && reviewedSources.length > 0;
+    const highSources = reviewedSources.filter(source => source.relevance_level === "HIGH");
+    const mediumSources = reviewedSources.filter(source => source.relevance_level === "MEDIUM");
+    let selectedSources = [...highSources, ...mediumSources].slice(0, 10);
+
+    // Avoid the UI feeling broken when the search has usable broader context but few direct matches.
+    // Keep a small floor of Tavily-ranked candidates unless OpenAI says there are genuinely no relevant updates.
+    const minimumSources = 4;
+    if (Boolean(parsed.hasRelevantUpdates) && selectedSources.length > 0 && selectedSources.length < minimumSources) {
+      const selectedUrls = new Set(selectedSources.map(source => source.url));
+      const fallbackSources = sources
+        .filter(source => !selectedUrls.has(source.url))
+        .slice(0, minimumSources - selectedSources.length)
+        .map(source => ({
+          ...source,
+          relevance_level: "MEDIUM",
+          relevance_justification: "Included as broader context because directly relevant updates were limited for the selected period.",
+          relevant: true
+        }));
+
+      selectedSources = [...selectedSources, ...fallbackSources];
+    }
+
+    const hasRelevantUpdates = Boolean(parsed.hasRelevantUpdates) && selectedSources.length > 0;
 
     return {
       hasRelevantUpdates,
       noRelevantUpdateMessage: String(parsed.noRelevantUpdateMessage || `No relevant news updates were found in the selected ${timeframe}-day period for this client profile.`).trim(),
-      sources: reviewedSources
+      sources: selectedSources
     };
   } catch (_) {
     return {
