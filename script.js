@@ -232,7 +232,7 @@ function renderSources(sources, noRelevantUpdates = false) {
         <div class="source-meta">
           ${source.domain || source.source || "Unknown source"} • ${source.published_at || "Unknown date"}
         </div>
-        ${source.justification ? `<div class="source-justification"><strong>Why included:</strong> ${source.justification}</div>` : ""}
+        ${source.justification ? `<div class="source-justification"><strong>Why is it relevant:</strong> ${source.justification}</div>` : ""}
         <div class="source-link">${source.url}</div>
       </div>
     `;
@@ -289,6 +289,15 @@ function renderAnalysis(text) {
 
 async function updateFxOnly() {
   const currencies = getSelectedCurrencies();
+  const sector = sectorBox.value;
+  const subsector = subsectorBox.value;
+  const industry = industryBox.value.trim();
+  const tradeRoles = getSelectedTradeRoles();
+  const countries = selectedCountries.map(country => ({
+    name: country.name,
+    code: country.code,
+    label: countryLabel(country)
+  }));
 
   if (currencies.length === 0) {
     fxOutput.textContent = "Please select at least one currency.";
@@ -304,7 +313,14 @@ async function updateFxOnly() {
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ currencies })
+      body: JSON.stringify({
+        currencies,
+        sector,
+        subsector,
+        industry,
+        tradeRoles,
+        countries
+      })
     });
 
     const data = await response.json();

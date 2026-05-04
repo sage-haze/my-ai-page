@@ -141,7 +141,7 @@ function extractOutputText(data) {
   return "";
 }
 
-async function analyzeFxRates({ env, fxList }) {
+async function analyzeFxRates({ env, fxList, sector = "", subsector = "", industry = "", tradeRoles = [], countries = [] }) {
   const usableFx = fxList.filter(fx => !fx.skip && !fx.error && Array.isArray(fx.series) && fx.series.length > 0);
 
   if (usableFx.length === 0 || !env.OPENAI_API_KEY) return fxList;
@@ -158,12 +158,22 @@ async function analyzeFxRates({ env, fxList }) {
     series: fx.series
   }));
 
+  const countryText = countries.map(country => country.label || country.name || country.code).filter(Boolean).join(", ");
   const prompt = `
 You are writing short FX movement notes for a Thailand-based relationship manager.
 
-Use only the 7-day FX data below. For each pair, write one concise plain-English note.
-Do not mention news, Tavily sources, client strategy, or recommendations.
-Focus only on observed movement, latest level versus the 7-day range, and whether the base currency has strengthened or weakened against THB over the period.
+Client context:
+- Client base: Thailand
+- Sector: ${sector}
+- Subsector: ${subsector}
+- Specific industry: ${industry}
+- Client trade role: ${tradeRoles.join(", ")}
+- Exposure countries / markets: ${countryText}
+
+Use only the 7-day FX data below. For each pair, write two concise sentences.
+Sentence 1: observed FX movement, latest level versus the 7-day range, and whether the base currency strengthened or weakened against THB.
+Sentence 2: what this could mean for the Thailand-based client in the given import/export context.
+Do not mention news or Tavily sources. Do not give investment advice. Keep each analysis under 45 words.
 
 Return JSON only in this shape:
 {
@@ -221,6 +231,13 @@ export async function onRequestPost(context) {
     const currencies = Array.isArray(body.currencies)
       ? body.currencies.map(c => String(c).toUpperCase())
       : [];
+    const sector = (body.sector || "").trim();
+    const subsector = (body.subsector || "").trim();
+    const industry = (body.industry || "").trim();
+    const tradeRoles = Array.isArray(body.tradeRoles)
+      ? body.tradeRoles.map(role => String(role).toLowerCase()).filter(role => ["importer", "exporter"].includes(role))
+      : [];
+    const countries = Array.isArray(body.countries) ? body.countries : [];
 
     if (currencies.length === 0) {
       return Response.json({ error: "Please select at least one currency." }, { status: 400 });
@@ -232,7 +249,7 @@ export async function onRequestPost(context) {
     }
 
     const rawFx = await fetchFxRates(currencies);
-    const fx = await analyzeFxRates({ env, fxList: rawFx });
+    const fx = await analyzeFxRates({ env, fxList: rawFx, sector, subsector, industry, tradeRoles, countries });
 
     return Response.json({ fx });
   } catch (error) {

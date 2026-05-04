@@ -176,10 +176,16 @@ function cleanQueryText(text) {
 }
 
 function roleText(tradeRoles) {
-  if (tradeRoles.includes("importer") && tradeRoles.includes("exporter")) return "importer exporter";
-  if (tradeRoles.includes("importer")) return "importer imports suppliers";
-  if (tradeRoles.includes("exporter")) return "exporter exports buyers";
-  return "import export";
+  if (tradeRoles.includes("importer") && tradeRoles.includes("exporter")) {
+    return "Thailand importer exporter suppliers buyers";
+  }
+  if (tradeRoles.includes("importer")) {
+    return "Thailand importer imports from selected markets suppliers";
+  }
+  if (tradeRoles.includes("exporter")) {
+    return "Thailand exporter exports to selected markets buyers";
+  }
+  return "Thailand import export trade";
 }
 
 function buildFallbackQueries({ sector, subsector, industry, tradeRoles, countries, deepSearch }) {
@@ -195,7 +201,7 @@ function buildFallbackQueries({ sector, subsector, industry, tradeRoles, countri
     },
     {
       label: "geography_exposure",
-      query: cleanQueryText(`Thailand ${industry} ${countryText} trade exports imports investment supply chain news`),
+      query: cleanQueryText(`Thailand ${industry} ${tradeRoleText} ${countryText} trade supply chain demand news`),
       maxResults: deepSearch ? 4 : 5
     }
   ];
@@ -209,7 +215,7 @@ function buildFallbackQueries({ sector, subsector, industry, tradeRoles, countri
       },
       {
         label: "risk_finance",
-        query: cleanQueryText(`${industry} import export logistics tariffs FX working capital payment risk news`),
+        query: cleanQueryText(`Thailand ${industry} ${tradeRoleText} logistics tariffs working capital payment risk news`),
         maxResults: 4
       }
     );
@@ -261,9 +267,11 @@ Rules:
 - Return JSON only.
 - Tavily is keyword search, not reasoning. Keep each query short and keyword-style.
 - Use Industry as the main anchor.
-- Use importer/exporter status to shape the commercial lens.
+- Use importer/exporter status to shape the commercial lens, but always from the Thailand-based client's perspective.
+- If exporter is selected, search for Thailand exporters selling/exporting to the selected countries; do not search for the selected countries' own exports.
+- If importer is selected, search for Thailand importers buying/importing from the selected countries; do not search for the selected countries' own domestic import/export activity unless it affects Thailand.
 - Include Thailand because the client is based in Thailand.
-- Include selected countries in one geography query.
+- Include selected countries as exposure markets/destinations/sources in one geography query.
 - Include global context in deep mode.
 - Avoid prompts, questions, and long sentences.
 - Each query must be under 180 characters.
@@ -491,7 +499,7 @@ async function fetchFxRates(currencies) {
   );
 }
 
-async function analyzeFxRates({ env, fxList }) {
+async function analyzeFxRates({ env, fxList, sector = "", subsector = "", industry = "", tradeRoles = [], countries = [] }) {
   const usableFx = fxList.filter(fx => !fx.skip && !fx.error && Array.isArray(fx.series) && fx.series.length > 0);
 
   if (usableFx.length === 0) return fxList;
@@ -508,12 +516,22 @@ async function analyzeFxRates({ env, fxList }) {
     series: fx.series
   }));
 
+  const countryText = countries.map(country => country.label || country.name || country.code).filter(Boolean).join(", ");
   const prompt = `
 You are writing short FX movement notes for a Thailand-based relationship manager.
 
-Use only the 7-day FX data below. For each pair, write one concise plain-English note.
-Do not mention news, Tavily sources, client strategy, or recommendations.
-Focus only on observed movement, latest level versus the 7-day range, and whether the base currency has strengthened or weakened against THB over the period.
+Client context:
+- Client base: Thailand
+- Sector: ${sector}
+- Subsector: ${subsector}
+- Specific industry: ${industry}
+- Client trade role: ${tradeRoles.join(", ")}
+- Exposure countries / markets: ${countryText}
+
+Use only the 7-day FX data below. For each pair, write two concise sentences.
+Sentence 1: observed FX movement, latest level versus the 7-day range, and whether the base currency strengthened or weakened against THB.
+Sentence 2: what this could mean for the Thailand-based client in the given import/export context.
+Do not mention news or Tavily sources. Do not give investment advice. Keep each analysis under 45 words.
 
 Return JSON only in this shape:
 {
@@ -618,7 +636,7 @@ Customer profile:
 Task:
 Review the candidate news sources and decide which are genuinely relevant enough to include.
 A relevant source should have a clear connection to at least one of: the specific industry, import/export flows, supply chain, selected markets, Thailand-based corporate exposure, trade policy, logistics, demand, working capital, payment risk, or counterparty risk.
-Do not include sources just because they mention a keyword.
+Do not include sources just because they mention a keyword. Interpret importer/exporter strictly from the Thailand-based client's perspective; for example, China should be treated as an exposure market/source/destination, not as the exporter unless that directly affects Thai client flows.
 If there are no genuinely relevant updates in the selected period, say so clearly.
 
 Return JSON only in this exact shape:
@@ -796,7 +814,7 @@ export async function onRequestPost(context) {
       fetchFxRates(currencies)
     ]);
 
-    const fxResults = await analyzeFxRates({ env, fxList: rawFxResults });
+    const fxResults = await analyzeFxRates({ env, fxList: rawFxResults, sector, subsector, industry, tradeRoles, countries });
 
     const candidateSources = dedupeSources(tavilyBatches.flat())
       .sort((a, b) => (b.score || 0) - (a.score || 0))
