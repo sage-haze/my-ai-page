@@ -384,3 +384,10 @@ button:disabled {
   line-height: 1.5;
   color: inherit;
 }
+
+.context-analysis {
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: normal;
+}
