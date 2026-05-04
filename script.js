@@ -208,9 +208,11 @@ function renderFx(fxList) {
   `;
 }
 
-function renderSources(sources) {
+function renderSources(sources, noRelevantUpdates = false) {
   if (!sources || sources.length === 0) {
-    sourcesOutput.textContent = "No sources found.";
+    sourcesOutput.innerHTML = noRelevantUpdates
+      ? `<div class="empty-state">No relevant sources were included for this period.</div>`
+      : "No sources found.";
     return;
   }
 
@@ -230,6 +232,7 @@ function renderSources(sources) {
         <div class="source-meta">
           ${source.domain || source.source || "Unknown source"} • ${source.published_at || "Unknown date"}
         </div>
+        ${source.justification ? `<div class="source-justification"><strong>Why included:</strong> ${source.justification}</div>` : ""}
         <div class="source-link">${source.url}</div>
       </div>
     `;
@@ -421,7 +424,7 @@ button.addEventListener("click", async function () {
     }
 
     renderFx(data.fx || []);
-    renderSources(data.sources || []);
+    renderSources(data.sources || [], Boolean(data.no_relevant_updates));
     renderAnalysis(data.analysis || "No analysis returned.");
   } catch (error) {
     analysisOutput.innerHTML = `<span class="error">Network error.</span>`;

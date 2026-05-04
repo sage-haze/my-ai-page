@@ -563,6 +563,147 @@ ${JSON.stringify(compactFx, null, 2)}
   }
 }
 
+
+function parseJsonObject(text) {
+  try {
+    const jsonStart = text.indexOf("{");
+    const jsonEnd = text.lastIndexOf("}");
+    if (jsonStart === -1 || jsonEnd === -1) return null;
+    return JSON.parse(text.slice(jsonStart, jsonEnd + 1));
+  } catch (_) {
+    return null;
+  }
+}
+
+async function assessSourceRelevance({ env, sources, sector, subsector, industry, tradeRoles, countries, timeframe, plannedQueries }) {
+  if (!sources.length) {
+    return {
+      hasRelevantUpdates: false,
+      noRelevantUpdateMessage: `No relevant news updates were found in the selected ${timeframe}-day period for this client profile.`,
+      sources: []
+    };
+  }
+
+  const countryText = countries
+    .map(country => country.label || `${country.name} (${country.code})`)
+    .join(", ");
+
+  const compactSources = sources.map(source => {
+    const text = source.raw_content || source.summary || "";
+    const trimmedText = text.length > 1200 ? text.slice(0, 1200) + "…" : text;
+
+    return {
+      number: source.source_number,
+      title: source.title,
+      publisher: source.domain || source.source || "Unknown",
+      published: source.published_at || "Unknown",
+      source_group: source.source_group,
+      snippet: trimmedText
+    };
+  });
+
+  const prompt = `
+You are a source selection reviewer for a Thailand-based bank relationship manager.
+
+Customer profile:
+- Sector: ${sector}
+- Subsector: ${subsector}
+- Specific industry: ${industry}
+- Client trade role: ${tradeRoles.join(", ")}
+- Client base: Thailand
+- Exposure countries / markets: ${countryText}
+- Timeframe: last ${timeframe} days
+- Tavily queries used: ${plannedQueries.map(plan => `${plan.label}: ${plan.query}`).join(" | ")}
+
+Task:
+Review the candidate news sources and decide which are genuinely relevant enough to include.
+A relevant source should have a clear connection to at least one of: the specific industry, import/export flows, supply chain, selected markets, Thailand-based corporate exposure, trade policy, logistics, demand, working capital, payment risk, or counterparty risk.
+Do not include sources just because they mention a keyword.
+If there are no genuinely relevant updates in the selected period, say so clearly.
+
+Return JSON only in this exact shape:
+{
+  "hasRelevantUpdates": true,
+  "noRelevantUpdateMessage": "",
+  "sources": [
+    {
+      "number": 1,
+      "relevant": true,
+      "justification": "One sentence explaining why this source was selected for this client profile."
+    }
+  ]
+}
+
+Rules:
+- Include a source only if relevant is true.
+- Justification must be one concise sentence, maximum 28 words.
+- If no sources are relevant, set hasRelevantUpdates to false and sources to [].
+- The noRelevantUpdateMessage must be one concise sentence suitable for display to the user.
+
+Candidate sources:
+${JSON.stringify(compactSources, null, 2)}
+`.trim();
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${env.OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: "gpt-4.1-mini",
+        input: prompt
+      })
+    });
+
+    const data = await response.json();
+    if (!response.ok) throw new Error("Source relevance review failed.");
+
+    const parsed = parseJsonObject(extractOutputText(data));
+    if (!parsed) throw new Error("Source relevance review returned invalid JSON.");
+
+    const sourceReviews = Array.isArray(parsed.sources) ? parsed.sources : [];
+    const reviewsByNumber = new Map(
+      sourceReviews
+        .filter(item => Number.isFinite(Number(item.number)))
+        .map(item => [Number(item.number), {
+          relevant: Boolean(item.relevant),
+          justification: String(item.justification || "").trim()
+        }])
+    );
+
+    const reviewedSources = sources
+      .map(source => {
+        const review = reviewsByNumber.get(source.source_number);
+        return {
+          ...source,
+          relevance_justification: review?.justification || "Selected because it appears relevant to the client profile and selected markets.",
+          relevant: review ? review.relevant : false
+        };
+      })
+      .filter(source => source.relevant);
+
+    const hasRelevantUpdates = Boolean(parsed.hasRelevantUpdates) && reviewedSources.length > 0;
+
+    return {
+      hasRelevantUpdates,
+      noRelevantUpdateMessage: String(parsed.noRelevantUpdateMessage || `No relevant news updates were found in the selected ${timeframe}-day period for this client profile.`).trim(),
+      sources: reviewedSources
+    };
+  } catch (_) {
+    return {
+      hasRelevantUpdates: true,
+      noRelevantUpdateMessage: "",
+      sources: sources.map(source => ({
+        ...source,
+        relevant: true,
+        relevance_justification: "Selected because it matched the search profile and may affect the client's trade finance conversation."
+      }))
+    };
+  }
+}
+
 function extractOutputText(data) {
   if (data.output_text) return data.output_text;
 
@@ -657,7 +798,7 @@ export async function onRequestPost(context) {
 
     const fxResults = await analyzeFxRates({ env, fxList: rawFxResults });
 
-    const mergedSources = dedupeSources(tavilyBatches.flat())
+    const candidateSources = dedupeSources(tavilyBatches.flat())
       .sort((a, b) => (b.score || 0) - (a.score || 0))
       .slice(0, deepSearch ? 12 : 10)
       .map((source, index) => ({
@@ -665,10 +806,33 @@ export async function onRequestPost(context) {
         source_number: index + 1
       }));
 
-    if (mergedSources.length === 0) {
+    const sourceAssessment = await assessSourceRelevance({
+      env,
+      sources: candidateSources,
+      sector,
+      subsector,
+      industry,
+      tradeRoles,
+      countries,
+      timeframe,
+      plannedQueries
+    });
+
+    const mergedSources = sourceAssessment.sources.map((source, index) => ({
+      ...source,
+      source_number: index + 1
+    }));
+
+    if (!sourceAssessment.hasRelevantUpdates || mergedSources.length === 0) {
       return Response.json({
-        error: "No recent sources were found for that sector, market, and timeframe."
-      }, { status: 400 });
+        analysis: sourceAssessment.noRelevantUpdateMessage || `No relevant news updates were found in the selected ${timeframe}-day period for this client profile.`,
+        no_relevant_updates: true,
+        fx: fxResults,
+        search_keywords: searchKeywords,
+        search_queries: plannedQueries,
+        search_mode: deepSearch ? "deep" : "standard",
+        sources: []
+      });
     }
 
     const countryText = countries
@@ -763,7 +927,8 @@ ${articleContext}
         source: source.source,
         domain: source.domain,
         published_at: source.published_at,
-        source_group: source.source_group
+        source_group: source.source_group,
+        justification: source.relevance_justification || ""
       }))
     });
   } catch (error) {
