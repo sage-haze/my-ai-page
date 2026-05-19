@@ -5,6 +5,7 @@ const sectorBox = document.getElementById("sector");
 const subsectorBox = document.getElementById("subsector");
 const industryBox = document.getElementById("industry");
 const timeframeBox = document.getElementById("timeframe");
+const fxTenorBox = document.getElementById("fxTenor");
 const deepSearchBox = document.getElementById("deepSearch");
 
 const countrySearch = document.getElementById("countrySearch");
@@ -18,8 +19,79 @@ const sourcesOutput = document.getElementById("sourcesOutput");
 const fxOutput = document.getElementById("fxOutput");
 const fxContextOutput = document.getElementById("fxContextOutput");
 const contextOutput = document.getElementById("contextOutput");
+const isicDropdown = document.getElementById("isicDropdown");
+const selectedIsicBox = document.getElementById("selectedIsic");
 
 let selectedCountries = [];
+let selectedIsic = null;
+
+
+function normaliseSearchText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function scoreIsicMatch(entry, query) {
+  const text = normaliseSearchText(`${entry.code} ${entry.description}`);
+  const q = normaliseSearchText(query);
+
+  if (!q) return 0;
+  if (text === q) return 1000;
+  if (text.includes(q)) return 500 + q.length;
+
+  const terms = q.split(" ").filter(Boolean);
+  let score = 0;
+  for (const term of terms) {
+    if (text.includes(term)) score += 80;
+    else if (term.length > 3 && text.split(" ").some(word => word.startsWith(term.slice(0, 4)))) score += 30;
+  }
+  return score;
+}
+
+function renderIsicDropdown() {
+  if (!isicDropdown || typeof ISIC_DATA === "undefined") return;
+
+  const query = industryBox.value.trim();
+  if (!query) {
+    isicDropdown.classList.add("hidden");
+    isicDropdown.innerHTML = "";
+    return;
+  }
+
+  const matches = ISIC_DATA
+    .map(entry => ({ ...entry, score: scoreIsicMatch(entry, query) }))
+    .filter(entry => entry.score > 0)
+    .sort((a, b) => b.score - a.score || a.description.localeCompare(b.description))
+    .slice(0, 12);
+
+  if (matches.length === 0) {
+    isicDropdown.classList.remove("hidden");
+    isicDropdown.innerHTML = `<div class="isic-empty">No close ISIC activity found. Try a broader term.</div>`;
+    return;
+  }
+
+  isicDropdown.classList.remove("hidden");
+  isicDropdown.innerHTML = matches.map(entry => `
+    <button type="button" class="isic-option" data-code="${entry.code}">
+      <strong>${entry.code}</strong>
+      <span>${entry.description}</span>
+    </button>
+  `).join("");
+
+  isicDropdown.querySelectorAll(".isic-option").forEach(option => {
+    option.addEventListener("click", function () {
+      const entry = ISIC_DATA.find(item => item.code === option.dataset.code);
+      if (!entry) return;
+      selectedIsic = entry;
+      industryBox.value = `${entry.code} - ${entry.description}`;
+      selectedIsicBox.textContent = `Selected: ${entry.code} - ${entry.description}`;
+      isicDropdown.classList.add("hidden");
+    });
+  });
+}
 
 function countryLabel(country) {
   return `${country.name} (${country.code})`;
@@ -171,6 +243,7 @@ function renderFxContext(text) {
 }
 
 function renderFx(fxList) {
+  const tenor = fxTenorBox?.value || "30";
   if (!fxList || fxList.length === 0) {
     fxOutput.textContent = "No FX data returned.";
     return;
@@ -205,8 +278,8 @@ function renderFx(fxList) {
         <tr>
           <th>Pair</th>
           <th>Latest</th>
-          <th>7D High</th>
-          <th>7D Low</th>
+          <th>${tenor}D High</th>
+          <th>${tenor}D Low</th>
         </tr>
       </thead>
       <tbody>${summaryRows}</tbody>
@@ -398,7 +471,9 @@ async function updateFxOnly() {
   const currencies = getSelectedCurrencies();
   const sector = sectorBox.value;
   const subsector = subsectorBox.value;
-  const industry = industryBox.value.trim();
+  const industry = selectedIsic ? selectedIsic.description : industryBox.value.trim();
+  const isicCode = selectedIsic?.code || "";
+  const fxTenor = fxTenorBox?.value || "30";
   const tradeRoles = getSelectedTradeRoles();
   const countries = selectedCountries.map(country => ({
     name: country.name,
@@ -425,6 +500,8 @@ async function updateFxOnly() {
         sector,
         subsector,
         industry,
+        isicCode,
+        fxTenor,
         tradeRoles,
         countries
       })
@@ -445,6 +522,20 @@ async function updateFxOnly() {
   }
 }
 
+industryBox.addEventListener("input", function () {
+  selectedIsic = null;
+  selectedIsicBox.textContent = "Select one suggested ISIC activity. Free-text entries are not accepted as final input.";
+  renderIsicDropdown();
+});
+
+industryBox.addEventListener("focus", renderIsicDropdown);
+
+document.addEventListener("click", function (event) {
+  if (!event.target.closest(".isic-picker")) {
+    isicDropdown?.classList.add("hidden");
+  }
+});
+
 countrySearch.addEventListener("focus", function () {
   countryDropdown.classList.remove("hidden");
   renderCountryDropdown();
@@ -464,8 +555,10 @@ document.addEventListener("click", function (event) {
 button.addEventListener("click", async function () {
   const sector = sectorBox.value;
   const subsector = subsectorBox.value;
-  const industry = industryBox.value.trim();
+  const industry = selectedIsic ? selectedIsic.description : industryBox.value.trim();
+  const isicCode = selectedIsic?.code || "";
   const timeframe = timeframeBox.value;
+  const fxTenor = fxTenorBox?.value || "30";
   const currencies = getSelectedCurrencies();
   const tradeRoles = getSelectedTradeRoles();
   const deepSearch = deepSearchBox.checked;
@@ -488,8 +581,8 @@ button.addEventListener("click", async function () {
     return;
   }
 
-  if (!industry) {
-    analysisOutput.textContent = "Please enter the client's industry.";
+  if (!selectedIsic) {
+    analysisOutput.textContent = "Please select one ISIC activity from the suggestions.";
     return;
   }
 
@@ -513,7 +606,7 @@ button.addEventListener("click", async function () {
   analysisOutput.innerHTML = `<span class="loading">Researching news...</span>`;
   if (fxContextOutput) fxContextOutput.innerHTML = `<span class="loading">Preparing FX context...</span>`;
   sourcesOutput.innerHTML = `<span class="loading">Loading sources...</span>`;
-  if (contextOutput) contextOutput.innerHTML = `<span class="loading">Preparing industry context and RM considerations...</span>`;
+  if (contextOutput) contextOutput.textContent = "";
 
   try {
     const response = await fetch("/api/chat", {
@@ -525,9 +618,11 @@ button.addEventListener("click", async function () {
         sector,
         subsector,
         industry,
+        isicCode,
         tradeRoles,
         deepSearch,
         timeframe,
+        fxTenor,
         currencies,
         countries,
         defaultPrompt
@@ -548,7 +643,8 @@ button.addEventListener("click", async function () {
     renderFxContext(data.fx_context || data.fxContext || "");
     renderSources(data.sources || [], Boolean(data.no_relevant_updates), Boolean(data.fallback_triggered));
     renderAnalysis(data.news?.content || data.analysis || "No analysis returned.");
-    renderContext(data.context || "");
+    // Industry Context & RM Considerations is currently deactivated in the UI.
+    // renderContext(data.context || "");
   } catch (error) {
     analysisOutput.innerHTML = `<span class="error">Network error.</span>`;
     fxOutput.textContent = "";

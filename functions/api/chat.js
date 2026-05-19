@@ -343,7 +343,7 @@ Customer profile:
 - Client base: Thailand
 - Sector: ${sector}
 - Subsector: ${subsector}
-- Specific industry: ${industry}
+- Specific industry / ISIC activity: ${industry}
 - Client trade role: ${tradeRoles.join(", ")}
 - Exposure countries / markets: ${countryText}
 - Timeframe: last ${timeframe} days
@@ -470,8 +470,9 @@ async function tavilySearch({ apiKey, query, startDate, endDate, includeDomains 
   return data.results || [];
 }
 
-async function fetchYahooSeries(pair) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${pair}?interval=1d&range=7d`;
+async function fetchYahooSeries(pair, rangeDays = 30) {
+  const safeRangeDays = [30, 90].includes(Number(rangeDays)) ? Number(rangeDays) : 30;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${pair}?interval=1d&range=${safeRangeDays}d`;
 
   const response = await fetch(url, {
     headers: {
@@ -532,7 +533,7 @@ function summarizeFxSeries({ base, pair, series, source }) {
   };
 }
 
-async function fetchYahooFxRate(baseCurrency) {
+async function fetchYahooFxRate(baseCurrency, rangeDays = 30) {
   if (baseCurrency === "THB") {
     return {
       skip: true,
@@ -542,8 +543,8 @@ async function fetchYahooFxRate(baseCurrency) {
 
   if (baseCurrency === "CNY") {
     const [usdThb, usdCny] = await Promise.all([
-      fetchYahooSeries("USDTHB=X"),
-      fetchYahooSeries("USDCNY=X")
+      fetchYahooSeries("USDTHB=X", rangeDays),
+      fetchYahooSeries("USDCNY=X", rangeDays)
     ]);
 
     const usdCnyByDate = new Map(usdCny.map(item => [item.date, item.rate]));
@@ -569,7 +570,7 @@ async function fetchYahooFxRate(baseCurrency) {
   }
 
   const pair = `${baseCurrency}THB=X`;
-  const series = await fetchYahooSeries(pair);
+  const series = await fetchYahooSeries(pair, rangeDays);
 
   return summarizeFxSeries({
     base: baseCurrency,
@@ -579,12 +580,12 @@ async function fetchYahooFxRate(baseCurrency) {
   });
 }
 
-async function fetchFxRates(currencies) {
+async function fetchFxRates(currencies, rangeDays = 30) {
   const uniqueCurrencies = [...new Set(currencies)];
 
   return Promise.all(
     uniqueCurrencies.map(currency =>
-      fetchYahooFxRate(currency).catch(error => ({
+      fetchYahooFxRate(currency, rangeDays).catch(error => ({
         skip: false,
         base: currency,
         quote: "THB",
@@ -594,7 +595,7 @@ async function fetchFxRates(currencies) {
   );
 }
 
-async function analyzeFxRates({ env, fxList, sector = "", subsector = "", industry = "", tradeRoles = [], countries = [] }) {
+async function analyzeFxRates({ env, fxList, sector = "", subsector = "", industry = "", tradeRoles = [], countries = [], fxTenor = 30 }) {
   const usableFx = fxList.filter(fx => !fx.skip && !fx.error && Array.isArray(fx.series) && fx.series.length > 0);
 
   if (usableFx.length === 0) return fxList;
@@ -619,12 +620,12 @@ Client context:
 - Client base: Thailand
 - Sector: ${sector}
 - Subsector: ${subsector}
-- Specific industry: ${industry}
+- Specific industry / ISIC activity: ${industry}
 - Client trade role: ${tradeRoles.join(", ")}
 - Exposure countries / markets: ${countryText}
 
-Use only the 7-day FX data below. For each pair, write two concise sentences.
-Sentence 1: observed FX movement, latest level versus the 7-day range, and whether the base currency strengthened or weakened against THB.
+Use only the provided ${fxTenor}-day FX data below. For each pair, write two concise sentences.
+Sentence 1: observed FX movement, latest level versus the ${fxTenor}-day range, and whether the base currency strengthened or weakened against THB.
 Sentence 2: what this could mean for the Thailand-based client in the given import/export context.
 Do not mention news or Tavily sources. Do not give investment advice. Keep each analysis under 45 words.
 
@@ -741,7 +742,7 @@ You are a source selection reviewer for a Thailand-based bank relationship manag
 Customer profile:
 - Sector: ${sector}
 - Subsector: ${subsector}
-- Specific industry: ${industry}
+- Specific industry / ISIC activity: ${industry}
 - Client trade role: ${tradeRoles.join(", ")}
 - Client base: Thailand
 - Exposure countries / markets: ${countryText}
@@ -1026,7 +1027,7 @@ ${defaultPrompt}
 Customer profile:
 - Sector: ${sector}
 - Subsector: ${subsector}
-- Specific industry: ${industry}
+- Specific industry / ISIC activity: ${industry}
 - Client trade role: ${tradeRoles.join(", ")}
 - Client base: Thailand
 - Countries / markets relevant to the client: ${countryText}
@@ -1041,19 +1042,21 @@ Strict rules:
 - Use ONLY the provided sources.
 - Do NOT add general industry knowledge, background assumptions, or evergreen commentary.
 - Do NOT infer beyond what the sources directly support.
+- Do NOT use a country selection as a proxy for currency exposure. Only discuss a currency when that currency is explicitly selected by the user or directly mentioned in the cited article.
 - Do NOT analyze FX rate movements; FX commentary is generated separately.
 - If the sources do not contain meaningful, recent developments relevant to this Thailand-based client context, return JSON with "status": "NO_NEWS" and an empty themes array.
 - If there is at least one useful news-based theme, return JSON with "status": "OK". Do NOT include the string NO_NEWS anywhere in titles, paragraphs, or bullets.
 - Be assertive. Do not create generic filler just to produce themes.
 - Every theme must cite at least one source number from the provided sources.
 - Every supporting bullet must include a source reference like [1], [2].
+- Each theme should balance risk and opportunity. Include at least one source-backed risk/watch-out and one source-backed opportunity/RM angle when the cited sources support both. If opportunity is not directly supported, write a cautious RM question rather than a factual claim.
 - Only use source numbers that support the specific statement.
 - Do not cite a source unless it is actually used in the theme.
 - Synthesis rule: where multiple sources naturally relate to the same development, combine them into one stronger theme instead of creating one theme per source.
 - A theme may reference multiple sources, but only when the connection is directly supported. Do not force connections.
 - Prefer fewer, stronger themes over many isolated source summaries.
 - Theme titles should be specific and RM-ready: name the actual development, client implication, and trade-finance angle where possible. Avoid generic titles such as "Supply Chain Risk" or "Market Update".
-- Each theme should be relevant to trade finance, such as import/export flows, supply chain disruption, working capital, payment risk, guarantees, letters of credit, documentary collections, receivables, inventory financing, or counterparty risk.
+- Each theme should be relevant to trade finance, such as import/export flows, supply chain disruption, working capital, payment risk, guarantees, letters of credit, documentary collections, receivables, inventory financing, cash management, hedging conversations, or counterparty risk.
 - Treat selected countries as exposure markets/sourcing markets for the Thai client, not as countries to cross-combine with each other.
 
 Return JSON only in this exact shape:
@@ -1064,8 +1067,8 @@ Return JSON only in this exact shape:
       "title": "Specific RM-ready news theme title, not a generic category",
       "paragraph": "One short paragraph explaining why this current development matters to the Thailand-based client, with source reference(s).",
       "supportingInformation": [
-        "Specific source-backed point with source reference like [1]",
-        "Specific source-backed point with source reference like [2]"
+        "Risk / watch-out: specific source-backed point with source reference like [1]",
+        "Opportunity / RM angle: specific source-backed point or cautious RM question with source reference like [2]"
       ],
       "sourceNumbers": [1, 2]
     }
@@ -1160,7 +1163,7 @@ Generate 2–3 industry-specific context points for this client profile.
 Client context:
 - Sector: ${sector}
 - Subsector: ${subsector}
-- Specific industry: ${industry}
+- Specific industry / ISIC activity: ${industry}
 - Client trade role: ${tradeRoles.join(", ")}
 - Client base: Thailand
 - Exposure countries / markets: ${countryText}
@@ -1297,8 +1300,11 @@ export async function onRequestPost(context) {
 
     const sector = (body.sector || "").trim();
     const subsector = (body.subsector || "").trim();
-    const industry = (body.industry || "").trim();
+    let industry = (body.industry || "").trim();
     const timeframe = (body.timeframe || "30").trim();
+    const fxTenor = [30, 90].includes(Number(body.fxTenor)) ? Number(body.fxTenor) : 30;
+    const isicCode = (body.isicCode || "").trim();
+    if (isicCode && industry && !industry.includes(isicCode)) industry = `${isicCode} - ${industry}`;
     const tradeRoles = Array.isArray(body.tradeRoles)
       ? body.tradeRoles.map(role => String(role).toLowerCase()).filter(role => ["importer", "exporter"].includes(role))
       : [];
@@ -1355,10 +1361,10 @@ export async function onRequestPost(context) {
           searchDepth
         }).then(results => normalizeTavilyResults(results, plan.label))
       )),
-      fetchFxRates(currencies)
+      fetchFxRates(currencies, fxTenor)
     ]);
 
-    const fxResults = await analyzeFxRates({ env, fxList: rawFxResults, sector, subsector, industry, tradeRoles, countries });
+    const fxResults = await analyzeFxRates({ env, fxList: rawFxResults, sector, subsector, industry, tradeRoles, countries, fxTenor });
 
     const primaryCandidateSources = prepareCandidateSources({
       sources: tavilyBatches.flat(),
@@ -1435,14 +1441,17 @@ export async function onRequestPost(context) {
       source_number: index + 1
     }));
 
-    const generalContext = await generateGeneralContext({
-      env,
-      sector,
-      subsector,
-      industry,
-      tradeRoles,
-      countries
-    });
+    // DEACTIVATED 2026-05: Industry Context & RM Considerations is hidden in the UI.
+    // Keep generateGeneralContext() above for future reuse, but do not call it now.
+    // const generalContext = await generateGeneralContext({
+    //   env,
+    //   sector,
+    //   subsector,
+    //   industry,
+    //   tradeRoles,
+    //   countries
+    // });
+    const generalContext = { points: [] };
 
     if (!sourceAssessment.hasRelevantUpdates || mergedSources.length === 0) {
       const noNews = {
