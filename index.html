@@ -29,13 +29,19 @@
 
           <div class="form-group isic-picker">
             <label for="industry">Industry / ISIC activity</label>
-            <input
-              id="industry"
-              type="text"
-              placeholder="Type to search ISIC activities, e.g. seafood, animal feed"
-              autocomplete="off"
-            >
-            <div id="isicDropdown" class="isic-dropdown hidden"></div>
+            <div class="isic-input-wrap">
+              <input
+                id="industry"
+                type="text"
+                placeholder="Type to search ISIC activities, e.g. seafood, animal feed"
+                autocomplete="off"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded="false"
+                aria-controls="isicDropdown"
+              >
+              <div id="isicDropdown" class="isic-dropdown hidden" role="listbox"></div>
+            </div>
             <div id="selectedIsic" class="field-hint">Select one suggested ISIC activity. Free-text entries are not accepted as final input.</div>
           </div>
 

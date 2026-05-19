@@ -29,66 +29,147 @@ let selectedIsic = null;
 function normaliseSearchText(value) {
   return String(value || "")
     .toLowerCase()
+    .replace(/&/g, " and ")
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
+function uniqueWords(value) {
+  return [...new Set(normaliseSearchText(value).split(" ").filter(word => word.length > 1))];
+}
+
+function bigrams(value) {
+  const text = normaliseSearchText(value).replace(/\s+/g, " ");
+  if (text.length < 2) return text ? [text] : [];
+  const grams = [];
+  for (let i = 0; i < text.length - 1; i += 1) grams.push(text.slice(i, i + 2));
+  return grams;
+}
+
+function diceCoefficient(a, b) {
+  const aGrams = bigrams(a);
+  const bGrams = bigrams(b);
+  if (!aGrams.length || !bGrams.length) return 0;
+
+  const counts = new Map();
+  aGrams.forEach(gram => counts.set(gram, (counts.get(gram) || 0) + 1));
+
+  let overlap = 0;
+  bGrams.forEach(gram => {
+    const count = counts.get(gram) || 0;
+    if (count > 0) {
+      overlap += 1;
+      counts.set(gram, count - 1);
+    }
+  });
+
+  return (2 * overlap) / (aGrams.length + bGrams.length);
+}
+
+function wordSimilarity(term, word) {
+  if (!term || !word) return 0;
+  if (word === term) return 1;
+  if (word.startsWith(term) || term.startsWith(word)) return 0.88;
+  if (word.includes(term) || term.includes(word)) return 0.72;
+  return diceCoefficient(term, word);
+}
+
 function scoreIsicMatch(entry, query) {
-  const text = normaliseSearchText(`${entry.code} ${entry.description}`);
   const q = normaliseSearchText(query);
+  const entryText = normaliseSearchText(`${entry.code} ${entry.description}`);
+  const entryWords = uniqueWords(entryText);
 
-  if (!q) return 0;
-  if (text === q) return 1000;
-  if (text.includes(q)) return 500 + q.length;
+  const sector = sectorBox?.value || "";
+  const subsector = subsectorBox?.value || "";
+  const contextText = normaliseSearchText(`${sector} ${subsector}`);
+  const contextWords = uniqueWords(contextText);
 
-  const terms = q.split(" ").filter(Boolean);
-  let score = 0;
-  for (const term of terms) {
-    if (text.includes(term)) score += 80;
-    else if (term.length > 3 && text.split(" ").some(word => word.startsWith(term.slice(0, 4)))) score += 30;
+  if (!q) {
+    let contextOnlyScore = 0;
+    contextWords.forEach(term => {
+      const best = Math.max(0, ...entryWords.map(word => wordSimilarity(term, word)));
+      if (best > 0.72) contextOnlyScore += best * 14;
+    });
+    return contextOnlyScore;
   }
+
+  let score = 0;
+
+  if (entryText === q) score += 1000;
+  if (entry.code && normaliseSearchText(entry.code) === q) score += 900;
+  if (entryText.includes(q)) score += 450 + q.length;
+
+  const queryWords = uniqueWords(q);
+  queryWords.forEach(term => {
+    const best = Math.max(0, ...entryWords.map(word => wordSimilarity(term, word)));
+    if (best >= 0.95) score += 120;
+    else if (best >= 0.82) score += 80;
+    else if (best >= 0.68) score += 36;
+    else if (best >= 0.5) score += 14;
+  });
+
+  const phraseSimilarity = diceCoefficient(q, entryText);
+  score += phraseSimilarity * 120;
+
+  // Light boost only: sector/subsector helps ranking but never hides other ISIC activities.
+  contextWords.forEach(term => {
+    const best = Math.max(0, ...entryWords.map(word => wordSimilarity(term, word)));
+    if (best > 0.78) score += best * 10;
+  });
+
   return score;
+}
+
+function selectIsic(entry) {
+  selectedIsic = entry;
+  industryBox.value = `${entry.code} - ${entry.description}`;
+  industryBox.classList.add("valid-selection");
+  industryBox.setAttribute("aria-expanded", "false");
+  selectedIsicBox.textContent = `Selected: ${entry.code} - ${entry.description}`;
+  isicDropdown.classList.add("hidden");
+  isicDropdown.innerHTML = "";
 }
 
 function renderIsicDropdown() {
   if (!isicDropdown || typeof ISIC_DATA === "undefined") return;
 
   const query = industryBox.value.trim();
-  if (!query) {
-    isicDropdown.classList.add("hidden");
-    isicDropdown.innerHTML = "";
-    return;
-  }
 
   const matches = ISIC_DATA
     .map(entry => ({ ...entry, score: scoreIsicMatch(entry, query) }))
-    .filter(entry => entry.score > 0)
     .sort((a, b) => b.score - a.score || a.description.localeCompare(b.description))
     .slice(0, 12);
 
   if (matches.length === 0) {
-    isicDropdown.classList.remove("hidden");
-    isicDropdown.innerHTML = `<div class="isic-empty">No close ISIC activity found. Try a broader term.</div>`;
+    isicDropdown.classList.add("hidden");
+    industryBox.setAttribute("aria-expanded", "false");
+    isicDropdown.innerHTML = "";
     return;
   }
 
+  const heading = query
+    ? "Closest ISIC matches"
+    : "Suggested ISIC activities";
+
   isicDropdown.classList.remove("hidden");
-  isicDropdown.innerHTML = matches.map(entry => `
-    <button type="button" class="isic-option" data-code="${entry.code}">
-      <strong>${entry.code}</strong>
-      <span>${entry.description}</span>
-    </button>
-  `).join("");
+  industryBox.setAttribute("aria-expanded", "true");
+  isicDropdown.innerHTML = `
+    <div class="isic-dropdown-heading">${heading}</div>
+    ${matches.map(entry => `
+      <button type="button" class="isic-option" data-code="${entry.code}" role="option">
+        <strong>${entry.code}</strong>
+        <span>${entry.description}</span>
+      </button>
+    `).join("")}
+  `;
 
   isicDropdown.querySelectorAll(".isic-option").forEach(option => {
-    option.addEventListener("click", function () {
+    option.addEventListener("mousedown", function (event) {
+      event.preventDefault();
       const entry = ISIC_DATA.find(item => item.code === option.dataset.code);
       if (!entry) return;
-      selectedIsic = entry;
-      industryBox.value = `${entry.code} - ${entry.description}`;
-      selectedIsicBox.textContent = `Selected: ${entry.code} - ${entry.description}`;
-      isicDropdown.classList.add("hidden");
+      selectIsic(entry);
     });
   });
 }
@@ -524,15 +605,23 @@ async function updateFxOnly() {
 
 industryBox.addEventListener("input", function () {
   selectedIsic = null;
+  industryBox.classList.remove("valid-selection");
   selectedIsicBox.textContent = "Select one suggested ISIC activity. Free-text entries are not accepted as final input.";
   renderIsicDropdown();
 });
 
 industryBox.addEventListener("focus", renderIsicDropdown);
+industryBox.addEventListener("keydown", function (event) {
+  if (event.key === "Escape") {
+    isicDropdown.classList.add("hidden");
+    industryBox.setAttribute("aria-expanded", "false");
+  }
+});
 
 document.addEventListener("click", function (event) {
   if (!event.target.closest(".isic-picker")) {
     isicDropdown?.classList.add("hidden");
+    industryBox?.setAttribute("aria-expanded", "false");
   }
 });
 
@@ -659,5 +748,11 @@ populateSectors();
 populateSubsectors();
 renderCountryDropdown();
 
-sectorBox.addEventListener("change", populateSubsectors);
+sectorBox.addEventListener("change", function () {
+  populateSubsectors();
+  if (document.activeElement === industryBox) renderIsicDropdown();
+});
+subsectorBox.addEventListener("change", function () {
+  if (document.activeElement === industryBox) renderIsicDropdown();
+});
 updateFxButton.addEventListener("click", updateFxOnly);

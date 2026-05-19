@@ -34,8 +34,12 @@ h2 {
 
 .form-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 14px;
+}
+
+.form-grid .isic-picker {
+  grid-column: 1 / -1;
 }
 
 .form-group {
@@ -446,22 +450,44 @@ button:disabled {
 
 /* ISIC searchable selector */
 .isic-picker {
+  min-width: 0;
+}
+
+.isic-input-wrap {
   position: relative;
+}
+
+#industry.valid-selection {
+  border-color: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12);
 }
 
 .isic-dropdown {
   position: absolute;
-  z-index: 20;
-  top: calc(100% - 0.5rem);
+  z-index: 40;
+  top: calc(100% + 4px);
   left: 0;
   right: 0;
-  max-height: 280px;
+  max-height: 300px;
   overflow-y: auto;
   background: #ffffff;
   border: 1px solid #d0d5dd;
   border-radius: 10px;
   box-shadow: 0 12px 24px rgba(16, 24, 40, 0.12);
   padding: 0.35rem;
+}
+
+.isic-dropdown.hidden {
+  display: none;
+}
+
+.isic-dropdown-heading {
+  padding: 0.35rem 0.55rem 0.45rem;
+  color: #667085;
+  font-size: 12px;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .isic-option {
@@ -477,6 +503,7 @@ button:disabled {
   cursor: pointer;
   font: inherit;
   color: #101828;
+  margin-top: 0;
 }
 
 .isic-option:hover,
@@ -489,8 +516,6 @@ button:disabled {
   color: #344054;
 }
 
-.isic-empty {
-  padding: 0.75rem;
-  color: #667085;
-  font-size: 0.9rem;
+.isic-option span {
+  line-height: 1.35;
 }
