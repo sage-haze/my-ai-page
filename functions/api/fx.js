@@ -4,9 +4,7 @@ async function fetchYahooSeries(pair, rangeDays = 30) {
   const safeRangeDays = [30, 90].includes(Number(rangeDays)) ? Number(rangeDays) : 30;
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${pair}?interval=1d&range=${safeRangeDays}d`;
 
-  const response = await fetch(url, {
-    headers: { "User-Agent": "Mozilla/5.0" }
-  });
+  const response = await fetch(url);
 
   const data = await response.json();
 

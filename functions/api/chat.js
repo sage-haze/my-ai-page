@@ -415,16 +415,111 @@ function normalizeTavilyResults(results, sourceGroup) {
   }));
 }
 
+function normalizeSourceTitle(title = "") {
+  return String(title)
+    .toLowerCase()
+    .replace(/\s[-–—|:]\s[^-–—|:]{2,60}$/g, "") // remove publisher suffixes such as " - Reuters"
+    .replace(/\b(press release|pr newswire|globenewswire|sponsored content)\b/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeSourceText(text = "") {
+  return String(text)
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 900);
+}
+
+function tokenSimilarity(a = "", b = "") {
+  const aTokens = new Set(normalizeSourceText(a).split(" ").filter(token => token.length > 2));
+  const bTokens = new Set(normalizeSourceText(b).split(" ").filter(token => token.length > 2));
+  if (!aTokens.size || !bTokens.size) return 0;
+
+  let overlap = 0;
+  for (const token of aTokens) {
+    if (bTokens.has(token)) overlap += 1;
+  }
+
+  return overlap / Math.min(aTokens.size, bTokens.size);
+}
+
+function isSyndicatedOrNearDuplicate(a, b) {
+  const titleA = normalizeSourceTitle(a.title);
+  const titleB = normalizeSourceTitle(b.title);
+  if (!titleA || !titleB) return false;
+
+  if (titleA === titleB) return true;
+
+  const titleScore = tokenSimilarity(titleA, titleB);
+  if (titleScore >= 0.9) return true;
+
+  const summaryScore = tokenSimilarity(
+    `${a.title || ""} ${a.summary || ""} ${a.raw_content || ""}`,
+    `${b.title || ""} ${b.summary || ""} ${b.raw_content || ""}`
+  );
+
+  return titleScore >= 0.78 && summaryScore >= 0.72;
+}
+
+function preferredSource(a, b) {
+  const priorityA = sourcePriority(a);
+  const priorityB = sourcePriority(b);
+  if (priorityA !== priorityB) return priorityA > priorityB ? a : b;
+
+  const dateA = Date.parse(a.published_at || "") || 0;
+  const dateB = Date.parse(b.published_at || "") || 0;
+  if (dateA !== dateB) return dateA > dateB ? a : b;
+
+  const richnessA = String(a.raw_content || a.summary || "").length;
+  const richnessB = String(b.raw_content || b.summary || "").length;
+  if (richnessA !== richnessB) return richnessA > richnessB ? a : b;
+
+  return (a.score || 0) >= (b.score || 0) ? a : b;
+}
+
+function mergeDuplicateSource(existing, incoming) {
+  const keep = preferredSource(existing, incoming);
+  const other = keep === existing ? incoming : existing;
+  const syndicatedVia = [
+    ...(Array.isArray(existing.syndicated_via) ? existing.syndicated_via : []),
+    ...(Array.isArray(incoming.syndicated_via) ? incoming.syndicated_via : []),
+    other.domain
+  ]
+    .filter(Boolean)
+    .filter((domain, index, arr) => arr.indexOf(domain) === index && domain !== keep.domain);
+
+  const sourceGroups = [existing.source_group, incoming.source_group]
+    .filter(Boolean)
+    .filter((group, index, arr) => arr.indexOf(group) === index);
+
+  return {
+    ...keep,
+    score: Math.max(existing.score || 0, incoming.score || 0),
+    source_group: sourceGroups.join(", ") || keep.source_group,
+    syndicated_via: syndicatedVia
+  };
+}
+
 function dedupeSources(items) {
-  const seen = new Set();
   const deduped = [];
 
-  for (const item of items) {
+  for (const item of items || []) {
     if (!item.url) continue;
-    if (seen.has(item.url)) continue;
 
-    seen.add(item.url);
-    deduped.push(item);
+    const existingIndex = deduped.findIndex(existing =>
+      existing.url === item.url || isSyndicatedOrNearDuplicate(existing, item)
+    );
+
+    if (existingIndex >= 0) {
+      deduped[existingIndex] = mergeDuplicateSource(deduped[existingIndex], item);
+    } else {
+      deduped.push(item);
+    }
   }
 
   return deduped;
@@ -1012,6 +1107,7 @@ URL: ${source.url}
 Publisher: ${source.domain || source.source || "Unknown"}
 Published: ${source.published_at || "Unknown"}
 Source type: ${source.source_group}
+${Array.isArray(source.syndicated_via) && source.syndicated_via.length ? `Same/similar story also seen via: ${source.syndicated_via.join(", ")}` : ""}
 Relevance reviewer note: ${source.relevance_justification || ""}
 Content:
 ${trimmedText}
@@ -1516,6 +1612,7 @@ export async function onRequestPost(context) {
         domain: source.domain,
         published_at: source.published_at,
         source_group: source.source_group,
+        syndicated_via: Array.isArray(source.syndicated_via) ? source.syndicated_via : [],
         justification: source.relevance_justification || ""
       }))
     });
