@@ -200,7 +200,7 @@ function countTermMatches(text, terms = []) {
   for (const term of terms || []) {
     const clean = String(term || "").toLowerCase().trim();
     if (!clean || clean.length < 3) continue;
-    const escaped = clean.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const escaped = clean.replace(/[.*+?^${}()|[\]\]/g, "\$&");
     const pattern = clean.includes(" ") ? escaped : `\b${escaped}\b`;
     try {
       if (new RegExp(pattern, "i").test(haystack)) {
@@ -1273,7 +1273,7 @@ function alignSourcesToAnalysis({ sources, newsSection, timeframe }) {
   };
 }
 
-async function analyzeNewsDevelopments({ env, sources, sector, subsector, industry, tradeRoles, countries, timeframe, deepSearch, plannedQueries, defaultPrompt }) {
+async function analyzeNewsDevelopments({ env, sources, sector, subsector, industry, isicCode = "", tradeRoles, countries, timeframe, deepSearch, plannedQueries, defaultPrompt }) {
   if (!sources.length) {
     return {
       status: "NO_NEWS",
@@ -1455,7 +1455,7 @@ ${articleContext}
   }
 }
 
-async function generateGeneralContext({ env, sector, subsector, industry, tradeRoles, countries }) {
+async function generateGeneralContext({ env, sector, subsector, industry, isicCode = "", tradeRoles, countries }) {
   const countryText = countries
     .map(country => country.label || `${country.name} (${country.code})`)
     .join(", ");
