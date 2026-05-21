@@ -23,6 +23,7 @@ const selectedIsicBox = document.getElementById("selectedIsic");
 
 let selectedCountries = [];
 let selectedIsic = null;
+let fxCharts = {};
 
 
 function normaliseSearchText(value) {
@@ -302,6 +303,15 @@ function renderSelectedCountries() {
   });
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 function formatDisplayDate(value) {
   if (!value) return "";
 
@@ -355,8 +365,161 @@ function renderFxContext(text) {
   }
 }
 
+function getFxSeries(fx) {
+  return (fx.series || [])
+    .map(item => ({
+      date: item.date,
+      rate: Number(item.rate)
+    }))
+    .filter(item => item.date && Number.isFinite(item.rate))
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+}
+
+function getRateChange(series) {
+  if (!series || series.length < 2) return null;
+  const first = series[0].rate;
+  const last = series[series.length - 1].rate;
+  if (!Number.isFinite(first) || !Number.isFinite(last) || first === 0) return null;
+  return ((last - first) / first) * 100;
+}
+
+function formatPercent(value) {
+  if (!Number.isFinite(value)) return "—";
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toFixed(2)}%`;
+}
+
+function buildFxTableRows(series, columns = 3) {
+  if (!series || series.length === 0) {
+    return `<tr><td colspan="${columns * 2}">No daily data available.</td></tr>`;
+  }
+
+  const newestFirst = [...series].reverse();
+  const rowsPerColumn = Math.ceil(newestFirst.length / columns);
+  const chunks = Array.from({ length: columns }, (_, index) =>
+    newestFirst.slice(index * rowsPerColumn, (index + 1) * rowsPerColumn)
+  );
+
+  return Array.from({ length: rowsPerColumn }, (_, rowIndex) => {
+    const cells = chunks.map(chunk => {
+      const item = chunk[rowIndex];
+      if (!item) return `<td></td><td></td>`;
+      return `<td>${formatDisplayDate(item.date)}</td><td>${formatDisplayRate(item.rate)}</td>`;
+    }).join("");
+    return `<tr>${cells}</tr>`;
+  }).join("");
+}
+
+function renderFxCharts(chartConfigs) {
+  Object.values(fxCharts).forEach(chart => chart?.destroy?.());
+  fxCharts = {};
+
+  if (!window.Chart) {
+    document.querySelectorAll(".fx-chart-status").forEach(el => {
+      el.textContent = "Chart library could not load. Daily table is still available below.";
+    });
+    return;
+  }
+
+  chartConfigs.forEach(config => {
+    const canvas = document.getElementById(config.canvasId);
+    if (!canvas || config.series.length === 0) return;
+
+    const rates = config.series.map(item => item.rate);
+    const min = Math.min(...rates);
+    const max = Math.max(...rates);
+    const padding = Math.max((max - min) * 0.12, Math.abs(max || 1) * 0.001);
+
+    fxCharts[config.canvasId] = new Chart(canvas, {
+      type: "line",
+      data: {
+        labels: config.series.map(item => item.date),
+        datasets: [{
+          label: config.pair,
+          data: rates,
+          tension: 0.25,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+          mode: "index",
+          intersect: false
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: items => formatDisplayDate(items?.[0]?.label),
+              label: item => `${config.pair}: ${formatDisplayRate(item.raw)}`
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: {
+              color: ctx => config.majorTicks.has(ctx.tick?.value) ? "rgba(0,0,0,0.18)" : "rgba(0,0,0,0.05)",
+              lineWidth: ctx => config.majorTicks.has(ctx.tick?.value) ? 1.2 : 0.5
+            },
+            ticks: {
+              autoSkip: false,
+              maxRotation: 0,
+              callback: value => config.tickLabels[value] || ""
+            }
+          },
+          y: {
+            min: min - padding,
+            max: max + padding,
+            grid: { drawBorder: false },
+            ticks: {
+              callback: value => Number(value).toFixed(4)
+            }
+          }
+        }
+      }
+    });
+  });
+}
+
+function getFxChartAxis(series, tenor) {
+  const tickLabels = {};
+  const majorTicks = new Set();
+  let previousKey = "";
+
+  series.forEach((item, index) => {
+    const date = new Date(item.date);
+    if (Number.isNaN(date.getTime())) return;
+
+    if (String(tenor) === "90") {
+      const key = `${date.getFullYear()}-${date.getMonth()}`;
+      if (key !== previousKey || index === 0) {
+        tickLabels[index] = date.toLocaleDateString("en-US", { month: "short" });
+        majorTicks.add(index);
+        previousKey = key;
+      }
+    } else {
+      const day = date.getDay();
+      const weekKey = `${date.getFullYear()}-${Math.ceil((date.getDate() + 6) / 7)}-${date.getMonth()}`;
+      if ((day === 1 && weekKey !== previousKey) || index === 0 || index === series.length - 1) {
+        tickLabels[index] = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+        majorTicks.add(index);
+        previousKey = weekKey;
+      }
+    }
+  });
+
+  return { tickLabels, majorTicks };
+}
+
 function renderFx(fxList) {
   const tenor = fxTenorBox?.value || "30";
+  Object.values(fxCharts).forEach(chart => chart?.destroy?.());
+  fxCharts = {};
+
   if (!fxList || fxList.length === 0) {
     fxOutput.textContent = "No FX data returned.";
     return;
@@ -370,74 +533,76 @@ function renderFx(fxList) {
     return;
   }
 
-  const summaryRows = nonThb.map(fx => {
+  const chartConfigs = [];
+
+  const fxCards = nonThb.map((fx, index) => {
     const pair = cleanFxPair(fx.pair, fx.base);
+    const series = getFxSeries(fx);
+    const latest = series.length ? series[series.length - 1].rate : fx.latest_rate;
     const highDate = formatDisplayDate(fx.highest_date || fx.high_date);
     const lowDate = formatDisplayDate(fx.lowest_date || fx.low_date);
+    const change = getRateChange(series);
+    const canvasId = `fxChart${index}`;
+    const axis = getFxChartAxis(series, tenor);
+
+    if (series.length > 1) {
+      chartConfigs.push({ canvasId, pair, series, ...axis });
+    }
+
+    const tableHeaders = Array.from({ length: 3 }, () => `<th>Date</th><th>Rate</th>`).join("");
 
     return `
-      <tr>
-        <td>${pair}</td>
-        <td>${formatDisplayRate(fx.latest_rate)}</td>
-        <td>${formatDisplayRate(fx.highest_rate)}${highDate ? ` (${highDate})` : ""}</td>
-        <td>${formatDisplayRate(fx.lowest_rate)}${lowDate ? ` (${lowDate})` : ""}</td>
-      </tr>
-    `;
-  }).join("");
+      <section class="fx-card-row">
+        <div class="fx-card-topline">
+          <div>
+            <div class="fx-title">${pair}</div>
+            <div class="fx-subtitle">${tenor}-day trend against THB</div>
+          </div>
+          <div class="fx-latest">
+            <span>Latest</span>
+            <strong>${formatDisplayRate(latest)}</strong>
+          </div>
+        </div>
 
-  const summaryTable = nonThb.length > 0 ? `
-    <table class="fx-summary-table">
-      <thead>
-        <tr>
-          <th>Pair</th>
-          <th>Latest</th>
-          <th>${tenor}D High</th>
-          <th>${tenor}D Low</th>
-        </tr>
-      </thead>
-      <tbody>${summaryRows}</tbody>
-    </table>
-  ` : "";
+        <div class="fx-stat-grid">
+          <div class="fx-stat"><span>${tenor}D change</span><strong>${formatPercent(change)}</strong></div>
+          <div class="fx-stat"><span>${tenor}D high</span><strong>${formatDisplayRate(fx.highest_rate)}</strong><em>${highDate}</em></div>
+          <div class="fx-stat"><span>${tenor}D low</span><strong>${formatDisplayRate(fx.lowest_rate)}</strong><em>${lowDate}</em></div>
+          <div class="fx-stat"><span>Data points</span><strong>${series.length || "—"}</strong></div>
+        </div>
 
-  const detailBlocks = nonThb.map(fx => {
-    const pair = cleanFxPair(fx.pair, fx.base);
-    const rows = (fx.series || []).map(item => `
-      <tr>
-        <td>${formatDisplayDate(item.date)}</td>
-        <td>${formatDisplayRate(item.rate)}</td>
-      </tr>
-    `).join("");
+        <div class="fx-chart-wrap">
+          ${series.length > 1 ? `<canvas id="${canvasId}" aria-label="${pair} FX trend chart"></canvas>` : `<div class="fx-chart-status">Not enough daily data to plot a chart.</div>`}
+        </div>
 
-    return `
-      <div class="fx-block">
-        <div class="fx-title">${pair}</div>
-        <table class="fx-detail-table">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>${fx.base || pair.replace("THB", "")} → THB</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-        ${fx.analysis ? `<div class="fx-analysis">${fx.analysis}</div>` : ""}
-      </div>
+        ${fx.analysis ? `<div class="fx-analysis">${escapeHtml(fx.analysis)}</div>` : ""}
+
+        <details class="fx-table-toggle">
+          <summary>Show daily FX table</summary>
+          <table class="fx-detail-table fx-bloomberg-table">
+            <thead><tr>${tableHeaders}</tr></thead>
+            <tbody>${buildFxTableRows(series, 3)}</tbody>
+          </table>
+        </details>
+      </section>
     `;
   }).join("");
 
   const errorBlocks = errors.map(fx => `
     <div class="fx-block">
-      <span class="error">${fx.base}THB: ${fx.error}</span>
+      <span class="error">${escapeHtml(fx.base)}THB: ${escapeHtml(fx.error)}</span>
     </div>
   `).join("");
 
   fxOutput.innerHTML = `
-    ${summaryTable}
-    <div class="fx-grid">
-      ${detailBlocks}
+    <div class="fx-layout-note">Charts show ${tenor === "90" ? "monthly" : "weekly"} vertical markers and dynamic rate gridlines. Raw daily data is collapsed below each currency.</div>
+    <div class="fx-card-stack">
+      ${fxCards}
       ${errorBlocks}
     </div>
   `;
+
+  requestAnimationFrame(() => renderFxCharts(chartConfigs));
 }
 
 function renderSources(sources, noRelevantUpdates = false, fallbackTriggered = false) {
