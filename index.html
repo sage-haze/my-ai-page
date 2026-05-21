@@ -27,23 +27,40 @@
             </select>
           </div>
 
-          <div class="form-group">
-            <label for="industry">Industry</label>
-            <input
-              id="industry"
-              type="text"
-              placeholder="e.g. frozen seafood packaging, EV battery parts"
-            >
+          <div class="form-group isic-picker">
+            <label for="industry">Industry / ISIC activity</label>
+            <div class="isic-input-wrap">
+              <input
+                id="industry"
+                type="text"
+                placeholder="Type to search ISIC activities, e.g. seafood, animal feed"
+                autocomplete="off"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded="false"
+                aria-controls="isicDropdown"
+              >
+              <div id="isicDropdown" class="isic-dropdown hidden" role="listbox"></div>
+            </div>
+            <div id="selectedIsic" class="field-hint">Select one suggested ISIC activity. Free-text entries are not accepted as final input.</div>
           </div>
 
           <div class="form-group">
-            <label for="timeframe">Timeframe</label>
+            <label for="timeframe">News timeframe</label>
             <select id="timeframe">
               <option value="30">Last 30 days</option>
               <option value="60">Last 60 days</option>
               <option value="90">Last 90 days</option>
               <option value="180">Last 180 days</option>
               <option value="360">Last 360 days</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="fxTenor">FX tenor</label>
+            <select id="fxTenor">
+              <option value="30" selected>Last 30 days</option>
+              <option value="90">Last 90 days</option>
             </select>
           </div>
         </div>
@@ -105,11 +122,6 @@
             <div id="fxOutput">FX rates will appear here.</div>
           </div>
 
-          <div class="result-card" id="fxContextCard">
-            <h2>FX Context</h2>
-            <div id="fxContextOutput">FX commentary in context of the latest news will appear here.</div>
-          </div>
-
           <div class="result-card">
             <h2>Analysis</h2>
             <div id="analysisOutput">The analysis will appear here.</div>
@@ -120,16 +132,20 @@
             <div id="sourcesOutput">The source links will appear here.</div>
           </div>
 
+          <!-- DEACTIVATED 2026-05: kept for future reference.
           <div class="result-card">
             <h2>Industry Context &amp; RM Considerations</h2>
             <div id="contextOutput">Industry-specific context and RM considerations will appear here.</div>
           </div>
+          -->
         </div>
       </div>
     </div>
 
     <script src="sector-data.js"></script>
     <script src="country-data.js"></script>
+    <script src="isic-data.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="script.js"></script>
   </body>
 </html>

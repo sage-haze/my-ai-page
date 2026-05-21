@@ -1,11 +1,10 @@
 const ALLOWED_CURRENCIES = ["THB", "USD", "JPY", "EUR", "CNY"];
 
-async function fetchYahooSeries(pair) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${pair}?interval=1d&range=7d`;
+async function fetchYahooSeries(pair, rangeDays = 30) {
+  const safeRangeDays = [30, 90].includes(Number(rangeDays)) ? Number(rangeDays) : 30;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${pair}?interval=1d&range=${safeRangeDays}d`;
 
-  const response = await fetch(url, {
-    headers: { "User-Agent": "Mozilla/5.0" }
-  });
+  const response = await fetch(url);
 
   const data = await response.json();
 
@@ -60,15 +59,15 @@ function summarizeFxSeries({ base, pair, series, source }) {
   };
 }
 
-async function fetchYahooFxRate(baseCurrency) {
+async function fetchYahooFxRate(baseCurrency, rangeDays = 30) {
   if (baseCurrency === "THB") {
     return { skip: true, base: "THB" };
   }
 
   if (baseCurrency === "CNY") {
     const [usdThb, usdCny] = await Promise.all([
-      fetchYahooSeries("USDTHB=X"),
-      fetchYahooSeries("USDCNY=X")
+      fetchYahooSeries("USDTHB=X", rangeDays),
+      fetchYahooSeries("USDCNY=X", rangeDays)
     ]);
 
     const usdCnyByDate = new Map(usdCny.map(item => [item.date, item.rate]));
@@ -94,7 +93,7 @@ async function fetchYahooFxRate(baseCurrency) {
   }
 
   const pair = `${baseCurrency}THB=X`;
-  const series = await fetchYahooSeries(pair);
+  const series = await fetchYahooSeries(pair, rangeDays);
 
   return summarizeFxSeries({
     base: baseCurrency,
@@ -104,12 +103,12 @@ async function fetchYahooFxRate(baseCurrency) {
   });
 }
 
-async function fetchFxRates(currencies) {
+async function fetchFxRates(currencies, rangeDays = 30) {
   const uniqueCurrencies = [...new Set(currencies)];
 
   return Promise.all(
     uniqueCurrencies.map(currency =>
-      fetchYahooFxRate(currency).catch(error => ({
+      fetchYahooFxRate(currency, rangeDays).catch(error => ({
         skip: false,
         base: currency,
         quote: "THB",
@@ -141,7 +140,7 @@ function extractOutputText(data) {
   return "";
 }
 
-async function analyzeFxRates({ env, fxList, sector = "", subsector = "", industry = "", tradeRoles = [], countries = [] }) {
+async function analyzeFxRates({ env, fxList, sector = "", subsector = "", industry = "", tradeRoles = [], countries = [], fxTenor = 30 }) {
   const usableFx = fxList.filter(fx => !fx.skip && !fx.error && Array.isArray(fx.series) && fx.series.length > 0);
 
   if (usableFx.length === 0 || !env.OPENAI_API_KEY) return fxList;
@@ -170,8 +169,8 @@ Client context:
 - Client trade role: ${tradeRoles.join(", ")}
 - Exposure countries / markets: ${countryText}
 
-Use only the 7-day FX data below. For each pair, write two concise sentences.
-Sentence 1: observed FX movement, latest level versus the 7-day range, and whether the base currency strengthened or weakened against THB.
+Use only the provided ${fxTenor}-day FX data below. For each pair, write two concise sentences.
+Sentence 1: observed FX movement, latest level versus the ${fxTenor}-day range, and whether the base currency strengthened or weakened against THB.
 Sentence 2: what this could mean for the Thailand-based client in the given import/export context.
 Do not mention news or Tavily sources. Do not give investment advice. Keep each analysis under 45 words.
 
@@ -238,6 +237,7 @@ export async function onRequestPost(context) {
       ? body.tradeRoles.map(role => String(role).toLowerCase()).filter(role => ["importer", "exporter"].includes(role))
       : [];
     const countries = Array.isArray(body.countries) ? body.countries : [];
+    const fxTenor = [30, 90].includes(Number(body.fxTenor)) ? Number(body.fxTenor) : 30;
 
     if (currencies.length === 0) {
       return Response.json({ error: "Please select at least one currency." }, { status: 400 });
@@ -248,8 +248,8 @@ export async function onRequestPost(context) {
       return Response.json({ error: `Unsupported currency selected: ${unsupported.join(", ")}` }, { status: 400 });
     }
 
-    const rawFx = await fetchFxRates(currencies);
-    const fx = await analyzeFxRates({ env, fxList: rawFx, sector, subsector, industry, tradeRoles, countries });
+    const rawFx = await fetchFxRates(currencies, fxTenor);
+    const fx = await analyzeFxRates({ env, fxList: rawFx, sector, subsector, industry, tradeRoles, countries, fxTenor });
 
     return Response.json({ fx });
   } catch (error) {
