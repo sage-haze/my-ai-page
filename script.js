@@ -144,12 +144,36 @@ function getIsicMatches(query) {
 
   return scored.slice(0, 6);
 }
+function autoFillSectorFromIsic(entry) {
+  if (!entry?.sector || !entry?.subsector || !sectorBox || !subsectorBox) return;
+
+  const sectorExists = Array.from(sectorBox.options).some(option => option.value === entry.sector);
+  if (!sectorExists) return;
+
+  sectorBox.value = entry.sector;
+  populateSubsectors();
+
+  const subsectorExists = Array.from(subsectorBox.options).some(option => option.value === entry.subsector);
+  if (subsectorExists) {
+    subsectorBox.value = entry.subsector;
+  }
+
+  sectorBox.classList.add("auto-filled");
+  subsectorBox.classList.add("auto-filled");
+}
+
 function selectIsic(entry) {
   selectedIsic = entry;
   industryBox.value = `${entry.code} - ${entry.description}`;
   industryBox.classList.add("valid-selection");
   industryBox.setAttribute("aria-expanded", "false");
-  selectedIsicBox.textContent = `Selected: ${entry.code} - ${entry.description}`;
+  autoFillSectorFromIsic(entry);
+
+  const autoFillText = entry.sector && entry.subsector
+    ? ` Auto-filled sector: ${entry.sector}; subsector: ${entry.subsector}. You can still override them if needed.`
+    : "";
+
+  selectedIsicBox.textContent = `Selected: ${entry.code} - ${entry.description}.${autoFillText}`;
   isicDropdown.classList.add("hidden");
   isicDropdown.innerHTML = "";
 }
@@ -946,10 +970,13 @@ populateSubsectors();
 renderCountryDropdown();
 
 sectorBox.addEventListener("change", function () {
+  sectorBox.classList.remove("auto-filled");
+  subsectorBox.classList.remove("auto-filled");
   populateSubsectors();
   if (document.activeElement === industryBox) renderIsicDropdown();
 });
 subsectorBox.addEventListener("change", function () {
+  subsectorBox.classList.remove("auto-filled");
   if (document.activeElement === industryBox) renderIsicDropdown();
 });
 updateFxButton.addEventListener("click", updateFxOnly);
