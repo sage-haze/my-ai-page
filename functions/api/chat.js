@@ -200,7 +200,7 @@ function countTermMatches(text, terms = []) {
   for (const term of terms || []) {
     const clean = String(term || "").toLowerCase().trim();
     if (!clean || clean.length < 3) continue;
-    const escaped = clean.replace(/[.*+?^${}()|[\]\]/g, "\$&");
+    const escaped = clean.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const pattern = clean.includes(" ") ? escaped : `\b${escaped}\b`;
     try {
       if (new RegExp(pattern, "i").test(haystack)) {
