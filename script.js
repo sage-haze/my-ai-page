@@ -26,6 +26,47 @@ let selectedIsic = null;
 let fxCharts = {};
 
 
+const INDUSTRY_TERMS_CACHE_PREFIX = "industryTerms:v1:";
+
+function getIndustryTermsCacheKey({ isicCode, industry, sector, subsector }) {
+  const key = [isicCode || "no-code", industry || "", sector || "", subsector || ""]
+    .join("|")
+    .toLowerCase()
+    .replace(/[^a-z0-9| -]/g, "")
+    .slice(0, 180);
+  return `${INDUSTRY_TERMS_CACHE_PREFIX}${key}`;
+}
+
+function readCachedIndustryTerms(payload) {
+  try {
+    const key = getIndustryTermsCacheKey(payload);
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.high_priority)) return null;
+    return parsed;
+  } catch (_) {
+    return null;
+  }
+}
+
+function cacheIndustryTerms(payload, terms) {
+  try {
+    if (!terms || !Array.isArray(terms.high_priority) || terms.high_priority.length === 0) return;
+    const key = getIndustryTermsCacheKey(payload);
+    localStorage.setItem(key, JSON.stringify({
+      high_priority: terms.high_priority || [],
+      medium_priority: terms.medium_priority || [],
+      avoid_terms: terms.avoid_terms || [],
+      source: terms.source || "generated",
+      cached_at: new Date().toISOString()
+    }));
+  } catch (_) {
+    // localStorage may be unavailable in some browsers/private sessions; safe to ignore.
+  }
+}
+
+
 function normaliseSearchText(value) {
   return String(value || "")
     .toLowerCase()
@@ -940,6 +981,7 @@ button.addEventListener("click", async function () {
         subsector,
         industry,
         isicCode,
+        industryTerms: readCachedIndustryTerms({ isicCode, industry, sector, subsector }),
         tradeRoles,
         deepSearch,
         timeframe,
@@ -960,6 +1002,7 @@ button.addEventListener("click", async function () {
       return;
     }
 
+    cacheIndustryTerms({ isicCode, industry, sector, subsector }, data.industry_terms || data.industryTerms);
     renderFx(data.fx || []);
     renderFxContext(data.fx_context || data.fxContext || "");
     renderSources(data.sources || [], Boolean(data.no_relevant_updates), Boolean(data.fallback_triggered));
