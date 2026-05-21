@@ -1058,6 +1058,11 @@ Strict rules:
 - Theme titles should be specific and RM-ready: name the actual development, client implication, and trade-finance angle where possible. Avoid generic titles such as "Supply Chain Risk" or "Market Update".
 - Each theme should be relevant to trade finance, such as import/export flows, supply chain disruption, working capital, payment risk, guarantees, letters of credit, documentary collections, receivables, inventory financing, cash management, hedging conversations, or counterparty risk.
 - Treat selected countries as exposure markets/sourcing markets for the Thai client, not as countries to cross-combine with each other.
+- Do NOT assume a named company in an article is the bank's client or the user's client.
+- If an article is about a named company, frame the insight as a market signal, competitor signal, buyer/supplier signal, or sector development unless the user explicitly says that named company is the client.
+- RM recommendations must be applicable to a typical Thailand-based client in the selected industry, not only to the specific company mentioned in the article.
+- Avoid recommendations such as financing a specific expansion, acquisition, or project unless the source clearly says the selected client is undertaking it. Prefer phrasing such as "clients in this industry may face..." or "use this as a conversation opener...".
+- Down-rank or reject one-company corporate actions unless they clearly indicate broader sector implications for supply, demand, pricing, export channels, buyer requirements, logistics, working capital cycles, or trade-finance needs.
 
 Return JSON only in this exact shape:
 {

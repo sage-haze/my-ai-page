@@ -85,42 +85,65 @@ function scoreIsicMatch(entry, query) {
   const contextText = normaliseSearchText(`${sector} ${subsector}`);
   const contextWords = uniqueWords(contextText);
 
-  if (!q) {
-    let contextOnlyScore = 0;
-    contextWords.forEach(term => {
-      const best = Math.max(0, ...entryWords.map(word => wordSimilarity(term, word)));
-      if (best > 0.72) contextOnlyScore += best * 14;
-    });
-    return contextOnlyScore;
-  }
-
   let score = 0;
-
-  if (entryText === q) score += 1000;
-  if (entry.code && normaliseSearchText(entry.code) === q) score += 900;
-  if (entryText.includes(q)) score += 450 + q.length;
-
-  const queryWords = uniqueWords(q);
-  queryWords.forEach(term => {
-    const best = Math.max(0, ...entryWords.map(word => wordSimilarity(term, word)));
-    if (best >= 0.95) score += 120;
-    else if (best >= 0.82) score += 80;
-    else if (best >= 0.68) score += 36;
-    else if (best >= 0.5) score += 14;
-  });
-
-  const phraseSimilarity = diceCoefficient(q, entryText);
-  score += phraseSimilarity * 120;
+  let queryScore = 0;
+  let contextScore = 0;
 
   // Light boost only: sector/subsector helps ranking but never hides other ISIC activities.
   contextWords.forEach(term => {
     const best = Math.max(0, ...entryWords.map(word => wordSimilarity(term, word)));
-    if (best > 0.78) score += best * 10;
+    if (best >= 0.9) contextScore += best * 12;
+    else if (best >= 0.8) contextScore += best * 6;
   });
 
-  return score;
+  if (!q) {
+    return { score: contextScore, queryScore: 0, contextScore };
+  }
+
+  if (entryText === q) queryScore += 1000;
+  if (entry.code && normaliseSearchText(entry.code) === q) queryScore += 900;
+  if (entryText.includes(q)) queryScore += 450 + q.length;
+
+  const queryWords = uniqueWords(q).filter(term => term.length > 2);
+  queryWords.forEach(term => {
+    const best = Math.max(0, ...entryWords.map(word => wordSimilarity(term, word)));
+
+    // Keep fuzzy matching useful for typos, but avoid distant matches such as
+    // "papaya" returning "paper" / "abrasive" / "aluminium" just because of shared letters.
+    if (best >= 0.96) queryScore += 130;
+    else if (best >= 0.88) queryScore += 80;
+    else if (term.length >= 7 && best >= 0.82) queryScore += 35;
+  });
+
+  // Phrase similarity across the whole description is useful only when it is strong.
+  const phraseSimilarity = diceCoefficient(q, entryText);
+  if (phraseSimilarity >= 0.42) queryScore += phraseSimilarity * 80;
+
+  score = queryScore + contextScore;
+  return { score, queryScore, contextScore };
 }
 
+function getIsicMatches(query) {
+  const q = normaliseSearchText(query);
+  const scored = ISIC_DATA
+    .map(entry => ({ ...entry, ...scoreIsicMatch(entry, q) }))
+    .sort((a, b) => b.score - a.score || a.description.localeCompare(b.description));
+
+  if (!q) return scored.filter(entry => entry.score > 0).slice(0, 10);
+
+  const strongMatches = scored.filter(entry => entry.queryScore >= 80).slice(0, 10);
+  if (strongMatches.length >= 4) return strongMatches;
+
+  const acceptableMatches = scored.filter(entry => entry.queryScore >= 35).slice(0, 8);
+  if (acceptableMatches.length > 0) return acceptableMatches;
+
+  // If the typed word is not in ISIC and fuzzy confidence is weak, do not show
+  // misleading unrelated matches. Fall back to sector/subsector-guided suggestions.
+  const contextMatches = scored.filter(entry => entry.contextScore > 0).slice(0, 8);
+  if (contextMatches.length > 0) return contextMatches;
+
+  return scored.slice(0, 6);
+}
 function selectIsic(entry) {
   selectedIsic = entry;
   industryBox.value = `${entry.code} - ${entry.description}`;
@@ -136,10 +159,7 @@ function renderIsicDropdown() {
 
   const query = industryBox.value.trim();
 
-  const matches = ISIC_DATA
-    .map(entry => ({ ...entry, score: scoreIsicMatch(entry, query) }))
-    .sort((a, b) => b.score - a.score || a.description.localeCompare(b.description))
-    .slice(0, 12);
+  const matches = getIsicMatches(query);
 
   if (matches.length === 0) {
     isicDropdown.classList.add("hidden");
@@ -148,8 +168,9 @@ function renderIsicDropdown() {
     return;
   }
 
+  const hasStrongQueryMatch = matches.some(entry => entry.queryScore >= 35);
   const heading = query
-    ? "Closest ISIC matches"
+    ? (hasStrongQueryMatch ? "Closest ISIC matches" : "No close word match — showing sector/subsector suggestions")
     : "Suggested ISIC activities";
 
   isicDropdown.classList.remove("hidden");
@@ -315,11 +336,14 @@ function cleanFxPair(pair, base) {
 function renderFxContext(text) {
   if (!fxContextOutput) return;
 
+  const card = document.getElementById("fxContextCard");
   if (!text) {
-    fxContextOutput.textContent = "FX commentary in context of the latest news will appear here.";
+    fxContextOutput.textContent = "";
+    card?.classList.add("hidden");
     return;
   }
 
+  card?.classList.remove("hidden");
   fxContextOutput.innerHTML = `<p>${text}</p>`;
 }
 
@@ -693,7 +717,7 @@ button.addEventListener("click", async function () {
   button.disabled = true;
   fxOutput.innerHTML = `<span class="loading">Checking FX...</span>`;
   analysisOutput.innerHTML = `<span class="loading">Researching news...</span>`;
-  if (fxContextOutput) fxContextOutput.innerHTML = `<span class="loading">Preparing FX context...</span>`;
+  renderFxContext("");
   sourcesOutput.innerHTML = `<span class="loading">Loading sources...</span>`;
   if (contextOutput) contextOutput.textContent = "";
 
