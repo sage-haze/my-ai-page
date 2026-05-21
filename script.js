@@ -17,7 +17,6 @@ const defaultPromptBox = document.getElementById("defaultPrompt");
 const analysisOutput = document.getElementById("analysisOutput");
 const sourcesOutput = document.getElementById("sourcesOutput");
 const fxOutput = document.getElementById("fxOutput");
-const fxContextOutput = document.getElementById("fxContextOutput");
 const contextOutput = document.getElementById("contextOutput");
 const isicDropdown = document.getElementById("isicDropdown");
 const selectedIsicBox = document.getElementById("selectedIsic");
@@ -334,17 +333,26 @@ function cleanFxPair(pair, base) {
 }
 
 function renderFxContext(text) {
-  if (!fxContextOutput) return;
+  const existingCard = document.getElementById("fxContextCard");
+  const cleanText = String(text || "").trim();
 
-  const card = document.getElementById("fxContextCard");
-  if (!text) {
-    fxContextOutput.textContent = "";
-    card?.classList.add("hidden");
+  if (!cleanText) {
+    existingCard?.remove();
     return;
   }
 
-  card?.classList.remove("hidden");
-  fxContextOutput.innerHTML = `<p>${text}</p>`;
+  const fxCard = fxOutput?.closest(".result-card");
+  const card = existingCard || document.createElement("div");
+  card.id = "fxContextCard";
+  card.className = "result-card";
+  card.innerHTML = `
+    <h2>FX Context</h2>
+    <div id="fxContextOutput"><p>${escapeHtml(cleanText)}</p></div>
+  `;
+
+  if (!existingCard && fxCard) {
+    fxCard.insertAdjacentElement("afterend", card);
+  }
 }
 
 function renderFx(fxList) {
