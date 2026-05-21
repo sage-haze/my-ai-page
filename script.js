@@ -619,7 +619,6 @@ function renderFx(fxList) {
   `).join("");
 
   fxOutput.innerHTML = `
-    <div class="fx-layout-note">Charts show ${tenor === "90" ? "monthly" : "weekly"} vertical markers and dynamic rate gridlines. Raw daily data is collapsed below each currency.</div>
     <div class="fx-card-stack">
       ${fxCards}
       ${errorBlocks}
