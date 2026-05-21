@@ -1,3 +1,5 @@
+import { INDUSTRY_TERMS } from "./industry-terms.js";
+
 const DEFAULT_APPROVED_DOMAINS = [
   "reuters.com",
   "bloomberg.com",
@@ -155,16 +157,85 @@ function uniqueArray(items) {
   return [...new Set(items.filter(Boolean))];
 }
 
-function getSearchKeywords({ sector, subsector }) {
+function getIndustryTermProfile({ isicCode = "", industry = "" } = {}) {
+  const code = String(isicCode || "").trim();
+  if (code && INDUSTRY_TERMS[code]) return INDUSTRY_TERMS[code];
+
+  const cleanIndustry = String(industry || "")
+    .replace(/^\d+\s*[-–—:]\s*/, "")
+    .toLowerCase()
+    .trim();
+
+  if (!cleanIndustry) return { high: [], medium: [], low: [] };
+
+  const match = Object.values(INDUSTRY_TERMS).find(profile =>
+    String(profile.description || "").toLowerCase() === cleanIndustry
+  );
+
+  return match || { high: [], medium: [], low: [] };
+}
+
+function getSearchKeywords({ sector, subsector, industry = "", isicCode = "" }) {
   const manualKeywords = SUBSECTOR_KEYWORD_MAP[subsector] || [];
+  const termProfile = getIndustryTermProfile({ isicCode, industry });
+  const inferredIndustryKeywords = inferKeywordsFromText(industry);
   const inferredSubsectorKeywords = inferKeywordsFromText(subsector);
   const inferredSectorKeywords = inferKeywordsFromText(sector);
 
   return uniqueArray([
+    ...(termProfile.high || []),
+    ...(termProfile.medium || []),
     ...manualKeywords,
+    ...inferredIndustryKeywords,
     ...inferredSubsectorKeywords,
     ...inferredSectorKeywords
-  ]).slice(0, 20);
+  ]).slice(0, 28);
+}
+
+function countTermMatches(text, terms = []) {
+  const haystack = String(text || "").toLowerCase();
+  let count = 0;
+  const matched = [];
+
+  for (const term of terms || []) {
+    const clean = String(term || "").toLowerCase().trim();
+    if (!clean || clean.length < 3) continue;
+    const escaped = clean.replace(/[.*+?^${}()|[\]\]/g, "\$&");
+    const pattern = clean.includes(" ") ? escaped : `\b${escaped}\b`;
+    try {
+      if (new RegExp(pattern, "i").test(haystack)) {
+        count += 1;
+        matched.push(clean);
+      }
+    } catch (_) {
+      if (haystack.includes(clean)) {
+        count += 1;
+        matched.push(clean);
+      }
+    }
+  }
+
+  return { count, matched: matched.slice(0, 8) };
+}
+
+function calculateIndustryRelevanceScore(source, termProfile = {}) {
+  const text = [source.title, source.summary, source.raw_content].join(" ");
+  const high = countTermMatches(text, termProfile.high || []);
+  const medium = countTermMatches(text, termProfile.medium || []);
+  const low = countTermMatches(text, termProfile.low || []);
+
+  let score = high.count * 5 + medium.count * 2 - low.count * 3;
+
+  if (high.count === 0 && medium.count === 0 && low.count > 0) score -= 6;
+  if (high.count >= 2) score += 3;
+  if (high.count === 0 && medium.count <= 1) score -= 2;
+
+  return {
+    score: Math.max(-10, Math.min(score, 20)),
+    highMatches: high.matched,
+    mediumMatches: medium.matched,
+    weakAdjacencyMatches: low.matched
+  };
 }
 
 function cleanQueryText(text) {
@@ -188,137 +259,6 @@ function roleText(tradeRoles) {
   return "Thailand import export trade";
 }
 
-
-const DEFAULT_INDUSTRY_TERMS = [
-  {
-    match: /animal\s+feeds?|prepared\s+feeds?|feed\s+mill|livestock\s+feed/i,
-    terms: {
-      high_priority: ["animal feed", "prepared feed", "feed grain", "corn", "maize", "soybean meal", "soymeal", "fishmeal", "feed additives", "livestock", "poultry", "swine", "aquaculture feed", "feed mill"],
-      medium_priority: ["soybean", "grain", "wheat", "cassava", "palm kernel meal", "DDGS", "protein meal", "amino acids", "vitamins", "premix", "freight", "livestock disease", "feed safety"],
-      avoid_terms: ["sugar", "refined sugar", "fruit", "beverage", "confectionery", "paper", "aluminium", "abrasive"]
-    }
-  },
-  {
-    match: /iron\s+and\s+steel|steel\s+sheets?|basic\s+iron|steel\s+manufactur/i,
-    terms: {
-      high_priority: ["steel sheet", "flat steel", "hot rolled coil", "cold rolled coil", "galvanized steel", "iron ore", "scrap steel", "coking coal", "steel demand", "construction steel", "automotive steel"],
-      medium_priority: ["tariff", "anti-dumping", "safeguard", "CBAM", "carbon steel", "green steel", "manufacturing demand", "freight", "energy cost"],
-      avoid_terms: ["jewellery", "food", "fruit", "textiles"]
-    }
-  }
-];
-
-function normalizeTermsObject(value) {
-  const obj = value && typeof value === "object" ? value : {};
-  const cleanList = list => Array.isArray(list)
-    ? [...new Set(list.map(item => cleanQueryText(String(item)).toLowerCase()).filter(item => item.length > 1))].slice(0, 24)
-    : [];
-  return {
-    high_priority: cleanList(obj.high_priority || obj.highPriority || obj.core_terms || obj.coreTerms),
-    medium_priority: cleanList(obj.medium_priority || obj.mediumPriority || obj.related_terms || obj.relatedTerms),
-    avoid_terms: cleanList(obj.avoid_terms || obj.avoidTerms || obj.weak_terms || obj.weakTerms)
-  };
-}
-
-function getDefaultIndustryTerms(industry, subsector = "", sector = "") {
-  const haystack = `${industry} ${subsector} ${sector}`;
-  const matched = DEFAULT_INDUSTRY_TERMS.find(item => item.match.test(haystack));
-  if (!matched) {
-    const inferred = uniqueArray([
-      ...inferKeywordsFromText(industry),
-      ...inferKeywordsFromText(subsector)
-    ]).slice(0, 10);
-    return {
-      high_priority: inferred,
-      medium_priority: inferKeywordsFromText(sector).slice(0, 8),
-      avoid_terms: []
-    };
-  }
-  return normalizeTermsObject(matched.terms);
-}
-
-async function generateIndustryTerms({ env, sector, subsector, industry, isicCode = "", cachedIndustryTerms = null }) {
-  const cached = normalizeTermsObject(cachedIndustryTerms);
-  if (cached.high_priority.length >= 5) return { ...cached, source: "browser-cache" };
-
-  const fallback = getDefaultIndustryTerms(industry, subsector, sector);
-  if (!env.OPENAI_API_KEY) return { ...fallback, source: "fallback" };
-
-  const prompt = `
-Generate industry relevance terms for news retrieval and filtering.
-
-Client profile:
-- Sector: ${sector}
-- Subsector: ${subsector}
-- ISIC code/activity: ${isicCode} ${industry}
-
-Return JSON only:
-{
-  "high_priority": ["core raw materials, outputs, customers, regulations, production inputs or price drivers"],
-  "medium_priority": ["adjacent but useful terms"],
-  "avoid_terms": ["weak adjacent terms that should not drive relevance"]
-}
-
-Rules:
-- high_priority terms must be genuinely central to this ISIC activity, not broad sector terms.
-- Include commodity/input/output names where relevant.
-- Avoid overbroad words such as agriculture, manufacturing, trade, business, market, company.
-- avoid_terms should contain common false-positive adjacent sectors where useful.
-- Maximum 16 high_priority, 14 medium_priority, 10 avoid_terms.
-`.trim();
-
-  try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${env.OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({ model: "gpt-4.1-mini", input: prompt })
-    });
-    const data = await response.json();
-    if (!response.ok) return { ...fallback, source: "fallback" };
-    const parsed = parseJsonObject(extractOutputText(data));
-    const generated = normalizeTermsObject(parsed);
-    if (generated.high_priority.length < 4) return { ...fallback, source: "fallback" };
-    return { ...generated, source: "generated" };
-  } catch (_) {
-    return { ...fallback, source: "fallback" };
-  }
-}
-
-function countTermMatches(source, terms = []) {
-  const haystack = normalizeSourceText(`${source.title || ""} ${source.summary || ""} ${source.raw_content || ""}`);
-  return (terms || []).filter(term => {
-    const clean = normalizeSourceText(term);
-    if (!clean || clean.length < 3) return false;
-    return haystack.includes(clean);
-  });
-}
-
-function calculateIndustryCriticality(source, industryTerms = {}) {
-  const terms = normalizeTermsObject(industryTerms);
-  const highMatches = countTermMatches(source, terms.high_priority);
-  const mediumMatches = countTermMatches(source, terms.medium_priority);
-  const avoidMatches = countTermMatches(source, terms.avoid_terms);
-  const score = Math.max(-3, Math.min(10, highMatches.length * 3 + mediumMatches.length * 1.25 - avoidMatches.length * 2));
-  return {
-    score,
-    highMatches: highMatches.slice(0, 6),
-    mediumMatches: mediumMatches.slice(0, 5),
-    avoidMatches: avoidMatches.slice(0, 5)
-  };
-}
-
-function industryTermsForPrompt(industryTerms = {}) {
-  const terms = normalizeTermsObject(industryTerms);
-  return [
-    `Core industry terms: ${terms.high_priority.join(", ") || "None"}`,
-    `Secondary industry terms: ${terms.medium_priority.join(", ") || "None"}`,
-    `Weak/avoid adjacency terms: ${terms.avoid_terms.join(", ") || "None"}`
-  ].join("\n");
-}
-
 function exposureTextForRole(tradeRoles, countries) {
   const countryNames = countries.map(country => country.name).filter(Boolean).slice(0, 4);
   if (countryNames.length === 0) return "overseas markets";
@@ -336,22 +276,20 @@ function exposureTextForRole(tradeRoles, countries) {
   return `Thailand market exposure ${markets}`;
 }
 
-function buildFallbackQueries({ sector, subsector, industry, tradeRoles, countries, deepSearch, industryTerms = {} }) {
-  const baseKeywords = getSearchKeywords({ sector, subsector }).slice(0, 4).join(" ");
-  const coreTerms = normalizeTermsObject(industryTerms).high_priority.slice(0, 5).join(" ");
-  const industryAnchor = cleanQueryText(`${industry} ${coreTerms}`);
+function buildFallbackQueries({ sector, subsector, industry, isicCode, tradeRoles, countries, deepSearch }) {
+  const baseKeywords = getSearchKeywords({ sector, subsector, industry, isicCode }).slice(0, 4).join(" ");
   const thaiRoleLens = roleText(tradeRoles);
   const exposureLens = exposureTextForRole(tradeRoles, countries);
 
   const queries = [
     {
       label: "thai_client_context",
-      query: cleanQueryText(`Thailand ${industryAnchor} ${thaiRoleLens} news`),
+      query: cleanQueryText(`Thailand ${industry} ${thaiRoleLens} news`),
       maxResults: 5
     },
     {
       label: "global_industry_context",
-      query: cleanQueryText(`${industryAnchor} global supply chain demand prices trade news`),
+      query: cleanQueryText(`${industry} global supply chain demand prices trade news`),
       maxResults: 5
     }
   ];
@@ -360,12 +298,12 @@ function buildFallbackQueries({ sector, subsector, industry, tradeRoles, countri
     queries.push(
       {
         label: "thai_exposure_context",
-        query: cleanQueryText(`${industryAnchor} ${exposureLens} trade flows news`),
+        query: cleanQueryText(`${industry} ${exposureLens} trade flows news`),
         maxResults: 5
       },
       {
         label: "risk_finance_context",
-        query: cleanQueryText(`${industryAnchor} ${baseKeywords} logistics tariffs payment risk working capital news`),
+        query: cleanQueryText(`${industry} ${baseKeywords} logistics tariffs payment risk working capital news`),
         maxResults: 5
       }
     );
@@ -374,16 +312,14 @@ function buildFallbackQueries({ sector, subsector, industry, tradeRoles, countri
   return queries;
 }
 
-function buildRecoveryQueries({ sector, subsector, industry, tradeRoles, countries, deepSearch, industryTerms = {} }) {
-  const baseKeywords = getSearchKeywords({ sector, subsector }).slice(0, 3).join(" ");
-  const coreTerms = normalizeTermsObject(industryTerms).high_priority.slice(0, 5).join(" ");
-  const industryAnchor = cleanQueryText(`${industry} ${coreTerms}`);
+function buildRecoveryQueries({ sector, subsector, industry, isicCode, tradeRoles, countries, deepSearch }) {
+  const baseKeywords = getSearchKeywords({ sector, subsector, industry, isicCode }).slice(0, 3).join(" ");
   const countryNames = countries.map(country => country.name).filter(Boolean).slice(0, 3).join(" ");
 
   const queries = [
     {
       label: "fallback_thailand_industry",
-      query: cleanQueryText(`Thailand ${industryAnchor} trade supply chain demand news`),
+      query: cleanQueryText(`Thailand ${industry} trade supply chain demand news`),
       maxResults: 5
     }
   ];
@@ -391,13 +327,13 @@ function buildRecoveryQueries({ sector, subsector, industry, tradeRoles, countri
   if (deepSearch) {
     queries.push({
       label: "fallback_global_industry",
-      query: cleanQueryText(`${industryAnchor} global supply chain prices demand trade news`),
+      query: cleanQueryText(`${industry} global supply chain prices demand trade news`),
       maxResults: 5
     });
   } else if (countryNames) {
     queries.push({
       label: "fallback_exposure_context",
-      query: cleanQueryText(`${industryAnchor} ${countryNames} global demand supply chain news`),
+      query: cleanQueryText(`${industry} ${countryNames} global demand supply chain news`),
       maxResults: 4
     });
   }
@@ -405,7 +341,7 @@ function buildRecoveryQueries({ sector, subsector, industry, tradeRoles, countri
   if (queries.length < 2 && baseKeywords) {
     queries.push({
       label: "fallback_sector_context",
-      query: cleanQueryText(`${industryAnchor} ${baseKeywords} global trade news`),
+      query: cleanQueryText(`${industry} ${baseKeywords} global trade news`),
       maxResults: 4
     });
   }
@@ -466,8 +402,8 @@ function parseQueryPlan(text) {
   }
 }
 
-async function planTavilyQueries({ env, sector, subsector, industry, tradeRoles, countries, timeframe, deepSearch, industryTerms = {} }) {
-  const fallbackQueries = buildFallbackQueries({ sector, subsector, industry, tradeRoles, countries, deepSearch, industryTerms });
+async function planTavilyQueries({ env, sector, subsector, industry, isicCode, tradeRoles, countries, timeframe, deepSearch }) {
+  const fallbackQueries = buildFallbackQueries({ sector, subsector, industry, isicCode, tradeRoles, countries, deepSearch });
   const countryText = countries.map(country => country.label || `${country.name} (${country.code})`).join(", ");
   const targetCount = deepSearch ? 4 : 2;
 
@@ -479,11 +415,10 @@ Customer profile:
 - Sector: ${sector}
 - Subsector: ${subsector}
 - Specific industry / ISIC activity: ${industry}
-- Industry criticality terms:
-${industryTermsForPrompt(industryTerms)}
 - Client trade role: ${tradeRoles.join(", ")}
 - Exposure countries / markets: ${countryText}
 - Timeframe: last ${timeframe} days
+- Core industry terms: ${getSearchKeywords({ sector, subsector, industry, isicCode }).slice(0, 10).join(", ")}
 
 Goal:
 Generate a mix of Thailand-prioritised and broader industry searches. Selected countries are exposure markets for the Thai client, not countries to cross-combine with each other.
@@ -491,9 +426,8 @@ Generate a mix of Thailand-prioritised and broader industry searches. Selected c
 Rules:
 - Return JSON only.
 - Tavily is keyword search, not reasoning. Keep each query short and keyword-style.
-- Use Industry and high-priority industry terms as the main anchors.
+- Use Industry as the main anchor.
 - Use sector/subsector as context, not as the main anchor.
-- Avoid queries driven mainly by weak/avoid adjacency terms.
 - Prioritise Thailand-related news first, then global industry news.
 - Generate queries with DIFFERENT strictness levels:
   1. One Thailand/client-context query. This should include Thailand, the industry, and the Thai importer/exporter lens.
@@ -854,8 +788,6 @@ Client context:
 - Sector: ${sector}
 - Subsector: ${subsector}
 - Specific industry / ISIC activity: ${industry}
-- Industry criticality terms:
-${industryTermsForPrompt(industryTerms)}
 - Client trade role: ${tradeRoles.join(", ")}
 - Exposure countries / markets: ${countryText}
 
@@ -1002,27 +934,27 @@ function getRecencyScore(source) {
   return 1;
 }
 
-function evidenceScoreFromSource(source, countries = [], industryTerms = {}) {
+function evidenceScoreFromSource(source, countries = [], termProfile = {}) {
   const country = calculateCountryRelevanceScore(source, countries).score;
-  const criticality = Math.max(0, calculateIndustryCriticality(source, industryTerms).score);
   const authority = getSourceAuthorityScore(source);
   const recency = getRecencyScore(source);
   const relevance = source.relevance_level === "HIGH" ? 5 : source.relevance_level === "MEDIUM" ? 3 : 1;
-  return Math.round((country * 0.25 + criticality * 0.25 + authority * 0.20 + recency * 0.10 + relevance * 0.20) * 20);
+  const industry = calculateIndustryRelevanceScore(source, termProfile).score;
+  return Math.round((country * 0.28 + authority * 0.20 + recency * 0.12 + relevance * 0.20 + Math.max(0, industry) * 0.20) * 20);
 }
 
-function sourcePriority(source, countries = [], industryTerms = {}) {
+function sourcePriority(source, countries = [], termProfile = {}) {
   const levelScore = source.relevance_level === "HIGH" ? 100 : source.relevance_level === "MEDIUM" ? 50 : 0;
   const countryScore = calculateCountryRelevanceScore(source, countries).score * 8;
-  const industryScore = calculateIndustryCriticality(source, industryTerms).score * 10;
   const authorityScore = getSourceAuthorityScore(source) * 5;
   const recencyScore = getRecencyScore(source) * 2;
   const groupScore = String(source.source_group || "").includes("thai") ? 10 : 0;
   const tavilyScore = Math.min(Number(source.score || 0) * 10, 10);
-  return levelScore + countryScore + industryScore + authorityScore + recencyScore + groupScore + tavilyScore;
+  const industryScore = calculateIndustryRelevanceScore(source, termProfile).score * 5;
+  return levelScore + countryScore + authorityScore + recencyScore + groupScore + tavilyScore + industryScore;
 }
 
-async function assessSourceRelevance({ env, sources, sector, subsector, industry, tradeRoles, countries, timeframe, plannedQueries, industryTerms = {} }) {
+async function assessSourceRelevance({ env, sources, sector, subsector, industry, isicCode, tradeRoles, countries, timeframe, plannedQueries }) {
   if (!sources.length) {
     return {
       hasRelevantUpdates: false,
@@ -1034,6 +966,7 @@ async function assessSourceRelevance({ env, sources, sector, subsector, industry
   const countryText = countries
     .map(country => country.label || `${country.name} (${country.code})`)
     .join(", ");
+  const termProfile = getIndustryTermProfile({ isicCode, industry });
 
   const compactSources = sources.map(source => {
     const text = source.raw_content || source.summary || "";
@@ -1048,7 +981,7 @@ async function assessSourceRelevance({ env, sources, sector, subsector, industry
       countryRelevance: calculateCountryRelevanceScore(source, countries),
       authorityScore: getSourceAuthorityScore(source),
       recencyScore: getRecencyScore(source),
-      industryCriticality: calculateIndustryCriticality(source, industryTerms),
+      industryRelevance: calculateIndustryRelevanceScore(source, termProfile),
       snippet: trimmedText
     };
   });
@@ -1060,12 +993,13 @@ Customer profile:
 - Sector: ${sector}
 - Subsector: ${subsector}
 - Specific industry / ISIC activity: ${industry}
-- Industry criticality terms:
-${industryTermsForPrompt(industryTerms)}
 - Client trade role: ${tradeRoles.join(", ")}
 - Client base: Thailand
 - Exposure countries / markets: ${countryText}
 - Timeframe: last ${timeframe} days
+- Core industry terms: ${(termProfile.high || []).slice(0, 12).join(", ")}
+- Medium industry terms: ${(termProfile.medium || []).slice(0, 8).join(", ")}
+- Weak-adjacent / exclusion terms: ${(termProfile.low || []).slice(0, 10).join(", ")}
 - Tavily queries used: ${plannedQueries.map(plan => `${plan.label}: ${plan.query}`).join(" | ")}
 
 Task:
@@ -1076,10 +1010,11 @@ Prioritise sources in this order:
 3. Regional ASEAN news that has a clear Thailand-client implication.
 4. Broader global industry news only when it is unavoidable context and clearly affects Thai client demand, pricing, supply chain, logistics, trade policy, working capital, payment risk, or counterparty risk.
 
-A useful source must have a clear client implication and must be central to the selected ISIC activity. It is not enough that the article mentions a selected country, exporter/importer, broad sector keyword, or weakly adjacent commodity.
+A useful source must have a clear client implication. It is not enough that the article mentions a selected country, exporter/importer, or broad sector keyword.
+Industry criticality rule: Prefer articles that involve the core industry terms. Downrank or omit articles that mainly match weak-adjacent/exclusion terms without also matching core terms. For example, a sugar article should not become an animal-feed theme unless it explicitly mentions feed, molasses for feed, feed grain substitution, livestock feed costs, or another core feed linkage.
 Interpret importer/exporter strictly from the Thailand-based client's perspective; for example, China/US/Indonesia should be treated as exposure markets/sources/destinations, not as exporters/importers themselves unless that directly affects Thai client flows.
 Country-cross results, such as China-Indonesia, US-Indonesia, EU-China, or other non-selected market stories, should be LOW unless they have a clear Thailand or selected-market implication for the client. EU/China/global stories should normally be MEDIUM at most and should not displace Thailand/selected-market sources.
-Do not include sources merely to fill a quota. If relevance is weak or indirect, classify it as LOW and omit it. If a source mostly matches weak/avoid adjacency terms and lacks high-priority industry-term matches, classify it as LOW even if countries match.
+Do not include sources merely to fill a quota. If relevance is weak or indirect, classify it as LOW and omit it.
 
 Return JSON only in this exact shape:
 {
@@ -1095,9 +1030,9 @@ Return JSON only in this exact shape:
 }
 
 Relevance levels:
-- HIGH: Thailand-related and directly relevant to the client industry, Thai import/export role, or Thai exposure to selected markets, with clear high-priority industry-term support.
+- HIGH: Thailand-related and directly relevant to the client industry, Thai import/export role, or Thai exposure to selected markets.
 - MEDIUM: useful global industry context, or selected-market context with a clear and explainable implication for Thai client flows, demand, pricing, supply chain, or risk.
-- LOW: weak keyword match, weak adjacent commodity/topic, unrelated country export/import story, country-pair story without Thai/global industry implication, unrelated company news, old/background content, or no clear client implication.
+- LOW: weak keyword match, unrelated country export/import story, country-pair story without Thai/global industry implication, unrelated company news, old/background content, or no clear client implication.
 
 Rules:
 - Return HIGH and MEDIUM sources only; omit LOW sources completely.
@@ -1160,21 +1095,25 @@ ${JSON.stringify(compactSources, null, 2)}
 
     const highSources = reviewedSources
       .filter(source => source.relevance_level === "HIGH")
-      .sort((a, b) => sourcePriority(b, countries, industryTerms) - sourcePriority(a, countries, industryTerms));
+      .sort((a, b) => sourcePriority(b, countries, termProfile) - sourcePriority(a, countries, termProfile));
     const mediumSources = reviewedSources
       .filter(source => source.relevance_level === "MEDIUM")
-      .sort((a, b) => sourcePriority(b, countries, industryTerms) - sourcePriority(a, countries, industryTerms));
+      .sort((a, b) => sourcePriority(b, countries, termProfile) - sourcePriority(a, countries, termProfile));
     const selectedSources = [...highSources, ...mediumSources]
-      .sort((a, b) => sourcePriority(b, countries, industryTerms) - sourcePriority(a, countries, industryTerms))
+      .sort((a, b) => sourcePriority(b, countries, termProfile) - sourcePriority(a, countries, termProfile))
       .slice(0, 10)
       .map(source => {
         const countryRel = calculateCountryRelevanceScore(source, countries);
-        const industryCriticality = calculateIndustryCriticality(source, industryTerms);
-        const evidenceScore = Math.max(0, Math.min(100, evidenceScoreFromSource(source, countries, industryTerms)));
+        const industryRel = calculateIndustryRelevanceScore(source, termProfile);
+        const evidenceScore = Math.max(0, Math.min(100, evidenceScoreFromSource(source, countries, termProfile)));
         return {
           ...source,
           country_relevance_score: countryRel.score,
           country_relevance_matches: countryRel.matches,
+          industry_relevance_score: industryRel.score,
+          industry_high_matches: industryRel.highMatches,
+          industry_medium_matches: industryRel.mediumMatches,
+          industry_weak_adjacency_matches: industryRel.weakAdjacencyMatches,
           authority_score: getSourceAuthorityScore(source),
           recency_score: getRecencyScore(source),
           evidence_score: evidenceScore
@@ -1334,7 +1273,7 @@ function alignSourcesToAnalysis({ sources, newsSection, timeframe }) {
   };
 }
 
-async function analyzeNewsDevelopments({ env, sources, sector, subsector, industry, tradeRoles, countries, timeframe, deepSearch, plannedQueries, defaultPrompt, industryTerms = {} }) {
+async function analyzeNewsDevelopments({ env, sources, sector, subsector, industry, tradeRoles, countries, timeframe, deepSearch, plannedQueries, defaultPrompt }) {
   if (!sources.length) {
     return {
       status: "NO_NEWS",
@@ -1345,6 +1284,7 @@ async function analyzeNewsDevelopments({ env, sources, sector, subsector, indust
   const countryText = countries
     .map(country => country.label || `${country.name} (${country.code})`)
     .join(", ");
+  const termProfile = getIndustryTermProfile({ isicCode, industry });
 
   const articleContext = sources.map(source => {
     const text = source.raw_content || source.summary || "";
@@ -1362,8 +1302,6 @@ Relevance reviewer note: ${source.relevance_justification || ""}
 Evidence score: ${source.evidence_score ?? "Not scored"}/100
 Country relevance score: ${source.country_relevance_score ?? "Not scored"}
 Country relevance matches: ${Array.isArray(source.country_relevance_matches) ? source.country_relevance_matches.join(", ") : ""}
-Industry criticality score: ${source.industry_criticality_score ?? "Not scored"}
-Industry criticality matches: ${Array.isArray(source.industry_criticality_matches) ? source.industry_criticality_matches.join(", ") : ""}
 Authority score: ${source.authority_score ?? "Not scored"}/5
 Content:
 ${trimmedText}
@@ -1380,8 +1318,6 @@ Customer profile:
 - Sector: ${sector}
 - Subsector: ${subsector}
 - Specific industry / ISIC activity: ${industry}
-- Industry criticality terms:
-${industryTermsForPrompt(industryTerms)}
 - Client trade role: ${tradeRoles.join(", ")}
 - Client base: Thailand
 - Countries / markets relevant to the client: ${countryText}
@@ -1392,14 +1328,12 @@ ${industryTermsForPrompt(industryTerms)}
 Task:
 Generate NEWS-BASED market developments only from the provided sources.
 
-Organise insights by client-conversation relevance and industry criticality. Prioritise themes with direct Thailand and selected-market relevance. If you must use broader EU/China/global context, clearly label it as secondary and explain the bridge to Thailand/selected markets.
+Organise insights by client-conversation relevance. Prioritise themes with direct Thailand and selected-market relevance. If you must use broader EU/China/global context, clearly label it as secondary and explain the bridge to Thailand/selected markets.
 
 Strict rules:
 - Use ONLY the provided sources.
 - Do NOT add general industry knowledge, background assumptions, or evergreen commentary.
 - Do NOT infer beyond what the sources directly support.
-- Selected countries / markets are a primary relevance anchor, but they are not sufficient by themselves. Each theme must also be central to the selected ISIC activity or a clearly major cost/logistics/regulatory driver for it.
-- Industry criticality rule: prefer themes supported by high-priority industry terms. Reject weakly adjacent commodities/topics when the bridge to the selected ISIC activity is generic or speculative.
 - Selected countries / markets are the primary relevance anchor. A theme about non-selected markets such as EU or China must be included only if the source provides a clear bridge to Thailand, the selected markets, pricing, supply, demand, logistics, or compliance for this client.
 - Do not let indirect global themes displace direct Thailand/selected-market themes. If direct selected-market sources exist, use them first.
 - Do NOT use a country selection as a proxy for currency exposure. Only discuss a currency when that currency is explicitly selected by the user or directly mentioned in the cited article.
@@ -1425,7 +1359,7 @@ Strict rules:
 - Avoid recommendations such as financing a specific expansion, acquisition, or project unless the source clearly says the selected client is undertaking it. Prefer phrasing such as "clients in this industry may face..." or "use this as a conversation opener...".
 - Down-rank or reject one-company corporate actions unless they clearly indicate broader sector implications for supply, demand, pricing, export channels, buyer requirements, logistics, working capital cycles, or trade-finance needs.
 - Include signalStrength and evidenceScore for every theme. High = direct Thailand/selected-market relevance and/or multiple strong sources. Medium = useful but partly indirect. Low = included only as clearly labelled secondary context.
-- evidenceScore should be 0-100 and should reflect direct country relevance, industry criticality, source authority, recency, and whether more than one source supports the theme.
+- evidenceScore should be 0-100 and should reflect direct country relevance, source authority, recency, and whether more than one source supports the theme.
 
 Return JSON only in this exact shape:
 {
@@ -1525,6 +1459,7 @@ async function generateGeneralContext({ env, sector, subsector, industry, tradeR
   const countryText = countries
     .map(country => country.label || `${country.name} (${country.code})`)
     .join(", ");
+  const termProfile = getIndustryTermProfile({ isicCode, industry });
 
   const prompt = `
 You are advising a Thailand-based relationship manager in trade finance.
@@ -1685,7 +1620,6 @@ export async function onRequestPost(context) {
       : [];
     const countries = Array.isArray(body.countries) ? body.countries : [];
     const defaultPrompt = (body.defaultPrompt || "").trim();
-    const cachedIndustryTerms = body.industryTerms || body.cachedIndustryTerms || null;
 
     if (!sector) return Response.json({ error: "Please select a sector." }, { status: 400 });
     if (!subsector) return Response.json({ error: "Please select a subsector." }, { status: 400 });
@@ -1706,20 +1640,18 @@ export async function onRequestPost(context) {
       return Response.json({ error: "Missing OPENAI_API_KEY secret in Cloudflare." }, { status: 500 });
     }
 
-    const industryTerms = await generateIndustryTerms({ env, sector, subsector, industry, isicCode, cachedIndustryTerms });
-
     const { start_date, end_date } = getDateRange(timeframe);
-    const searchKeywords = getSearchKeywords({ sector, subsector });
+    const searchKeywords = getSearchKeywords({ sector, subsector, industry, isicCode });
     const plannedQueries = await planTavilyQueries({
       env,
       sector,
       subsector,
       industry,
+      isicCode,
       tradeRoles,
       countries,
       timeframe,
-      deepSearch,
-      industryTerms
+      deepSearch
     });
 
     const searchDepth = deepSearch ? "advanced" : "basic";
@@ -1753,11 +1685,11 @@ export async function onRequestPost(context) {
       sector,
       subsector,
       industry,
+      isicCode,
       tradeRoles,
       countries,
       timeframe,
-      plannedQueries: effectiveQueries,
-      industryTerms
+      plannedQueries: effectiveQueries
     });
 
     let candidateSources = primaryCandidateSources;
@@ -1770,10 +1702,10 @@ export async function onRequestPost(context) {
         sector,
         subsector,
         industry,
+        isicCode,
         tradeRoles,
         countries,
-        deepSearch,
-        industryTerms
+        deepSearch
       });
 
       const existingQueryText = new Set(effectiveQueries.map(plan => cleanQueryText(plan.query).toLowerCase()));
@@ -1805,11 +1737,11 @@ export async function onRequestPost(context) {
           sector,
           subsector,
           industry,
+          isicCode,
           tradeRoles,
           countries,
           timeframe,
-          plannedQueries: effectiveQueries,
-          industryTerms
+          plannedQueries: effectiveQueries
         });
       }
     }
@@ -1847,8 +1779,7 @@ export async function onRequestPost(context) {
         search_queries: effectiveQueries,
         fallback_triggered: fallbackTriggered,
         search_mode: deepSearch ? "deep" : "standard",
-        sources: [],
-        industry_terms: industryTerms
+        sources: []
       });
     }
 
@@ -1858,13 +1789,13 @@ export async function onRequestPost(context) {
       sector,
       subsector,
       industry,
+      isicCode,
       tradeRoles,
       countries,
       timeframe,
       deepSearch,
       plannedQueries: effectiveQueries,
-      defaultPrompt,
-      industryTerms
+      defaultPrompt
     });
 
     const aligned = alignSourcesToAnalysis({
@@ -1882,7 +1813,6 @@ export async function onRequestPost(context) {
       search_keywords: searchKeywords,
       search_queries: effectiveQueries,
       fallback_triggered: fallbackTriggered,
-      industry_terms: industryTerms,
       search_mode: deepSearch ? "deep" : "standard",
       sources: aligned.newsSection.status === "NO_NEWS" ? [] : aligned.sources.map(source => ({
         number: source.source_number,
@@ -1893,11 +1823,7 @@ export async function onRequestPost(context) {
         published_at: source.published_at,
         source_group: source.source_group,
         syndicated_via: Array.isArray(source.syndicated_via) ? source.syndicated_via : [],
-        justification: source.relevance_justification || "",
-        evidence_score: source.evidence_score,
-        country_relevance_matches: source.country_relevance_matches,
-        industry_criticality_score: source.industry_criticality_score,
-        industry_criticality_matches: source.industry_criticality_matches
+        justification: source.relevance_justification || ""
       }))
     });
   } catch (error) {
