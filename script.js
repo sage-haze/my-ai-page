@@ -52,6 +52,57 @@ const INDUSTRY_ALIAS_TERMS = {
   sugarcane: ["sugar", "sugar cane", "sugarcane", "manufacture of sugar"],
 };
 
+
+
+const BROAD_INDUSTRY_ALIASES = {
+  "precious metal": ["gold", "silver", "platinum", "palladium", "rhodium", "jewellery", "jewelry", "bullion", "precious metals", "basic precious metals"],
+  "non ferrous metal": ["aluminium", "aluminum", "copper", "nickel", "zinc", "tin", "lead", "non ferrous metals"],
+  "ferrous metal": ["steel", "iron", "scrap metal", "foundry", "casting", "basic iron", "basic steel"],
+  "energy commodity": ["oil", "crude", "petroleum", "gas", "lng", "coal", "fuel", "refined petroleum"],
+  "chemical": ["fertilizer", "fertiliser", "paint", "solvent", "resin", "plastic", "chemical", "petrochemical"],
+  "electronics": ["semiconductor", "chip", "electronics", "electronic components", "computer", "telecom equipment"],
+  "automotive": ["car", "cars", "vehicle", "vehicles", "automotive", "auto parts", "motor vehicle", "ev", "electric vehicle"],
+  "textile apparel": ["textile", "garment", "clothing", "apparel", "fabric", "cotton", "yarn", "footwear"],
+  "wood paper": ["wood", "timber", "furniture", "paper", "pulp", "packaging", "carton"],
+  "agriculture food": ["fruit", "fruits", "vegetable", "vegetables", "rice", "maize", "corn", "cassava", "tapioca", "rubber", "latex", "sugar", "seafood", "shrimp", "prawn", "fish", "meat", "poultry", "feed", "animal feed", "coffee", "tea", "cocoa", "spices"],
+  "construction material": ["cement", "concrete", "glass", "ceramic", "tile", "stone", "sand", "construction material"],
+  "healthcare": ["medicine", "pharmaceutical", "medical device", "hospital", "clinic", "healthcare", "drug"],
+  "education": ["school", "student", "academic", "tuition", "tutoring", "university", "education"]
+};
+
+function getIndustryTermsForEntry(entry) {
+  const terms = window.INDUSTRY_TERMS?.[entry.code];
+  if (!terms) return [];
+  return [
+    ...(terms.high || []),
+    ...(terms.medium || []).slice(0, 16)
+  ].map(normaliseSearchText).filter(Boolean);
+}
+
+function getBroadAliasTerms(query) {
+  const q = normaliseSearchText(query);
+  const words = new Set(uniqueWords(q));
+  const aliases = new Set();
+
+  Object.entries(BROAD_INDUSTRY_ALIASES).forEach(([category, terms]) => {
+    const normalisedTerms = terms.map(normaliseSearchText);
+    const matchedTerms = normalisedTerms.filter(term => {
+      if (!term) return false;
+      if (q === term) return true;
+      if (term.length >= 4 && q.includes(term)) return true;
+      if (q.length >= 4 && term.includes(q)) return true;
+      return uniqueWords(term).some(word => word.length >= 4 && words.has(word));
+    });
+
+    if (matchedTerms.length > 0) {
+      aliases.add(category);
+      matchedTerms.forEach(term => aliases.add(term));
+    }
+  });
+
+  return [...aliases].filter(Boolean);
+}
+
 const DOMAIN_KEYWORDS = {
   agricultureFood: new Set([
     "papaya", "durian", "mango", "banana", "pineapple", "longan", "rambutan", "lychee", "lichee",
@@ -118,12 +169,18 @@ function expandedIndustryTerms(query) {
     (INDUSTRY_ALIAS_TERMS[word] || []).forEach(term => terms.add(normaliseSearchText(term)));
   });
 
+  getBroadAliasTerms(query).forEach(term => terms.add(normaliseSearchText(term)));
+
   return [...terms].filter(Boolean);
 }
 
 function getQueryDomain(query) {
   const words = uniqueWords(query);
   if (words.some(word => DOMAIN_KEYWORDS.agricultureFood.has(word))) return "agricultureFood";
+  for (const [category, aliases] of Object.entries(BROAD_INDUSTRY_ALIASES)) {
+    const normalisedAliases = aliases.map(normaliseSearchText);
+    if (normalisedAliases.some(alias => words.includes(alias) || words.some(word => alias.split(" ").includes(word)))) return category;
+  }
   return "general";
 }
 
@@ -138,7 +195,9 @@ function phraseWordCoverage(phrase, text) {
 function scoreIsicMatch(entry, query) {
   const q = normaliseSearchText(query);
   const entryText = normaliseSearchText(`${entry.code} ${entry.description}`);
-  const broadEntryText = normaliseSearchText(`${entry.code} ${entry.description} ${entry.sector || ""} ${entry.subsector || ""}`);
+  const industryTerms = getIndustryTermsForEntry(entry);
+  const industryTermText = industryTerms.join(" ");
+  const broadEntryText = normaliseSearchText(`${entry.code} ${entry.description} ${entry.sector || ""} ${entry.subsector || ""} ${industryTermText}`);
   const entryWords = uniqueWords(broadEntryText);
 
   const sector = sectorBox?.value || "";
@@ -168,6 +227,21 @@ function scoreIsicMatch(entry, query) {
   const queryWords = uniqueWords(q).filter(term => term.length > 2);
   const expandedTerms = expandedIndustryTerms(q);
 
+  // Broad deterministic semantic layer: compare the user's terms against the generated
+  // industry lexicon for each ISIC code, rather than relying only on raw text fuzzy match.
+  expandedTerms.forEach(term => {
+    const bestIndustryTerm = Math.max(0, ...industryTerms.map(industryTerm => {
+      if (industryTerm === term) return 1;
+      if (industryTerm.includes(term) || term.includes(industryTerm)) return 0.92;
+      if (phraseWordCoverage(term, industryTerm) >= 0.75) return 0.88;
+      return diceCoefficient(term, industryTerm);
+    }));
+
+    if (bestIndustryTerm >= 0.9) queryScore += 160;
+    else if (bestIndustryTerm >= 0.78) queryScore += 90;
+    else if (term.length >= 6 && bestIndustryTerm >= 0.68) queryScore += 35;
+  });
+
   expandedTerms.forEach(term => {
     if (entryText.includes(term)) queryScore += 170;
     else if (phraseWordCoverage(term, entryText) >= 0.75) queryScore += 95;
@@ -187,6 +261,17 @@ function scoreIsicMatch(entry, query) {
   // Phrase similarity across the whole description is useful only when it is strong.
   const phraseSimilarity = diceCoefficient(q, entryText);
   if (phraseSimilarity >= 0.42) queryScore += phraseSimilarity * 80;
+
+  // Guardrail for commodity words: avoid a query like "platinum" matching unrelated
+  // base-metal activities merely because both contain the generic word "metal".
+  const hasPreciousMetalIntent = expandedTerms.some(term => term === "precious metal" || term === "precious metals" || ["gold", "silver", "platinum", "palladium", "rhodium"].includes(term));
+  if (hasPreciousMetalIntent) {
+    const entryHasPreciousSignal = /precious|jewel|jewellery|jewelry|gold|silver|platinum|palladium|rhodium|diamond/.test(broadEntryText);
+    const entryHasBaseMetalSignal = /\btin\b|\bzinc\b|\blead\b|\bcopper\b|aluminium|aluminum|iron|steel/.test(broadEntryText);
+    if (!entryHasPreciousSignal && entryHasBaseMetalSignal) queryScore -= 260;
+    else if (!entryHasPreciousSignal && /metal/.test(broadEntryText)) queryScore -= 140;
+    else if (!entryHasPreciousSignal && queryScore <= 180) queryScore -= 220;
+  }
 
   const queryDomain = getQueryDomain(q);
   let domainScore = 0;
@@ -212,11 +297,18 @@ function getIsicMatches(query) {
 
   if (!q) return scored.filter(entry => entry.score > 0).slice(0, 10);
 
-  const strongMatches = scored.filter(entry => entry.queryScore >= 80).slice(0, 10);
+  const topQueryScore = scored[0]?.queryScore || 0;
+  const strongMinimum = Math.max(120, topQueryScore * 0.22);
+  const strongMatches = scored.filter(entry => entry.queryScore >= strongMinimum).slice(0, 10);
   if (strongMatches.length >= 4) return strongMatches;
 
-  const acceptableMatches = scored.filter(entry => entry.score > 0 && entry.queryScore >= 35).slice(0, 8);
+
+  const dynamicMinimum = Math.max(35, topQueryScore * 0.22);
+  const acceptableMatches = scored.filter(entry => entry.score > 0 && entry.queryScore >= dynamicMinimum).slice(0, 8);
   if (acceptableMatches.length > 0) return acceptableMatches;
+
+  const broadLexiconMatches = scored.filter(entry => entry.score > 0 && entry.queryScore >= 20).slice(0, 8);
+  if (broadLexiconMatches.length > 0) return broadLexiconMatches;
 
   // If the typed word is not in ISIC and fuzzy confidence is weak, do not show
   // misleading unrelated matches. Fall back to sector/subsector-guided suggestions.
