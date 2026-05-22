@@ -25,6 +25,40 @@ let selectedCountries = [];
 let selectedIsic = null;
 let fxCharts = {};
 
+const INDUSTRY_ALIAS_TERMS = {
+  papaya: ["tropical fruit", "subtropical fruit", "fruit", "fruits", "growing of other tropical and subtropical fruits", "fruit processing", "wholesale of fruits", "retail sale of fruits"],
+  durian: ["durian", "durians", "tropical fruit", "fruit", "fruits"],
+  mango: ["mango", "mangos", "tropical fruit", "fruit", "fruits"],
+  banana: ["banana", "bananas", "tropical fruit", "fruit", "fruits"],
+  pineapple: ["pineapple", "pineapples", "tropical fruit", "fruit", "fruits"],
+  longan: ["longan", "longans", "tropical fruit", "fruit", "fruits"],
+  rambutan: ["rambutan", "rambutans", "tropical fruit", "fruit", "fruits"],
+  lychee: ["lychee", "lychees", "lichee", "lichees", "tropical fruit", "fruit", "fruits"],
+  fruit: ["fruit", "fruits", "tropical fruit", "subtropical fruit", "growing of fruits", "wholesale of fruits", "retail sale of fruits", "fruit processing"],
+  fruits: ["fruit", "fruits", "tropical fruit", "subtropical fruit", "growing of fruits", "wholesale of fruits", "retail sale of fruits", "fruit processing"],
+  vegetable: ["vegetable", "vegetables", "growing of vegetables", "wholesale of vegetables", "retail sale of vegetables"],
+  vegetables: ["vegetable", "vegetables", "growing of vegetables", "wholesale of vegetables", "retail sale of vegetables"],
+  seafood: ["fish", "seafood", "fishing", "aquaculture", "processing of fish", "wholesale of fish"],
+  shrimp: ["shrimp", "prawn", "aquaculture", "fishery", "seafood"],
+  prawn: ["shrimp", "prawn", "aquaculture", "fishery", "seafood"],
+  rice: ["rice", "growing of rice", "milling of rice", "wholesale of rice"],
+  maize: ["maize", "corn", "growing of maize", "grain"],
+  corn: ["maize", "corn", "growing of maize", "grain"],
+  cassava: ["cassava", "tapioca", "starch", "root crops"],
+  tapioca: ["cassava", "tapioca", "starch", "root crops"],
+  rubber: ["rubber", "rubber tree", "latex", "rubber products"],
+  latex: ["rubber", "rubber tree", "latex", "rubber products"],
+  sugar: ["sugar", "sugar cane", "sugarcane", "manufacture of sugar"],
+  sugarcane: ["sugar", "sugar cane", "sugarcane", "manufacture of sugar"],
+};
+
+const DOMAIN_KEYWORDS = {
+  agricultureFood: new Set([
+    "papaya", "durian", "mango", "banana", "pineapple", "longan", "rambutan", "lychee", "lichee",
+    "fruit", "fruits", "vegetable", "vegetables", "seafood", "shrimp", "prawn", "rice", "maize",
+    "corn", "cassava", "tapioca", "rubber", "latex", "sugar", "sugarcane"
+  ])
+};
 
 function normaliseSearchText(value) {
   return String(value || "")
@@ -75,10 +109,37 @@ function wordSimilarity(term, word) {
   return diceCoefficient(term, word);
 }
 
+
+function expandedIndustryTerms(query) {
+  const words = uniqueWords(query).filter(word => word.length > 2);
+  const terms = new Set(words);
+
+  words.forEach(word => {
+    (INDUSTRY_ALIAS_TERMS[word] || []).forEach(term => terms.add(normaliseSearchText(term)));
+  });
+
+  return [...terms].filter(Boolean);
+}
+
+function getQueryDomain(query) {
+  const words = uniqueWords(query);
+  if (words.some(word => DOMAIN_KEYWORDS.agricultureFood.has(word))) return "agricultureFood";
+  return "general";
+}
+
+function phraseWordCoverage(phrase, text) {
+  const words = uniqueWords(phrase).filter(word => word.length > 2);
+  if (!words.length) return 0;
+  const textWords = new Set(uniqueWords(text));
+  const hits = words.filter(word => textWords.has(word)).length;
+  return hits / words.length;
+}
+
 function scoreIsicMatch(entry, query) {
   const q = normaliseSearchText(query);
   const entryText = normaliseSearchText(`${entry.code} ${entry.description}`);
-  const entryWords = uniqueWords(entryText);
+  const broadEntryText = normaliseSearchText(`${entry.code} ${entry.description} ${entry.sector || ""} ${entry.subsector || ""}`);
+  const entryWords = uniqueWords(broadEntryText);
 
   const sector = sectorBox?.value || "";
   const subsector = subsectorBox?.value || "";
@@ -105,6 +166,14 @@ function scoreIsicMatch(entry, query) {
   if (entryText.includes(q)) queryScore += 450 + q.length;
 
   const queryWords = uniqueWords(q).filter(term => term.length > 2);
+  const expandedTerms = expandedIndustryTerms(q);
+
+  expandedTerms.forEach(term => {
+    if (entryText.includes(term)) queryScore += 170;
+    else if (phraseWordCoverage(term, entryText) >= 0.75) queryScore += 95;
+    else if (phraseWordCoverage(term, broadEntryText) >= 0.75) queryScore += 45;
+  });
+
   queryWords.forEach(term => {
     const best = Math.max(0, ...entryWords.map(word => wordSimilarity(term, word)));
 
@@ -119,8 +188,20 @@ function scoreIsicMatch(entry, query) {
   const phraseSimilarity = diceCoefficient(q, entryText);
   if (phraseSimilarity >= 0.42) queryScore += phraseSimilarity * 80;
 
-  score = queryScore + contextScore;
-  return { score, queryScore, contextScore };
+  const queryDomain = getQueryDomain(q);
+  let domainScore = 0;
+  if (queryDomain === "agricultureFood") {
+    const allowedDomainText = "agriculture forestry fishing manufacturing wholesale retail food beverage";
+    const clearlyAllowed = uniqueWords(`${entry.sector || ""} ${entry.subsector || ""} ${entry.description || ""}`)
+      .some(word => allowedDomainText.includes(word));
+    const clearlyWrong = /education|academic|student|school|accommodation|tutoring/.test(broadEntryText);
+
+    if (clearlyAllowed) domainScore += 35;
+    if (clearlyWrong && queryScore < 170) domainScore -= 300;
+  }
+
+  score = queryScore + contextScore + domainScore;
+  return { score, queryScore, contextScore, domainScore };
 }
 
 function getIsicMatches(query) {
@@ -134,7 +215,7 @@ function getIsicMatches(query) {
   const strongMatches = scored.filter(entry => entry.queryScore >= 80).slice(0, 10);
   if (strongMatches.length >= 4) return strongMatches;
 
-  const acceptableMatches = scored.filter(entry => entry.queryScore >= 35).slice(0, 8);
+  const acceptableMatches = scored.filter(entry => entry.score > 0 && entry.queryScore >= 35).slice(0, 8);
   if (acceptableMatches.length > 0) return acceptableMatches;
 
   // If the typed word is not in ISIC and fuzzy confidence is weak, do not show
@@ -142,7 +223,7 @@ function getIsicMatches(query) {
   const contextMatches = scored.filter(entry => entry.contextScore > 0).slice(0, 8);
   if (contextMatches.length > 0) return contextMatches;
 
-  return scored.slice(0, 6);
+  return [];
 }
 function autoFillSectorFromIsic(entry) {
   if (!entry?.sector || !entry?.subsector || !sectorBox || !subsectorBox) return;
