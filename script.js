@@ -25,128 +25,63 @@ let selectedCountries = [];
 let selectedIsic = null;
 let fxCharts = {};
 
-const INDUSTRY_ALIAS_TERMS = {
-  papaya: ["tropical fruit", "subtropical fruit", "fruit", "fruits", "growing of other tropical and subtropical fruits", "fruit processing", "wholesale of fruits", "retail sale of fruits"],
-  durian: ["durian", "durians", "tropical fruit", "fruit", "fruits"],
-  mango: ["mango", "mangos", "tropical fruit", "fruit", "fruits"],
-  banana: ["banana", "bananas", "tropical fruit", "fruit", "fruits"],
-  pineapple: ["pineapple", "pineapples", "tropical fruit", "fruit", "fruits"],
-  longan: ["longan", "longans", "tropical fruit", "fruit", "fruits"],
-  rambutan: ["rambutan", "rambutans", "tropical fruit", "fruit", "fruits"],
-  lychee: ["lychee", "lychees", "lichee", "lichees", "tropical fruit", "fruit", "fruits"],
-  avocado: ["avocado", "avocados", "tropical fruit", "subtropical fruit", "fruit", "fruits", "growing of other tropical and subtropical fruits", "wholesale of fruits", "retail sale of fruits"],
-  guava: ["guava", "guavas", "tropical fruit", "fruit", "fruits", "growing of other tropical and subtropical fruits"],
-  coconut: ["coconut", "coconuts", "oleaginous fruit", "fruit", "fruits", "growing of coconuts"],
-  orange: ["orange", "oranges", "citrus fruit", "fruit", "fruits", "growing of oranges"],
-  citrus: ["citrus", "citrus fruit", "fruit", "fruits", "growing of citrus fruits"],
-  fruit: ["fruit", "fruits", "tropical fruit", "subtropical fruit", "growing of fruits", "wholesale of fruits", "retail sale of fruits", "fruit processing"],
-  fruits: ["fruit", "fruits", "tropical fruit", "subtropical fruit", "growing of fruits", "wholesale of fruits", "retail sale of fruits", "fruit processing"],
-  vegetable: ["vegetable", "vegetables", "growing of vegetables", "wholesale of vegetables", "retail sale of vegetables"],
-  vegetables: ["vegetable", "vegetables", "growing of vegetables", "wholesale of vegetables", "retail sale of vegetables"],
-  seafood: ["fish", "seafood", "fishing", "aquaculture", "processing of fish", "wholesale of fish"],
-  salmon: ["salmon", "fish", "seafood", "marine fish", "fish products", "aquaculture", "processing of fish", "wholesale of fish"],
-  tuna: ["tuna", "fish", "seafood", "marine fish", "fish products", "canned fish", "processing of fish", "wholesale of fish"],
-  crab: ["crab", "crustacean", "seafood", "fish products", "aquaculture"],
-  shrimp: ["shrimp", "prawn", "aquaculture", "fishery", "seafood"],
-  prawn: ["shrimp", "prawn", "aquaculture", "fishery", "seafood"],
-  rice: ["rice", "growing of rice", "milling of rice", "wholesale of rice"],
-  maize: ["maize", "corn", "growing of maize", "grain"],
-  corn: ["maize", "corn", "growing of maize", "grain"],
-  cassava: ["cassava", "tapioca", "starch", "root crops"],
-  tapioca: ["cassava", "tapioca", "starch", "root crops"],
-  rubber: ["rubber", "rubber tree", "latex", "rubber products"],
-  latex: ["rubber", "rubber tree", "latex", "rubber products"],
-  sugar: ["sugar", "sugar cane", "sugarcane", "manufacture of sugar"],
-  sugarcane: ["sugar", "sugar cane", "sugarcane", "manufacture of sugar"],
-  battery: ["battery", "batteries", "accumulators", "electrical equipment", "energy storage", "repair of accumulators and batteries"],
-  batteries: ["battery", "batteries", "accumulators", "electrical equipment", "energy storage", "repair of accumulators and batteries"],
-  laser: ["laser", "lasers", "optical instruments", "medical instruments", "photographic and optical goods", "precision instruments"],
-  lasers: ["laser", "lasers", "optical instruments", "medical instruments", "photographic and optical goods", "precision instruments"],
-  cloud: ["cloud", "cloud computing", "software", "computer programming", "data processing", "computer facilities management", "web pages and networks programming"],
-  saas: ["saas", "software", "software publishing", "software consultancy", "computer programming"],
-  packaging: ["packaging", "paperboard", "carton", "articles of paper and paperboard", "plastic products", "containers", "wrapping"],
-};
+const BUSINESS_RELEVANCE_TERMS = [
+  "agriculture", "crop", "growing", "farming", "forestry", "fishing", "aquaculture",
+  "mining", "quarrying", "extraction",
+  "manufacture", "manufacturing", "processing", "production", "factory",
+  "wholesale", "retail", "trade", "trading", "distribution", "export", "import",
+  "transport", "storage", "logistics", "warehousing",
+  "construction", "installation", "repair", "maintenance",
+  "food", "beverage", "textile", "chemical", "metal", "machinery", "equipment",
+  "financial", "insurance", "professional", "technical", "information", "communication"
+];
 
+const SERVICE_CONTEXT_TERMS = [
+  "education", "school", "student", "students", "academic", "tutoring", "training",
+  "accommodation", "hotel", "restaurant", "tourism", "travel",
+  "health", "hospital", "medical", "social", "welfare",
+  "religious", "membership", "association", "public", "government", "administration",
+  "personal", "beauty", "wellness", "recreation", "entertainment", "sport"
+];
 
+const COMMERCIAL_FALLBACK_SECTORS = [
+  "agriculture, forestry and fishing",
+  "mining and quarrying",
+  "manufacturing",
+  "wholesale and retail trade; repair of motor vehicles and motorcycles",
+  "transportation and storage",
+  "construction"
+];
 
-const BROAD_INDUSTRY_ALIASES = {
-  "precious metal": ["gold", "silver", "platinum", "palladium", "rhodium", "jewellery", "jewelry", "bullion", "precious metals", "basic precious metals"],
-  "non ferrous metal": ["aluminium", "aluminum", "copper", "nickel", "zinc", "tin", "lead", "non ferrous metals"],
-  "ferrous metal": ["steel", "iron", "scrap metal", "foundry", "casting", "basic iron", "basic steel"],
-  "energy commodity": ["oil", "crude", "petroleum", "gas", "lng", "coal", "fuel", "refined petroleum"],
-  "chemical": ["fertilizer", "fertiliser", "paint", "solvent", "resin", "plastic", "chemical", "petrochemical"],
-  "electronics": ["semiconductor", "chip", "electronics", "electronic components", "computer", "telecom equipment", "battery", "batteries", "accumulator", "accumulators", "energy storage", "charger"],
-  "information technology": ["software", "saas", "cloud", "cloud computing", "data centre", "data center", "data processing", "hosting", "server", "cybersecurity", "it services", "computer programming", "app", "platform"],
-  "medical optical": ["laser", "lasers", "optical", "optics", "lens", "lenses", "medical device", "medical devices", "surgical", "diagnostic", "imaging", "photographic equipment", "precision instrument"],
-  "packaging material": ["packaging", "package", "carton", "corrugated", "paperboard", "plastic packaging", "container", "bottle", "can", "label", "wrapping"],
-  "automotive": ["car", "cars", "vehicle", "vehicles", "automotive", "auto parts", "motor vehicle", "ev", "electric vehicle"],
-  "textile apparel": ["textile", "garment", "clothing", "apparel", "fabric", "cotton", "yarn", "footwear"],
-  "wood paper": ["wood", "timber", "furniture", "paper", "pulp", "packaging", "carton"],
-  "agriculture food": ["fruit", "fruits", "avocado", "avocados", "guava", "melon", "watermelon", "coconut", "orange", "citrus", "apple", "grape", "vegetable", "vegetables", "rice", "maize", "corn", "cassava", "tapioca", "rubber", "latex", "sugar", "seafood", "shrimp", "prawn", "fish", "salmon", "tuna", "sardine", "tilapia", "crab", "crustacean", "mollusc", "meat", "pork", "beef", "chicken", "poultry", "feed", "animal feed", "coffee", "tea", "cocoa", "spices"],
-  "construction material": ["cement", "concrete", "glass", "ceramic", "tile", "stone", "sand", "construction material"],
-  "healthcare": ["medicine", "pharmaceutical", "medical device", "hospital", "clinic", "healthcare", "drug"],
-  "education": ["school", "student", "academic", "tuition", "tutoring", "university", "education"]
-};
+const LOW_CONFIDENCE_MAX_RESULTS = 6;
 
-const BROAD_CATEGORY_TARGETS = {
-  "precious metal": ["precious metals", "jewellery", "goldsmith", "precious stones", "non-ferrous metal ores"],
-  "non ferrous metal": ["non-ferrous metals", "aluminium", "copper", "zinc", "lead", "tin", "metal ores"],
-  "ferrous metal": ["iron", "steel", "basic metals", "metal products"],
-  "energy commodity": ["petroleum", "fuel", "gas", "coal", "energy"],
-  "chemical": ["chemical", "fertilizer", "plastic", "resin", "paint"],
-  "electronics": ["electronic", "computer", "telecommunication", "electrical equipment", "accumulators", "batteries"],
-  "information technology": ["software", "computer programming", "data processing", "computer facilities", "information service", "web pages", "networks"],
-  "medical optical": ["optical", "medical", "dental", "instruments", "photographic", "electronic medical", "repair of optical"],
-  "packaging material": ["paperboard", "paper", "plastic", "containers", "carton", "packaging", "articles of paper", "bottles"],
-  "automotive": ["motor vehicles", "vehicle parts", "bodies", "automotive"],
-  "textile apparel": ["textile", "garments", "apparel", "clothing", "footwear"],
-  "wood paper": ["wood", "paper", "furniture", "pulp"],
-  "agriculture food": [],
-  "construction material": ["cement", "concrete", "glass", "ceramic", "stone"],
-  "healthcare": ["pharmaceutical", "medical", "hospital", "clinic"],
-  "education": ["education", "school", "academic", "student", "tutoring"]
-};
+const BUSINESS_CONCEPT_GROUPS = [
+  {
+    terms: ["fruit", "fruits", "vegetable", "vegetables", "crop", "crops", "grain", "grains", "bean", "beans", "nut", "nuts", "orchard", "plantation", "fresh produce", "banana", "mango", "durian", "pineapple", "papaya", "coconut"],
+    anchors: ["growing", "crop", "agriculture", "food", "wholesale", "retail"]
+  },
+  {
+    terms: ["metal", "metals", "mineral", "minerals", "ore", "ores", "steel", "iron", "copper", "aluminium", "aluminum", "zinc", "tin", "nickel", "gold", "silver", "platinum", "precious metal"],
+    anchors: ["mining", "quarrying", "metal", "ore", "manufacture", "wholesale"]
+  },
+  {
+    terms: ["machine", "machinery", "equipment", "parts", "component", "components", "electronics", "electrical", "semiconductor", "automotive", "vehicle"],
+    anchors: ["manufacture", "machinery", "equipment", "electrical", "motor", "repair", "wholesale"]
+  },
+  {
+    terms: ["textile", "textiles", "garment", "garments", "apparel", "fabric", "clothing", "fashion", "cotton", "yarn"],
+    anchors: ["manufacture", "textile", "wearing", "apparel", "wholesale", "retail"]
+  },
+  {
+    terms: ["food", "beverage", "drink", "processed food", "ingredient", "feed", "animal feed", "seafood", "meat", "dairy"],
+    anchors: ["food", "beverage", "manufacture", "processing", "wholesale", "retail", "fishing", "animal"]
+  },
+  {
+    terms: ["freight", "shipping", "logistics", "warehouse", "warehousing", "transport", "distribution", "cargo", "cold chain"],
+    anchors: ["transport", "storage", "warehousing", "logistics", "support", "cargo"]
+  }
+];
 
-function getIndustryTermsForEntry(entry) {
-  const terms = window.INDUSTRY_TERMS?.[entry.code];
-  if (!terms) return [];
-  return [
-    ...(terms.high || []),
-    ...(terms.medium || []).slice(0, 16)
-  ].map(normaliseSearchText).filter(Boolean);
-}
-
-function getBroadAliasTerms(query) {
-  const q = normaliseSearchText(query);
-  const words = new Set(uniqueWords(q));
-  const aliases = new Set();
-
-  Object.entries(BROAD_INDUSTRY_ALIASES).forEach(([category, terms]) => {
-    const normalisedTerms = terms.map(normaliseSearchText);
-    const matchedTerms = normalisedTerms.filter(term => {
-      if (!term) return false;
-      if (q === term) return true;
-      if (term.length >= 4 && q.includes(term)) return true;
-      if (q.length >= 4 && term.includes(q)) return true;
-      return uniqueWords(term).some(word => word.length >= 4 && words.has(word));
-    });
-
-    if (matchedTerms.length > 0) {
-      aliases.add(category);
-      matchedTerms.forEach(term => aliases.add(term));
-    }
-  });
-
-  return [...aliases].filter(Boolean);
-}
-
-const DOMAIN_KEYWORDS = {
-  agricultureFood: new Set([
-    "papaya", "durian", "mango", "banana", "pineapple", "longan", "rambutan", "lychee", "lichee",
-    "fruit", "fruits", "vegetable", "vegetables", "seafood", "shrimp", "prawn", "rice", "maize",
-    "corn", "cassava", "tapioca", "rubber", "latex", "sugar", "sugarcane"
-  ])
-};
 
 function normaliseSearchText(value) {
   return String(value || "")
@@ -197,171 +132,191 @@ function wordSimilarity(term, word) {
   return diceCoefficient(term, word);
 }
 
+function hasAnyWord(text, words) {
+  const haystack = ` ${normaliseSearchText(text)} `;
+  return words.some(word => haystack.includes(` ${normaliseSearchText(word)} `));
+}
 
-function expandedIndustryTerms(query) {
-  const words = uniqueWords(query).filter(word => word.length > 2);
-  const terms = new Set(words);
+function getBusinessRelevance(entry) {
+  const combined = `${entry.sector || ""} ${entry.subsector || ""} ${entry.description || ""}`;
+  const words = uniqueWords(combined);
+  let relevance = 0;
 
-  words.forEach(word => {
-    (INDUSTRY_ALIAS_TERMS[word] || []).forEach(term => terms.add(normaliseSearchText(term)));
+  BUSINESS_RELEVANCE_TERMS.forEach(term => {
+    if (words.includes(term)) relevance += 1;
   });
 
-  getBroadAliasTerms(query).forEach(term => terms.add(normaliseSearchText(term)));
+  const sectorText = normaliseSearchText(entry.sector || "");
+  if (COMMERCIAL_FALLBACK_SECTORS.includes(sectorText)) relevance += 2;
 
-  return [...terms].filter(Boolean);
+  return Math.min(relevance, 6);
 }
 
-function getQueryDomain(query) {
-  const words = uniqueWords(query);
-  if (words.some(word => DOMAIN_KEYWORDS.agricultureFood.has(word))) return "agricultureFood";
-  for (const [category, aliases] of Object.entries(BROAD_INDUSTRY_ALIASES)) {
-    const normalisedAliases = aliases.map(normaliseSearchText);
-    if (normalisedAliases.some(alias => words.includes(alias) || words.some(word => alias.split(" ").includes(word)))) return category;
-  }
-  return "general";
+function getServiceContextPenalty(entry, queryWords) {
+  const combined = `${entry.sector || ""} ${entry.subsector || ""} ${entry.description || ""}`;
+  const entryLooksServiceHeavy = hasAnyWord(combined, SERVICE_CONTEXT_TERMS);
+  if (!entryLooksServiceHeavy) return 0;
+
+  const queryClearlyServiceRelated = queryWords.some(term =>
+    SERVICE_CONTEXT_TERMS.some(serviceTerm => wordSimilarity(term, serviceTerm) >= 0.9)
+  );
+
+  // Do not punish service-sector matches when the user clearly searched for that context.
+  if (queryClearlyServiceRelated) return 0;
+
+  return 45;
 }
 
-function phraseWordCoverage(phrase, text) {
-  const words = uniqueWords(phrase).filter(word => word.length > 2);
-  if (!words.length) return 0;
-  const textWords = new Set(uniqueWords(text));
-  const hits = words.filter(word => textWords.has(word)).length;
-  return hits / words.length;
+function getConceptScore(entry, queryWords) {
+  if (!queryWords.length) return 0;
+
+  const combined = normaliseSearchText(`${entry.sector || ""} ${entry.subsector || ""} ${entry.description || ""}`);
+  const entryWords = uniqueWords(combined);
+  let conceptScore = 0;
+
+  BUSINESS_CONCEPT_GROUPS.forEach(group => {
+    const queryMatchesGroup = queryWords.some(term =>
+      group.terms.some(groupTerm => wordSimilarity(term, groupTerm) >= 0.88)
+    );
+    if (!queryMatchesGroup) return;
+
+    const anchorHits = group.anchors.filter(anchor =>
+      entryWords.some(word => wordSimilarity(anchor, word) >= 0.92) || combined.includes(normaliseSearchText(anchor))
+    ).length;
+
+    if (anchorHits > 0) conceptScore += Math.min(90, 35 + anchorHits * 15);
+  });
+
+  return conceptScore;
+}
+
+function diversifyCommercialFallback(scored) {
+  const picks = [];
+  const usedSectors = new Set();
+  const usedCodes = new Set();
+
+  COMMERCIAL_FALLBACK_SECTORS.forEach(sectorName => {
+    const match = scored.find(entry =>
+      !usedCodes.has(entry.code) &&
+      normaliseSearchText(entry.sector || "") === sectorName &&
+      entry.businessScore >= 18 &&
+      entry.penaltyScore === 0
+    );
+    if (match) {
+      picks.push(match);
+      usedCodes.add(match.code);
+      usedSectors.add(normaliseSearchText(match.sector || ""));
+    }
+  });
+
+  scored.forEach(entry => {
+    if (picks.length >= LOW_CONFIDENCE_MAX_RESULTS) return;
+    if (usedCodes.has(entry.code) || entry.businessScore < 18 || entry.penaltyScore > 0) return;
+    picks.push(entry);
+    usedCodes.add(entry.code);
+  });
+
+  return picks.slice(0, LOW_CONFIDENCE_MAX_RESULTS);
 }
 
 function scoreIsicMatch(entry, query) {
   const q = normaliseSearchText(query);
   const entryText = normaliseSearchText(`${entry.code} ${entry.description}`);
-  const industryTerms = getIndustryTermsForEntry(entry);
-  const industryTermText = industryTerms.join(" ");
-  const broadEntryText = normaliseSearchText(`${entry.code} ${entry.description} ${entry.sector || ""} ${entry.subsector || ""} ${industryTermText}`);
-  const entryWords = uniqueWords(broadEntryText);
+  const fullEntryText = normaliseSearchText(`${entry.code} ${entry.description} ${entry.sector || ""} ${entry.subsector || ""}`);
+  const entryWords = uniqueWords(fullEntryText);
 
   const sector = sectorBox?.value || "";
   const subsector = subsectorBox?.value || "";
   const contextText = normaliseSearchText(`${sector} ${subsector}`);
   const contextWords = uniqueWords(contextText);
+  const queryWords = uniqueWords(q).filter(term => term.length > 2);
 
   let score = 0;
   let queryScore = 0;
   let contextScore = 0;
+  let businessScore = getBusinessRelevance(entry) * 6;
+  let conceptScore = 0;
+  let penaltyScore = 0;
 
-  // Light boost only: sector/subsector helps ranking but never hides other ISIC activities.
+  // Sector/subsector helps ranking, but should not fully determine the answer.
   contextWords.forEach(term => {
     const best = Math.max(0, ...entryWords.map(word => wordSimilarity(term, word)));
-    if (best >= 0.9) contextScore += best * 12;
-    else if (best >= 0.8) contextScore += best * 6;
+    if (best >= 0.9) contextScore += best * 16;
+    else if (best >= 0.8) contextScore += best * 8;
   });
 
   if (!q) {
-    return { score: contextScore, queryScore: 0, contextScore };
+    score = contextScore + businessScore;
+    return { score, queryScore: 0, contextScore, businessScore, penaltyScore };
   }
 
   if (entryText === q) queryScore += 1000;
   if (entry.code && normaliseSearchText(entry.code) === q) queryScore += 900;
   if (entryText.includes(q)) queryScore += 450 + q.length;
-
-  const queryWords = uniqueWords(q).filter(term => term.length > 2);
-  const expandedTerms = expandedIndustryTerms(q);
-  const categoryTerms = getBroadAliasTerms(q).filter(term => BROAD_CATEGORY_TARGETS[term]);
-
-  categoryTerms.forEach(category => {
-    (BROAD_CATEGORY_TARGETS[category] || []).forEach(target => {
-      const coverage = phraseWordCoverage(target, broadEntryText);
-      if (broadEntryText.includes(normaliseSearchText(target))) queryScore += 120;
-      else if (coverage >= 0.67) queryScore += 70;
-    });
-  });
-
-  // Broad deterministic semantic layer: compare the user's terms against the generated
-  // industry lexicon for each ISIC code, rather than relying only on raw text fuzzy match.
-  expandedTerms.forEach(term => {
-    const bestIndustryTerm = Math.max(0, ...industryTerms.map(industryTerm => {
-      if (industryTerm === term) return 1;
-      if (industryTerm.includes(term) || term.includes(industryTerm)) return 0.92;
-      if (phraseWordCoverage(term, industryTerm) >= 0.75) return 0.88;
-      return diceCoefficient(term, industryTerm);
-    }));
-
-    if (bestIndustryTerm >= 0.9) queryScore += 160;
-    else if (bestIndustryTerm >= 0.78) queryScore += 90;
-    else if (term.length >= 6 && bestIndustryTerm >= 0.68) queryScore += 35;
-  });
-
-  expandedTerms.forEach(term => {
-    if (entryText.includes(term)) queryScore += 170;
-    else if (phraseWordCoverage(term, entryText) >= 0.75) queryScore += 95;
-    else if (phraseWordCoverage(term, broadEntryText) >= 0.75) queryScore += 45;
-  });
+  else if (fullEntryText.includes(q)) queryScore += 280 + q.length;
 
   queryWords.forEach(term => {
     const best = Math.max(0, ...entryWords.map(word => wordSimilarity(term, word)));
 
-    // Keep fuzzy matching useful for typos, but avoid distant matches such as
-    // "papaya" returning "paper" / "abrasive" / "aluminium" just because of shared letters.
-    if (best >= 0.96) queryScore += 130;
-    else if (best >= 0.88) queryScore += 80;
-    else if (term.length >= 7 && best >= 0.82) queryScore += 35;
+    // Fuzzy matching should catch typos and related wording, but weak text overlap
+    // should not be enough to push unrelated institutional categories to the top.
+    if (best >= 0.97) queryScore += 140;
+    else if (best >= 0.91) queryScore += 90;
+    else if (term.length >= 7 && best >= 0.86) queryScore += 35;
   });
 
-  // Phrase similarity across the whole description is useful only when it is strong.
-  const phraseSimilarity = diceCoefficient(q, entryText);
-  if (phraseSimilarity >= 0.42) queryScore += phraseSimilarity * 80;
+  const phraseSimilarity = diceCoefficient(q, fullEntryText);
+  if (phraseSimilarity >= 0.48) queryScore += phraseSimilarity * 70;
 
-  // Guardrail for commodity words: avoid a query like "platinum" matching unrelated
-  // base-metal activities merely because both contain the generic word "metal".
-  const hasPreciousMetalIntent = expandedTerms.some(term => term === "precious metal" || term === "precious metals" || ["gold", "silver", "platinum", "palladium", "rhodium"].includes(term));
-  if (hasPreciousMetalIntent) {
-    const entryHasPreciousSignal = /precious|jewel|jewellery|jewelry|gold|silver|platinum|palladium|rhodium|diamond/.test(broadEntryText);
-    const entryHasBaseMetalSignal = /\btin\b|\bzinc\b|\blead\b|\bcopper\b|aluminium|aluminum|iron|steel/.test(broadEntryText);
-    if (!entryHasPreciousSignal && entryHasBaseMetalSignal) queryScore -= 260;
-    else if (!entryHasPreciousSignal && /metal/.test(broadEntryText)) queryScore -= 140;
-    else if (!entryHasPreciousSignal && queryScore <= 180) queryScore -= 220;
-  }
+  conceptScore = getConceptScore(entry, queryWords);
+  penaltyScore = getServiceContextPenalty(entry, queryWords);
 
-  const queryDomain = getQueryDomain(q);
-  let domainScore = 0;
-  if (queryDomain === "agricultureFood") {
-    const allowedDomainText = "agriculture forestry fishing manufacturing wholesale retail food beverage";
-    const clearlyAllowed = uniqueWords(`${entry.sector || ""} ${entry.subsector || ""} ${entry.description || ""}`)
-      .some(word => allowedDomainText.includes(word));
-    const clearlyWrong = /education|academic|student|school|accommodation|tutoring/.test(broadEntryText);
+  // Business relevance is a tie-breaker and safety signal, not a hardcoded synonym map.
+  // It helps broad product/service descriptions favour commercial activities over generic
+  // education, accommodation, membership, or public-service categories when confidence is low.
+  score = queryScore + conceptScore + contextScore + businessScore - penaltyScore;
 
-    if (clearlyAllowed) domainScore += 35;
-    if (clearlyWrong && queryScore < 170) domainScore -= 300;
-  }
-
-  score = queryScore + contextScore + domainScore;
-  return { score, queryScore, contextScore, domainScore };
+  return { score, queryScore, conceptScore, contextScore, businessScore, penaltyScore };
 }
 
 function getIsicMatches(query) {
   const q = normaliseSearchText(query);
+  const selectedSector = normaliseSearchText(sectorBox?.value || "");
+  const hasSelectedSector = Boolean(selectedSector);
+
   const scored = ISIC_DATA
     .map(entry => ({ ...entry, ...scoreIsicMatch(entry, q) }))
     .sort((a, b) => b.score - a.score || a.description.localeCompare(b.description));
 
-  if (!q) return scored.filter(entry => entry.score > 0).slice(0, 10);
+  if (!q) {
+    return scored
+      .filter(entry => entry.score > 0)
+      .slice(0, 10);
+  }
 
-  const topQueryScore = scored[0]?.queryScore || 0;
-  const strongMinimum = Math.max(120, topQueryScore * 0.22);
-  const strongMatches = scored.filter(entry => entry.queryScore >= strongMinimum).slice(0, 10);
+  // Strong lexical/code matches remain the most reliable and are shown first.
+  const strongMatches = scored
+    .filter(entry => entry.queryScore >= 90 && entry.score >= 70)
+    .slice(0, 10);
   if (strongMatches.length >= 4) return strongMatches;
 
-
-  const dynamicMinimum = Math.max(35, topQueryScore * 0.22);
-  const acceptableMatches = scored.filter(entry => entry.score > 0 && entry.queryScore >= dynamicMinimum).slice(0, 8);
+  // Medium matches need either commercial relevance, selected-sector fit, or a strong direct signal.
+  const acceptableMatches = scored
+    .filter(entry => {
+      const sectorFit = hasSelectedSector && normaliseSearchText(entry.sector || "") === selectedSector;
+      return entry.score >= 45 && (entry.queryScore >= 35 || entry.businessScore >= 18 || sectorFit);
+    })
+    .slice(0, 8);
   if (acceptableMatches.length > 0) return acceptableMatches;
 
-  const broadLexiconMatches = scored.filter(entry => entry.score > 0 && entry.queryScore >= 20).slice(0, 8);
-  if (broadLexiconMatches.length > 0) return broadLexiconMatches;
-
-  // If the typed word is not in ISIC and fuzzy confidence is weak, do not show
-  // misleading unrelated matches. Fall back to sector/subsector-guided suggestions.
-  const contextMatches = scored.filter(entry => entry.contextScore > 0).slice(0, 8);
+  const contextMatches = scored
+    .filter(entry => entry.contextScore > 0 && entry.score >= 20)
+    .slice(0, 8);
   if (contextMatches.length > 0) return contextMatches;
 
-  return [];
+  // For broad, unfamiliar free text, avoid returning random fuzzy matches. Show a small set
+  // of commercially grounded activities instead of weak semantic guesses.
+  return diversifyCommercialFallback(scored);
 }
 function autoFillSectorFromIsic(entry) {
   if (!entry?.sector || !entry?.subsector || !sectorBox || !subsectorBox) return;
@@ -413,7 +368,7 @@ function renderIsicDropdown() {
 
   const hasStrongQueryMatch = matches.some(entry => entry.queryScore >= 35);
   const heading = query
-    ? (hasStrongQueryMatch ? "Closest ISIC matches" : "No close word match — showing sector/subsector suggestions")
+    ? (hasStrongQueryMatch ? "Closest ISIC matches" : "Low-confidence search — showing business-relevant suggestions")
     : "Suggested ISIC activities";
 
   isicDropdown.classList.remove("hidden");
