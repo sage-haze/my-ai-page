@@ -34,11 +34,19 @@ const INDUSTRY_ALIAS_TERMS = {
   longan: ["longan", "longans", "tropical fruit", "fruit", "fruits"],
   rambutan: ["rambutan", "rambutans", "tropical fruit", "fruit", "fruits"],
   lychee: ["lychee", "lychees", "lichee", "lichees", "tropical fruit", "fruit", "fruits"],
+  avocado: ["avocado", "avocados", "tropical fruit", "subtropical fruit", "fruit", "fruits", "growing of other tropical and subtropical fruits", "wholesale of fruits", "retail sale of fruits"],
+  guava: ["guava", "guavas", "tropical fruit", "fruit", "fruits", "growing of other tropical and subtropical fruits"],
+  coconut: ["coconut", "coconuts", "oleaginous fruit", "fruit", "fruits", "growing of coconuts"],
+  orange: ["orange", "oranges", "citrus fruit", "fruit", "fruits", "growing of oranges"],
+  citrus: ["citrus", "citrus fruit", "fruit", "fruits", "growing of citrus fruits"],
   fruit: ["fruit", "fruits", "tropical fruit", "subtropical fruit", "growing of fruits", "wholesale of fruits", "retail sale of fruits", "fruit processing"],
   fruits: ["fruit", "fruits", "tropical fruit", "subtropical fruit", "growing of fruits", "wholesale of fruits", "retail sale of fruits", "fruit processing"],
   vegetable: ["vegetable", "vegetables", "growing of vegetables", "wholesale of vegetables", "retail sale of vegetables"],
   vegetables: ["vegetable", "vegetables", "growing of vegetables", "wholesale of vegetables", "retail sale of vegetables"],
   seafood: ["fish", "seafood", "fishing", "aquaculture", "processing of fish", "wholesale of fish"],
+  salmon: ["salmon", "fish", "seafood", "marine fish", "fish products", "aquaculture", "processing of fish", "wholesale of fish"],
+  tuna: ["tuna", "fish", "seafood", "marine fish", "fish products", "canned fish", "processing of fish", "wholesale of fish"],
+  crab: ["crab", "crustacean", "seafood", "fish products", "aquaculture"],
   shrimp: ["shrimp", "prawn", "aquaculture", "fishery", "seafood"],
   prawn: ["shrimp", "prawn", "aquaculture", "fishery", "seafood"],
   rice: ["rice", "growing of rice", "milling of rice", "wholesale of rice"],
@@ -50,6 +58,13 @@ const INDUSTRY_ALIAS_TERMS = {
   latex: ["rubber", "rubber tree", "latex", "rubber products"],
   sugar: ["sugar", "sugar cane", "sugarcane", "manufacture of sugar"],
   sugarcane: ["sugar", "sugar cane", "sugarcane", "manufacture of sugar"],
+  battery: ["battery", "batteries", "accumulators", "electrical equipment", "energy storage", "repair of accumulators and batteries"],
+  batteries: ["battery", "batteries", "accumulators", "electrical equipment", "energy storage", "repair of accumulators and batteries"],
+  laser: ["laser", "lasers", "optical instruments", "medical instruments", "photographic and optical goods", "precision instruments"],
+  lasers: ["laser", "lasers", "optical instruments", "medical instruments", "photographic and optical goods", "precision instruments"],
+  cloud: ["cloud", "cloud computing", "software", "computer programming", "data processing", "computer facilities management", "web pages and networks programming"],
+  saas: ["saas", "software", "software publishing", "software consultancy", "computer programming"],
+  packaging: ["packaging", "paperboard", "carton", "articles of paper and paperboard", "plastic products", "containers", "wrapping"],
 };
 
 
@@ -60,14 +75,36 @@ const BROAD_INDUSTRY_ALIASES = {
   "ferrous metal": ["steel", "iron", "scrap metal", "foundry", "casting", "basic iron", "basic steel"],
   "energy commodity": ["oil", "crude", "petroleum", "gas", "lng", "coal", "fuel", "refined petroleum"],
   "chemical": ["fertilizer", "fertiliser", "paint", "solvent", "resin", "plastic", "chemical", "petrochemical"],
-  "electronics": ["semiconductor", "chip", "electronics", "electronic components", "computer", "telecom equipment"],
+  "electronics": ["semiconductor", "chip", "electronics", "electronic components", "computer", "telecom equipment", "battery", "batteries", "accumulator", "accumulators", "energy storage", "charger"],
+  "information technology": ["software", "saas", "cloud", "cloud computing", "data centre", "data center", "data processing", "hosting", "server", "cybersecurity", "it services", "computer programming", "app", "platform"],
+  "medical optical": ["laser", "lasers", "optical", "optics", "lens", "lenses", "medical device", "medical devices", "surgical", "diagnostic", "imaging", "photographic equipment", "precision instrument"],
+  "packaging material": ["packaging", "package", "carton", "corrugated", "paperboard", "plastic packaging", "container", "bottle", "can", "label", "wrapping"],
   "automotive": ["car", "cars", "vehicle", "vehicles", "automotive", "auto parts", "motor vehicle", "ev", "electric vehicle"],
   "textile apparel": ["textile", "garment", "clothing", "apparel", "fabric", "cotton", "yarn", "footwear"],
   "wood paper": ["wood", "timber", "furniture", "paper", "pulp", "packaging", "carton"],
-  "agriculture food": ["fruit", "fruits", "vegetable", "vegetables", "rice", "maize", "corn", "cassava", "tapioca", "rubber", "latex", "sugar", "seafood", "shrimp", "prawn", "fish", "meat", "poultry", "feed", "animal feed", "coffee", "tea", "cocoa", "spices"],
+  "agriculture food": ["fruit", "fruits", "avocado", "avocados", "guava", "melon", "watermelon", "coconut", "orange", "citrus", "apple", "grape", "vegetable", "vegetables", "rice", "maize", "corn", "cassava", "tapioca", "rubber", "latex", "sugar", "seafood", "shrimp", "prawn", "fish", "salmon", "tuna", "sardine", "tilapia", "crab", "crustacean", "mollusc", "meat", "pork", "beef", "chicken", "poultry", "feed", "animal feed", "coffee", "tea", "cocoa", "spices"],
   "construction material": ["cement", "concrete", "glass", "ceramic", "tile", "stone", "sand", "construction material"],
   "healthcare": ["medicine", "pharmaceutical", "medical device", "hospital", "clinic", "healthcare", "drug"],
   "education": ["school", "student", "academic", "tuition", "tutoring", "university", "education"]
+};
+
+const BROAD_CATEGORY_TARGETS = {
+  "precious metal": ["precious metals", "jewellery", "goldsmith", "precious stones", "non-ferrous metal ores"],
+  "non ferrous metal": ["non-ferrous metals", "aluminium", "copper", "zinc", "lead", "tin", "metal ores"],
+  "ferrous metal": ["iron", "steel", "basic metals", "metal products"],
+  "energy commodity": ["petroleum", "fuel", "gas", "coal", "energy"],
+  "chemical": ["chemical", "fertilizer", "plastic", "resin", "paint"],
+  "electronics": ["electronic", "computer", "telecommunication", "electrical equipment", "accumulators", "batteries"],
+  "information technology": ["software", "computer programming", "data processing", "computer facilities", "information service", "web pages", "networks"],
+  "medical optical": ["optical", "medical", "dental", "instruments", "photographic", "electronic medical", "repair of optical"],
+  "packaging material": ["paperboard", "paper", "plastic", "containers", "carton", "packaging", "articles of paper", "bottles"],
+  "automotive": ["motor vehicles", "vehicle parts", "bodies", "automotive"],
+  "textile apparel": ["textile", "garments", "apparel", "clothing", "footwear"],
+  "wood paper": ["wood", "paper", "furniture", "pulp"],
+  "agriculture food": [],
+  "construction material": ["cement", "concrete", "glass", "ceramic", "stone"],
+  "healthcare": ["pharmaceutical", "medical", "hospital", "clinic"],
+  "education": ["education", "school", "academic", "student", "tutoring"]
 };
 
 function getIndustryTermsForEntry(entry) {
@@ -226,6 +263,15 @@ function scoreIsicMatch(entry, query) {
 
   const queryWords = uniqueWords(q).filter(term => term.length > 2);
   const expandedTerms = expandedIndustryTerms(q);
+  const categoryTerms = getBroadAliasTerms(q).filter(term => BROAD_CATEGORY_TARGETS[term]);
+
+  categoryTerms.forEach(category => {
+    (BROAD_CATEGORY_TARGETS[category] || []).forEach(target => {
+      const coverage = phraseWordCoverage(target, broadEntryText);
+      if (broadEntryText.includes(normaliseSearchText(target))) queryScore += 120;
+      else if (coverage >= 0.67) queryScore += 70;
+    });
+  });
 
   // Broad deterministic semantic layer: compare the user's terms against the generated
   // industry lexicon for each ISIC code, rather than relying only on raw text fuzzy match.
