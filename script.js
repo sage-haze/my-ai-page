@@ -55,14 +55,19 @@ const COMMERCIAL_FALLBACK_SECTORS = [
 
 const LOW_CONFIDENCE_MAX_RESULTS = 6;
 
+const GENERIC_QUERY_TERMS = new Set([
+  "business", "company", "industry", "activity", "activities", "service", "services",
+  "product", "products", "goods", "general", "other", "misc", "miscellaneous"
+]);
+
 const BUSINESS_CONCEPT_GROUPS = [
   {
     terms: ["fruit", "fruits", "vegetable", "vegetables", "crop", "crops", "grain", "grains", "bean", "beans", "nut", "nuts", "orchard", "plantation", "fresh produce", "banana", "mango", "durian", "pineapple", "papaya", "coconut"],
     anchors: ["growing", "crop", "agriculture", "food", "wholesale", "retail"]
   },
   {
-    terms: ["metal", "metals", "mineral", "minerals", "ore", "ores", "steel", "iron", "copper", "aluminium", "aluminum", "zinc", "tin", "nickel", "gold", "silver", "platinum", "precious metal"],
-    anchors: ["mining", "quarrying", "metal", "ore", "manufacture", "wholesale"]
+    terms: ["metal", "metals", "mineral", "minerals", "ore", "ores", "steel", "iron", "copper", "aluminium", "aluminum", "zinc", "tin", "nickel", "gold", "silver", "platinum", "precious metal", "gem", "gems", "gemstone", "gemstones", "jewel", "jewels", "jewellery", "jewelry", "precious stone", "precious stones", "semi precious stone", "semi precious stones", "diamond", "ruby", "sapphire", "emerald"],
+    anchors: ["mining", "quarrying", "metal", "ore", "manufacture", "wholesale", "jewellery", "jewelry", "precious", "stone"]
   },
   {
     terms: ["machine", "machinery", "equipment", "parts", "component", "components", "electronics", "electrical", "semiconductor", "automotive", "vehicle"],
@@ -288,11 +293,16 @@ function getIsicMatches(query) {
     .map(entry => ({ ...entry, ...scoreIsicMatch(entry, q) }))
     .sort((a, b) => b.score - a.score || a.description.localeCompare(b.description));
 
+  // Empty input should not invent suggestions. Only show context-guided results when
+  // the user has already selected a sector/subsector.
   if (!q) {
+    if (!hasSelectedSector && !normaliseSearchText(subsectorBox?.value || "")) return [];
     return scored
-      .filter(entry => entry.score > 0)
+      .filter(entry => entry.contextScore > 0)
       .slice(0, 10);
   }
+
+  const queryWords = uniqueWords(q).filter(term => term.length > 2 && !GENERIC_QUERY_TERMS.has(term));
 
   // Strong lexical/code matches remain the most reliable and are shown first.
   const strongMatches = scored
@@ -300,23 +310,34 @@ function getIsicMatches(query) {
     .slice(0, 10);
   if (strongMatches.length >= 4) return strongMatches;
 
-  // Medium matches need either commercial relevance, selected-sector fit, or a strong direct signal.
+  // Medium matches must have evidence from the user's typed words. Commercial relevance
+  // may boost ranking, but it should never be enough by itself to create suggestions.
   const acceptableMatches = scored
     .filter(entry => {
       const sectorFit = hasSelectedSector && normaliseSearchText(entry.sector || "") === selectedSector;
-      return entry.score >= 45 && (entry.queryScore >= 35 || entry.businessScore >= 18 || sectorFit);
+      const hasTypedEvidence = entry.queryScore >= 35 || entry.conceptScore >= 45;
+      const hasMinimumConfidence = entry.score >= 55;
+      return hasMinimumConfidence && hasTypedEvidence && (entry.penaltyScore === 0 || entry.queryScore >= 90 || sectorFit);
     })
     .slice(0, 8);
   if (acceptableMatches.length > 0) return acceptableMatches;
 
+  // If the user selected a sector, use it as a fallback. Without a sector, avoid
+  // returning random fuzzy guesses for unfamiliar words.
   const contextMatches = scored
     .filter(entry => entry.contextScore > 0 && entry.score >= 20)
     .slice(0, 8);
   if (contextMatches.length > 0) return contextMatches;
 
-  // For broad, unfamiliar free text, avoid returning random fuzzy matches. Show a small set
-  // of commercially grounded activities instead of weak semantic guesses.
-  return diversifyCommercialFallback(scored);
+  // Last resort: only show very close word matches. Otherwise show no dropdown so the
+  // user can keep their free-text industry description without being misled.
+  const closeWordMatches = scored
+    .filter(entry => entry.queryScore >= 70 && entry.score >= 70)
+    .slice(0, LOW_CONFIDENCE_MAX_RESULTS);
+
+  if (closeWordMatches.length > 0) return closeWordMatches;
+
+  return [];
 }
 function autoFillSectorFromIsic(entry) {
   if (!entry?.sector || !entry?.subsector || !sectorBox || !subsectorBox) return;
@@ -368,7 +389,7 @@ function renderIsicDropdown() {
 
   const hasStrongQueryMatch = matches.some(entry => entry.queryScore >= 35);
   const heading = query
-    ? (hasStrongQueryMatch ? "Closest ISIC matches" : "Low-confidence search — showing business-relevant suggestions")
+    ? (hasStrongQueryMatch ? "Closest ISIC matches" : "Related ISIC suggestions")
     : "Suggested ISIC activities";
 
   isicDropdown.classList.remove("hidden");
