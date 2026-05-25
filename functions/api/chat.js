@@ -13,6 +13,9 @@ const DEFAULT_APPROVED_DOMAINS = [
 
 const ALLOWED_CURRENCIES = ["THB", "USD", "JPY", "EUR", "CNY"];
 
+const OPENAI_FAST_MODEL = "gpt-4.1-mini";
+const OPENAI_ANALYSIS_MODEL = "gpt-4.1";
+
 const SUBSECTOR_KEYWORD_MAP = {
   "Thai commercial bank": [
     "Thailand banking",
@@ -460,7 +463,7 @@ JSON shape:
         "Content-Type": "application/json",
         "Authorization": `Bearer ${env.OPENAI_API_KEY}`
       },
-      body: JSON.stringify({ model: "gpt-4.1-mini", input: plannerPrompt })
+      body: JSON.stringify({ model: OPENAI_FAST_MODEL, input: plannerPrompt })
     });
 
     const data = await response.json();
@@ -815,7 +818,7 @@ ${JSON.stringify(compactFx, null, 2)}
         "Authorization": `Bearer ${env.OPENAI_API_KEY}`
       },
       body: JSON.stringify({
-        model: "gpt-4.1-mini",
+        model: OPENAI_FAST_MODEL,
         input: prompt
       })
     });
@@ -1056,7 +1059,7 @@ ${JSON.stringify(compactSources, null, 2)}
         "Authorization": `Bearer ${env.OPENAI_API_KEY}`
       },
       body: JSON.stringify({
-        model: "gpt-4.1-mini",
+        model: OPENAI_FAST_MODEL,
         input: prompt
       })
     });
@@ -1191,22 +1194,10 @@ function formatNewsThemesFromJson(parsed) {
       .map(item => `- ${item}`)
       .join("\n");
 
-    const signalStrength = String(theme.signalStrength || theme.signal_strength || "").trim();
-    const evidenceScore = Number.isFinite(Number(theme.evidenceScore ?? theme.evidence_score))
-      ? `${Math.max(0, Math.min(100, Math.round(Number(theme.evidenceScore ?? theme.evidence_score))))}/100`
-      : "";
-    const evidenceRationale = String(theme.evidenceRationale || theme.evidence_rationale || "").trim();
-    const metaLine = [
-      signalStrength ? `Signal strength: ${signalStrength}` : "",
-      evidenceScore ? `Evidence score: ${evidenceScore}` : "",
-      evidenceRationale ? `Evidence basis: ${evidenceRationale}` : ""
-    ].filter(Boolean).join(" | ");
-
     return [
       `Theme ${index + 1}: ${title}`,
-      metaLine,
       paragraph,
-      bulletText ? "Supporting information:" : "",
+      bulletText ? "Conversation notes:" : "",
       bulletText
     ].filter(Boolean).join("\n");
   }).filter(Boolean).join("\n\n");
@@ -1299,17 +1290,13 @@ Published: ${source.published_at || "Unknown"}
 Source type: ${source.source_group}
 ${Array.isArray(source.syndicated_via) && source.syndicated_via.length ? `Same/similar story also seen via: ${source.syndicated_via.join(", ")}` : ""}
 Relevance reviewer note: ${source.relevance_justification || ""}
-Evidence score: ${source.evidence_score ?? "Not scored"}/100
-Country relevance score: ${source.country_relevance_score ?? "Not scored"}
-Country relevance matches: ${Array.isArray(source.country_relevance_matches) ? source.country_relevance_matches.join(", ") : ""}
-Authority score: ${source.authority_score ?? "Not scored"}/5
 Content:
 ${trimmedText}
 `.trim();
   }).join("\n\n");
 
   const prompt = `
-You are an analyst supporting a Thailand-based relationship manager.
+You are a careful market analyst supporting a Thailand-based relationship manager.
 
 The user's custom focus/context is:
 ${defaultPrompt}
@@ -1320,60 +1307,60 @@ Customer profile:
 - Specific industry / ISIC activity: ${industry}
 - Client base: Thailand
 - Directional trade flow:
-${tradeFlow ? tradeFlowSummary(tradeFlow) : `Client trade role: ${tradeRoles.join(", ")}\nCountries / markets relevant to the client: ${countryText}`}
+${tradeFlow ? tradeFlowSummary(tradeFlow) : `Client trade role: ${tradeRoles.join(", ")}
+Countries / markets relevant to the client: ${countryText}`}
 - Timeframe for news search: last ${timeframe} days
 - Search mode: Single adaptive directional search
 - Tavily queries used: ${plannedQueries.map(plan => `${plan.label}: ${plan.query}`).join(" | ")}
 
 Task:
-Generate NEWS-BASED market developments only from the provided sources.
+Create a concise, source-grounded customer conversation brief from the provided news sources.
 
-Organise insights by client-conversation relevance. Separate purchase-side cost/supplier implications from sales-side revenue/demand implications. Prioritise themes with direct Thailand, purchase-market, sales-market, or selected-currency relevance. If broader context is used, clearly label it as secondary and explain the bridge to the client flow.
+Analysis standard:
+- The output should help an RM sound informed and commercially aware, not force every item into a product pitch.
+- Separate purchase-side cost/supplier implications from sales-side revenue/demand implications when the sources support that distinction.
+- Treat purchase countries as supplier/source markets and sales countries as buyer/revenue markets. Do not cross-combine countries randomly.
+- Prefer direct Thailand, selected purchase-market, selected sales-market, or selected-currency relevance.
+- Broader sector news may be used only when the bridge to this client profile is clear. If the article is not specific to the selected ISIC activity, say so plainly, e.g. "While this is broader fruit-sector news rather than durian-specific...".
 
-Strict rules:
+Grounding rules:
 - Use ONLY the provided sources.
-- Do NOT add general industry knowledge, background assumptions, or evergreen commentary.
-- Do NOT infer beyond what the sources directly support.
-- Purchase and sales markets are the primary relevance anchors. A theme about another market must be included only if the source provides a clear bridge to Thailand, selected purchase/sales markets, pricing, supply, demand, logistics, compliance, or currency crosswinds for this client.
-- Do not let indirect global themes displace direct Thailand/selected-market themes. If direct selected-market sources exist, use them first.
-- Do NOT use a country selection as a proxy for currency exposure. Discuss currencies through the selected purchase currencies and sales currencies, or when the currency is directly mentioned in the cited article.
-- Do NOT repeat the standalone FX rate commentary. You may mention FX only as a source-backed trade-flow implication, natural hedge, mismatch, or crosswind.
+- Do NOT add unstated facts, general industry knowledge, background assumptions, or evergreen commentary as if sourced.
+- Do NOT imply that an article specifically discusses the client's product, market, currency, or trade flow unless the source explicitly does.
+- You may draw cautious implications, but clearly distinguish direct evidence from inferred relevance.
+- Do not cite a source unless it directly supports the statement being made.
+- Every theme must cite at least one source number from the provided sources.
+- Every bullet must include a source reference like [1], [2].
 - If the sources do not contain meaningful, recent developments relevant to this Thailand-based client context, return JSON with "status": "NO_NEWS" and an empty themes array.
 - If there is at least one useful news-based theme, return JSON with "status": "OK". Do NOT include the string NO_NEWS anywhere in titles, paragraphs, or bullets.
-- Be assertive. Do not create generic filler just to produce themes.
-- Every theme must cite at least one source number from the provided sources.
-- Every supporting bullet must include a source reference like [1], [2].
-- Each theme should balance risk and opportunity. Include at least one source-backed risk/watch-out and one source-backed opportunity/RM angle when the cited sources support both. If opportunity is not directly supported, write a cautious RM question rather than a factual claim.
-- Only use source numbers that support the specific statement.
-- Do not cite a source unless it is actually used in the theme.
-- Synthesis rule: where multiple sources naturally relate to the same development, combine them into one stronger theme instead of creating one theme per source.
-- A theme may reference multiple sources, but only when the connection is directly supported. Do not force connections.
+
+Relevance discipline:
+- Do not force weakly related articles into high-confidence themes.
+- Do not use numeric scores, signal strength labels, or evidence grades.
+- Do not use prefixes such as "Primary Market Signal" or "Secondary Global Context".
 - Prefer fewer, stronger themes over many isolated source summaries.
-- Theme titles should be specific and RM-ready: name the actual development, client implication, and trade-finance angle where possible. Avoid generic titles such as "Supply Chain Risk" or "Market Update".
-- Prefix title with "Primary Market Signal:" when directly tied to Thailand or selected countries. Prefix title with "Secondary Global Context:" only when the theme is broader global context.
-- Each theme should be relevant to trade finance, such as purchase flows, sales flows, supply chain disruption, input costs, export demand, working capital, payment risk, guarantees, letters of credit, documentary collections, receivables, inventory financing, cash management, hedging conversations, or counterparty risk.
-- Treat purchase countries as supplier/source markets and sales countries as buyer/revenue markets. Do not cross-combine countries randomly.
-- Do NOT assume a named company in an article is the bank's client or the user's client.
-- If an article is about a named company, frame the insight as a market signal, competitor signal, buyer/supplier signal, or sector development unless the user explicitly says that named company is the client.
-- RM recommendations must be applicable to a typical Thailand-based client in the selected industry, not only to the specific company mentioned in the article.
-- Avoid recommendations such as financing a specific expansion, acquisition, or project unless the source clearly says the selected client is undertaking it. Prefer phrasing such as "clients in this industry may face..." or "use this as a conversation opener...".
-- Down-rank or reject one-company corporate actions unless they clearly indicate broader sector implications for supply, demand, pricing, export channels, buyer requirements, logistics, working capital cycles, or trade-finance needs.
-- Include signalStrength and evidenceScore for every theme. High = direct Thailand/selected-market relevance and/or multiple strong sources. Medium = useful but partly indirect. Low = included only as clearly labelled secondary context.
-- evidenceScore should be 0-100 and should reflect direct country relevance, source authority, recency, and whether more than one source supports the theme.
+- If a development is only useful as a light conversation opener, frame it as a small-talk / awareness point rather than a risk or sales opportunity.
+- Not every theme needs a risk, opportunity, or RM angle. Only include those when genuinely supported.
+- Avoid recommendations such as financing a specific expansion, acquisition, or project unless the source clearly supports it for the selected client profile.
+- Do NOT assume a named company in an article is the bank's client or the user's client. Frame it as a sector signal, competitor signal, buyer/supplier signal, or market development.
+- Do NOT repeat the standalone FX rate commentary. Mention FX only when a source directly supports an implication, or when selected purchase/sales currencies create an obvious directional crosswind that is clearly presented as an inference.
+
+Writing style:
+- Use practical, banker-friendly titles. Avoid generic titles such as "Supply Chain Risk" or "Market Update".
+- Keep each paragraph short and calibrated.
+- When relevance is indirect, use cautious wording such as "may", "could", "worth monitoring", or "conversation opener".
+- Avoid overly promotional language.
 
 Return JSON only in this exact shape:
 {
   "status": "OK",
   "themes": [
     {
-      "title": "Primary Market Signal: Specific RM-ready news theme title, not a generic category",
-      "signalStrength": "High | Medium | Low",
-      "evidenceScore": 0,
-      "evidenceRationale": "Short reason based on source authority, direct selected-market relevance, and number of supporting sources.",
-      "paragraph": "One short paragraph explaining why this current development matters to the Thailand-based client, with source reference(s).",
+      "title": "Specific practical title without scoring or signal prefixes",
+      "paragraph": "One short paragraph explaining the development and its calibrated relevance to the Thailand-based client, with source reference(s).",
       "supportingInformation": [
-        "Risk / watch-out: specific source-backed point with source reference like [1]",
-        "Opportunity / RM angle: specific source-backed point or cautious RM question with source reference like [2]"
+        "Conversation opener: source-grounded point the RM can raise without forcing a sale [1]",
+        "Watch point: optional source-grounded risk, operational issue, or follow-up question only if supported [2]"
       ],
       "sourceNumbers": [1, 2]
     }
@@ -1398,7 +1385,7 @@ ${articleContext}
         "Authorization": `Bearer ${env.OPENAI_API_KEY}`
       },
       body: JSON.stringify({
-        model: "gpt-4.1-mini",
+        model: env.OPENAI_ANALYSIS_MODEL || OPENAI_ANALYSIS_MODEL,
         input: prompt
       })
     });
@@ -1525,7 +1512,7 @@ Strict requirements:
         "Authorization": `Bearer ${env.OPENAI_API_KEY}`
       },
       body: JSON.stringify({
-        model: "gpt-4.1-mini",
+        model: OPENAI_FAST_MODEL,
         input: prompt,
         text: {
           format: {

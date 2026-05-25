@@ -711,7 +711,6 @@ function renderSources(sources, noRelevantUpdates = false, fallbackTriggered = f
           ${source.domain || source.source || "Unknown source"} • ${source.published_at || "Unknown date"}
         </div>
         ${Array.isArray(source.syndicated_via) && source.syndicated_via.length ? `<div class="source-syndication">Similar syndicated coverage hidden from source list: ${source.syndicated_via.join(", ")}</div>` : ""}
-        ${Number.isFinite(Number(source.evidence_score)) ? `<div class="source-score"><strong>Evidence score:</strong> ${Math.round(Number(source.evidence_score))}/100${Array.isArray(source.country_relevance_matches) && source.country_relevance_matches.length ? ` • Country match: ${source.country_relevance_matches.join(", ")}` : ""}</div>` : ""}
         ${source.justification ? `<div class="source-justification"><strong>Why is it relevant:</strong> ${source.justification}</div>` : ""}
       </div>
     `;
