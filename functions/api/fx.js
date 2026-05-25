@@ -1,5 +1,58 @@
 const ALLOWED_CURRENCIES = ["THB", "USD", "JPY", "EUR", "CNY"];
 
+
+function normalizeCurrencyList(currencies = []) {
+  return [...new Set((Array.isArray(currencies) ? currencies : [])
+    .map(currency => String(currency || "").toUpperCase().trim())
+    .filter(currency => ALLOWED_CURRENCIES.includes(currency)))];
+}
+
+function normalizeCountryList(countries = []) {
+  const seen = new Set();
+  return (Array.isArray(countries) ? countries : [])
+    .map(country => ({
+      name: String(country?.name || "").trim(),
+      code: String(country?.code || "").trim(),
+      label: String(country?.label || country?.name || country?.code || "").trim()
+    }))
+    .filter(country => country.name || country.code || country.label)
+    .filter(country => {
+      const key = country.code || country.name || country.label;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function normalizeTradeFlow(raw = {}, fallbackCountries = [], fallbackCurrencies = []) {
+  const fallbackCurrencyList = normalizeCurrencyList(fallbackCurrencies);
+  return {
+    purchase: {
+      domestic: Boolean(raw?.purchase?.domestic),
+      international: Boolean(raw?.purchase?.international),
+      countries: normalizeCountryList(raw?.purchase?.countries || []),
+      currencies: normalizeCurrencyList(raw?.purchase?.currencies || fallbackCurrencyList)
+    },
+    sales: {
+      domestic: Boolean(raw?.sales?.domestic),
+      international: Boolean(raw?.sales?.international),
+      countries: normalizeCountryList(raw?.sales?.countries || []),
+      currencies: normalizeCurrencyList(raw?.sales?.currencies || fallbackCurrencyList)
+    },
+    legacyCountries: normalizeCountryList(fallbackCountries)
+  };
+}
+
+function tradeFlowSummary(tradeFlow) {
+  const list = countries => normalizeCountryList(countries).map(country => country.name || country.label || country.code).filter(Boolean).join(", ");
+  return [
+    `Purchase from: ${tradeFlow?.purchase?.domestic ? "Thailand domestic" : ""}${tradeFlow?.purchase?.domestic && tradeFlow?.purchase?.international ? "; " : ""}${tradeFlow?.purchase?.international ? list(tradeFlow.purchase.countries) || "international suppliers" : ""}`.trim(),
+    `Purchase currencies: ${(tradeFlow?.purchase?.currencies || []).join(", ") || "not specified"}`,
+    `Sales to: ${tradeFlow?.sales?.domestic ? "Thailand domestic" : ""}${tradeFlow?.sales?.domestic && tradeFlow?.sales?.international ? "; " : ""}${tradeFlow?.sales?.international ? list(tradeFlow.sales.countries) || "international buyers" : ""}`.trim(),
+    `Sales currencies: ${(tradeFlow?.sales?.currencies || []).join(", ") || "not specified"}`
+  ].join("\n");
+}
+
 async function fetchYahooSeries(pair, rangeDays = 30) {
   const safeRangeDays = [30, 90].includes(Number(rangeDays)) ? Number(rangeDays) : 30;
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${pair}?interval=1d&range=${safeRangeDays}d`;
@@ -140,7 +193,7 @@ function extractOutputText(data) {
   return "";
 }
 
-async function analyzeFxRates({ env, fxList, sector = "", subsector = "", industry = "", tradeRoles = [], countries = [], fxTenor = 30 }) {
+async function analyzeFxRates({ env, fxList, sector = "", subsector = "", industry = "", tradeRoles = [], countries = [], tradeFlow = null, fxTenor = 30 }) {
   const usableFx = fxList.filter(fx => !fx.skip && !fx.error && Array.isArray(fx.series) && fx.series.length > 0);
 
   if (usableFx.length === 0 || !env.OPENAI_API_KEY) return fxList;
@@ -166,8 +219,8 @@ Client context:
 - Sector: ${sector}
 - Subsector: ${subsector}
 - Specific industry: ${industry}
-- Client trade role: ${tradeRoles.join(", ")}
-- Exposure countries / markets: ${countryText}
+- Directional trade flow:
+${tradeFlow ? tradeFlowSummary(tradeFlow) : `Client trade role: ${tradeRoles.join(", ")}\nExposure countries / markets: ${countryText}`}
 
 Use only the provided ${fxTenor}-day FX data below. For each pair, write two concise sentences.
 Sentence 1: observed FX movement, latest level versus the ${fxTenor}-day range, and whether the base currency strengthened or weakened against THB.
@@ -227,16 +280,17 @@ export async function onRequestPost(context) {
     const { request, env } = context;
     const body = await request.json();
 
-    const currencies = Array.isArray(body.currencies)
-      ? body.currencies.map(c => String(c).toUpperCase())
-      : [];
+    const legacyCurrencies = Array.isArray(body.currencies) ? body.currencies.map(c => String(c).toUpperCase()) : [];
+    const legacyCountries = Array.isArray(body.countries) ? body.countries : [];
+    const tradeFlow = normalizeTradeFlow(body.tradeFlow || {}, legacyCountries, legacyCurrencies);
+    const currencies = [...new Set([...tradeFlow.purchase.currencies, ...tradeFlow.sales.currencies, ...normalizeCurrencyList(legacyCurrencies)])];
     const sector = (body.sector || "").trim();
     const subsector = (body.subsector || "").trim();
     const industry = (body.industry || "").trim();
     const tradeRoles = Array.isArray(body.tradeRoles)
       ? body.tradeRoles.map(role => String(role).toLowerCase()).filter(role => ["importer", "exporter"].includes(role))
       : [];
-    const countries = Array.isArray(body.countries) ? body.countries : [];
+    const countries = normalizeCountryList([...tradeFlow.purchase.countries, ...tradeFlow.sales.countries, ...tradeFlow.legacyCountries]);
     const fxTenor = [30, 90].includes(Number(body.fxTenor)) ? Number(body.fxTenor) : 30;
 
     if (currencies.length === 0) {
@@ -249,7 +303,7 @@ export async function onRequestPost(context) {
     }
 
     const rawFx = await fetchFxRates(currencies, fxTenor);
-    const fx = await analyzeFxRates({ env, fxList: rawFx, sector, subsector, industry, tradeRoles, countries, fxTenor });
+    const fx = await analyzeFxRates({ env, fxList: rawFx, sector, subsector, industry, tradeRoles, countries, tradeFlow, fxTenor });
 
     return Response.json({ fx });
   } catch (error) {

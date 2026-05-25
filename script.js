@@ -6,11 +6,18 @@ const subsectorBox = document.getElementById("subsector");
 const industryBox = document.getElementById("industry");
 const timeframeBox = document.getElementById("timeframe");
 const fxTenorBox = document.getElementById("fxTenor");
-const deepSearchBox = document.getElementById("deepSearch");
-
-const countrySearch = document.getElementById("countrySearch");
-const countryDropdown = document.getElementById("countryDropdown");
-const selectedCountriesBox = document.getElementById("selectedCountries");
+const purchaseDomesticBox = document.getElementById("purchaseDomestic");
+const purchaseInternationalBox = document.getElementById("purchaseInternational");
+const salesDomesticBox = document.getElementById("salesDomestic");
+const salesInternationalBox = document.getElementById("salesInternational");
+const purchaseCountryField = document.getElementById("purchaseCountryField");
+const salesCountryField = document.getElementById("salesCountryField");
+const purchaseCountrySearch = document.getElementById("purchaseCountrySearch");
+const purchaseCountryDropdown = document.getElementById("purchaseCountryDropdown");
+const selectedPurchaseCountriesBox = document.getElementById("selectedPurchaseCountries");
+const salesCountrySearch = document.getElementById("salesCountrySearch");
+const salesCountryDropdown = document.getElementById("salesCountryDropdown");
+const selectedSalesCountriesBox = document.getElementById("selectedSalesCountries");
 
 const defaultPromptBox = document.getElementById("defaultPrompt");
 
@@ -21,7 +28,8 @@ const contextOutput = document.getElementById("contextOutput");
 const isicDropdown = document.getElementById("isicDropdown");
 const selectedIsicBox = document.getElementById("selectedIsic");
 
-let selectedCountries = [];
+let selectedPurchaseCountries = [];
+let selectedSalesCountries = [];
 let selectedIsic = null;
 let fxCharts = {};
 
@@ -223,16 +231,46 @@ function countryLabel(country) {
   return `${country.name} (${country.code})`;
 }
 
-function getSelectedCurrencies() {
-  return Array
-    .from(document.querySelectorAll('input[name="currency"]:checked'))
-    .map(input => input.value);
+function getSelectedCurrencies(scope) {
+  const selector = scope ? `input[name="${scope}Currency"]:checked` : 'input[name$="Currency"]:checked';
+  return Array.from(document.querySelectorAll(selector)).map(input => input.value);
 }
 
-function getSelectedTradeRoles() {
-  return Array
-    .from(document.querySelectorAll('input[name="tradeRole"]:checked'))
-    .map(input => input.value);
+function uniqueByCode(countries) {
+  const seen = new Set();
+  return (countries || []).filter(country => {
+    if (!country?.code || seen.has(country.code)) return false;
+    seen.add(country.code);
+    return true;
+  });
+}
+
+function getTradeFlow() {
+  return {
+    purchase: {
+      domestic: Boolean(purchaseDomesticBox?.checked),
+      international: Boolean(purchaseInternationalBox?.checked),
+      countries: selectedPurchaseCountries.map(country => ({ name: country.name, code: country.code, label: countryLabel(country) })),
+      currencies: getSelectedCurrencies("purchase")
+    },
+    sales: {
+      domestic: Boolean(salesDomesticBox?.checked),
+      international: Boolean(salesInternationalBox?.checked),
+      countries: selectedSalesCountries.map(country => ({ name: country.name, code: country.code, label: countryLabel(country) })),
+      currencies: getSelectedCurrencies("sales")
+    }
+  };
+}
+
+function getSelectedTradeRolesFromFlow(tradeFlow) {
+  const roles = [];
+  if (tradeFlow?.purchase?.international) roles.push("importer");
+  if (tradeFlow?.sales?.international) roles.push("exporter");
+  return roles.length ? roles : ["domestic"];
+}
+
+function getAllTradeFlowCountries(tradeFlow) {
+  return uniqueByCode([...(tradeFlow?.purchase?.countries || []), ...(tradeFlow?.sales?.countries || [])]);
 }
 
 function populateSectors() {
@@ -265,66 +303,82 @@ function populateSubsectors() {
   });
 }
 
-function renderCountryDropdown() {
-  const search = (countrySearch.value || "").toLowerCase().trim();
-
-  const filtered = COUNTRIES
+function getCountryOptions(search, selected) {
+  const term = (search || "").toLowerCase().trim();
+  return COUNTRIES
     .map(([name, code]) => ({ name, code }))
-    .filter(country => countryLabel(country).toLowerCase().includes(search));
+    .filter(country => country.code !== "TH" && country.name.toLowerCase() !== "thailand")
+    .filter(country => countryLabel(country).toLowerCase().includes(term))
+    .map(country => ({ ...country, checked: selected.some(c => c.code === country.code) }));
+}
 
-  countryDropdown.innerHTML = filtered.map(country => {
-    const checked = selectedCountries.some(c => c.code === country.code) ? "checked" : "";
+function renderCountryDropdownFor(side) {
+  const isPurchase = side === "purchase";
+  const searchBox = isPurchase ? purchaseCountrySearch : salesCountrySearch;
+  const dropdown = isPurchase ? purchaseCountryDropdown : salesCountryDropdown;
+  const selected = isPurchase ? selectedPurchaseCountries : selectedSalesCountries;
+  if (!searchBox || !dropdown) return;
 
-    return `
-      <label class="country-option">
-        <input type="checkbox" value="${country.code}" ${checked}>
-        ${countryLabel(country)}
-      </label>
-    `;
-  }).join("");
+  const filtered = getCountryOptions(searchBox.value, selected);
+  dropdown.innerHTML = filtered.map(country => `
+    <label class="country-option">
+      <input type="checkbox" value="${country.code}" ${country.checked ? "checked" : ""}>
+      ${countryLabel(country)}
+    </label>
+  `).join("");
 
-  countryDropdown.querySelectorAll("input").forEach(box => {
+  dropdown.querySelectorAll("input").forEach(box => {
     box.addEventListener("change", function () {
-      const country = COUNTRIES
-        .map(([name, code]) => ({ name, code }))
-        .find(c => c.code === box.value);
-
-      if (box.checked) {
-        if (!selectedCountries.some(c => c.code === country.code)) {
-          selectedCountries.push(country);
-        }
+      const country = COUNTRIES.map(([name, code]) => ({ name, code })).find(c => c.code === box.value);
+      if (!country) return;
+      if (isPurchase) {
+        selectedPurchaseCountries = box.checked
+          ? uniqueByCode([...selectedPurchaseCountries, country])
+          : selectedPurchaseCountries.filter(c => c.code !== country.code);
       } else {
-        selectedCountries = selectedCountries.filter(c => c.code !== country.code);
+        selectedSalesCountries = box.checked
+          ? uniqueByCode([...selectedSalesCountries, country])
+          : selectedSalesCountries.filter(c => c.code !== country.code);
       }
-
-      renderSelectedCountries();
-      countrySearch.value = "";
-      countryDropdown.classList.add("hidden");
-      renderCountryDropdown();
+      renderSelectedCountriesFor(side);
+      searchBox.value = "";
+      dropdown.classList.add("hidden");
+      renderCountryDropdownFor(side);
     });
   });
 }
 
-function renderSelectedCountries() {
-  if (selectedCountries.length === 0) {
-    selectedCountriesBox.innerHTML = "";
+function renderSelectedCountriesFor(side) {
+  const isPurchase = side === "purchase";
+  const selected = isPurchase ? selectedPurchaseCountries : selectedSalesCountries;
+  const box = isPurchase ? selectedPurchaseCountriesBox : selectedSalesCountriesBox;
+  if (!box) return;
+
+  if (selected.length === 0) {
+    box.innerHTML = "";
     return;
   }
 
-  selectedCountriesBox.innerHTML = selectedCountries.map(country => `
+  box.innerHTML = selected.map(country => `
     <span class="country-chip">
       ${countryLabel(country)}
       <button type="button" data-code="${country.code}">×</button>
     </span>
   `).join("");
 
-  selectedCountriesBox.querySelectorAll("button").forEach(btn => {
+  box.querySelectorAll("button").forEach(btn => {
     btn.addEventListener("click", function () {
-      selectedCountries = selectedCountries.filter(c => c.code !== btn.dataset.code);
-      renderSelectedCountries();
-      renderCountryDropdown();
+      if (isPurchase) selectedPurchaseCountries = selectedPurchaseCountries.filter(c => c.code !== btn.dataset.code);
+      else selectedSalesCountries = selectedSalesCountries.filter(c => c.code !== btn.dataset.code);
+      renderSelectedCountriesFor(side);
+      renderCountryDropdownFor(side);
     });
   });
+}
+
+function updateTradeFlowVisibility() {
+  purchaseCountryField?.classList.toggle("hidden", !purchaseInternationalBox?.checked);
+  salesCountryField?.classList.toggle("hidden", !salesInternationalBox?.checked);
 }
 
 function escapeHtml(value) {
@@ -780,18 +834,15 @@ function renderContext(context) {
 }
 
 async function updateFxOnly() {
-  const currencies = getSelectedCurrencies();
+  const tradeFlow = getTradeFlow();
+  const currencies = [...new Set([...(tradeFlow.purchase.currencies || []), ...(tradeFlow.sales.currencies || [])])];
   const sector = sectorBox.value;
   const subsector = subsectorBox.value;
   const industry = selectedIsic ? selectedIsic.description : industryBox.value.trim();
   const isicCode = selectedIsic?.code || "";
   const fxTenor = fxTenorBox?.value || "30";
-  const tradeRoles = getSelectedTradeRoles();
-  const countries = selectedCountries.map(country => ({
-    name: country.name,
-    code: country.code,
-    label: countryLabel(country)
-  }));
+  const tradeRoles = getSelectedTradeRolesFromFlow(tradeFlow);
+  const countries = getAllTradeFlowCountries(tradeFlow);
 
   if (currencies.length === 0) {
     fxOutput.textContent = "Please select at least one currency.";
@@ -815,7 +866,8 @@ async function updateFxOnly() {
         isicCode,
         fxTenor,
         tradeRoles,
-        countries
+        countries,
+        tradeFlow
       })
     });
 
@@ -856,19 +908,30 @@ document.addEventListener("click", function (event) {
   }
 });
 
-countrySearch.addEventListener("focus", function () {
-  countryDropdown.classList.remove("hidden");
-  renderCountryDropdown();
+[purchaseInternationalBox, salesInternationalBox].forEach(box => {
+  box?.addEventListener("change", updateTradeFlowVisibility);
 });
 
-countrySearch.addEventListener("input", function () {
-  countryDropdown.classList.remove("hidden");
-  renderCountryDropdown();
-});
+function attachCountryPicker(side, searchBox, dropdown) {
+  searchBox?.addEventListener("focus", function () {
+    dropdown.classList.remove("hidden");
+    renderCountryDropdownFor(side);
+  });
+  searchBox?.addEventListener("input", function () {
+    dropdown.classList.remove("hidden");
+    renderCountryDropdownFor(side);
+  });
+}
+
+attachCountryPicker("purchase", purchaseCountrySearch, purchaseCountryDropdown);
+attachCountryPicker("sales", salesCountrySearch, salesCountryDropdown);
 
 document.addEventListener("click", function (event) {
-  if (!event.target.closest(".country-picker")) {
-    countryDropdown.classList.add("hidden");
+  if (!event.target.closest('.country-picker[data-picker="purchase"]')) {
+    purchaseCountryDropdown?.classList.add("hidden");
+  }
+  if (!event.target.closest('.country-picker[data-picker="sales"]')) {
+    salesCountryDropdown?.classList.add("hidden");
   }
 });
 
@@ -879,15 +942,10 @@ button.addEventListener("click", async function () {
   const isicCode = selectedIsic?.code || "";
   const timeframe = timeframeBox.value;
   const fxTenor = fxTenorBox?.value || "30";
-  const currencies = getSelectedCurrencies();
-  const tradeRoles = getSelectedTradeRoles();
-  const deepSearch = deepSearchBox.checked;
-
-  const countries = selectedCountries.map(country => ({
-    name: country.name,
-    code: country.code,
-    label: countryLabel(country)
-  }));
+  const tradeFlow = getTradeFlow();
+  const currencies = [...new Set([...(tradeFlow.purchase.currencies || []), ...(tradeFlow.sales.currencies || [])])];
+  const tradeRoles = getSelectedTradeRolesFromFlow(tradeFlow);
+  const countries = getAllTradeFlowCountries(tradeFlow);
 
   const defaultPrompt = defaultPromptBox.value.trim();
 
@@ -906,18 +964,33 @@ button.addEventListener("click", async function () {
     return;
   }
 
-  if (tradeRoles.length === 0) {
-    analysisOutput.textContent = "Please select whether the client is an importer, exporter, or both.";
+  if (!tradeFlow.purchase.domestic && !tradeFlow.purchase.international) {
+    analysisOutput.textContent = "Please select domestic and/or international for Purchase from.";
     return;
   }
 
-  if (currencies.length === 0) {
-    analysisOutput.textContent = "Please select at least one currency.";
+  if (!tradeFlow.sales.domestic && !tradeFlow.sales.international) {
+    analysisOutput.textContent = "Please select domestic and/or international for Sales to.";
     return;
   }
 
-  if (countries.length === 0) {
-    analysisOutput.textContent = "Please select at least one country / market.";
+  if (tradeFlow.purchase.international && tradeFlow.purchase.countries.length === 0) {
+    analysisOutput.textContent = "Please select at least one international purchase market.";
+    return;
+  }
+
+  if (tradeFlow.sales.international && tradeFlow.sales.countries.length === 0) {
+    analysisOutput.textContent = "Please select at least one international sales market.";
+    return;
+  }
+
+  if (tradeFlow.purchase.currencies.length === 0) {
+    analysisOutput.textContent = "Please select at least one purchase currency.";
+    return;
+  }
+
+  if (tradeFlow.sales.currencies.length === 0) {
+    analysisOutput.textContent = "Please select at least one sales currency.";
     return;
   }
 
@@ -940,7 +1013,7 @@ button.addEventListener("click", async function () {
         industry,
         isicCode,
         tradeRoles,
-        deepSearch,
+        tradeFlow,
         timeframe,
         fxTenor,
         currencies,
@@ -977,7 +1050,9 @@ button.addEventListener("click", async function () {
 
 populateSectors();
 populateSubsectors();
-renderCountryDropdown();
+renderCountryDropdownFor("purchase");
+renderCountryDropdownFor("sales");
+updateTradeFlowVisibility();
 
 sectorBox.addEventListener("change", function () {
   sectorBox.classList.remove("auto-filled");
