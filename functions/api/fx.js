@@ -43,6 +43,41 @@ function normalizeTradeFlow(raw = {}, fallbackCountries = [], fallbackCurrencies
   };
 }
 
+
+async function getFXResearchContext(env, currencies = []) {
+  try {
+    if (!env?.FX_REPORTS) {
+      return "";
+    }
+
+    const object = await env.FX_REPORTS.get("latest-fx-note.txt");
+
+    if (!object) {
+      return "";
+    }
+
+    const rawText = await object.text();
+
+    const selectedCurrencies = normalizeCurrencyList(currencies);
+
+    const paragraphs = rawText
+      .split(/\n\s*\n/)
+      .map(p => p.trim())
+      .filter(Boolean);
+
+    const relevant = paragraphs.filter(paragraph => {
+      const upper = paragraph.toUpperCase();
+      return selectedCurrencies.some(currency => upper.includes(currency));
+    });
+
+    return relevant.slice(0, 8).join("\n\n").slice(0, 6000);
+  } catch (error) {
+    console.error("FX research retrieval failed:", error);
+    return "";
+  }
+}
+
+
 function tradeFlowSummary(tradeFlow) {
   const list = countries => normalizeCountryList(countries).map(country => country.name || country.label || country.code).filter(Boolean).join(", ");
   return [
@@ -312,3 +347,9 @@ export async function onRequestPost(context) {
     }, { status: 500 });
   }
 }
+
+
+// Internal FX research integration
+// Upload a file named `latest-fx-note.txt` into your Cloudflare R2 bucket.
+// Add an R2 binding named `FX_REPORTS` in Cloudflare Pages settings.
+// The system will automatically retrieve relevant currency excerpts.
