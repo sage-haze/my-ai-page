@@ -58,9 +58,15 @@ function arrayBufferToBase64(arrayBuffer) {
   return btoa(binary);
 }
 
+function getFxResearchBucket(env) {
+  return env?.FX_REPORTS || env?.WEEKLY_FX_RESEARCH || env?.weeklyFxResearch || null;
+}
+
 async function getLatestFxResearchPdf(env) {
   try {
-    if (!env?.FX_REPORTS) {
+    const bucket = getFxResearchBucket(env);
+    if (!bucket) {
+      console.warn("No R2 binding found for weekly-fx-research. Create a Pages R2 binding named FX_REPORTS or WEEKLY_FX_RESEARCH and point it to the weekly-fx-research bucket.");
       return null;
     }
 
@@ -68,7 +74,7 @@ async function getLatestFxResearchPdf(env) {
 
     if (!selectedKey) {
       const prefix = String(env.FX_RESEARCH_PREFIX || "").trim();
-      const listed = await env.FX_REPORTS.list({ prefix, limit: 100 });
+      const listed = await bucket.list({ prefix, limit: 100 });
       const pdfObjects = (listed?.objects || [])
         .filter(item => /\.pdf$/i.test(item.key || ""))
         .sort((a, b) => new Date(b.uploaded || 0) - new Date(a.uploaded || 0));
@@ -80,7 +86,7 @@ async function getLatestFxResearchPdf(env) {
       return null;
     }
 
-    const object = await env.FX_REPORTS.get(selectedKey);
+    const object = await bucket.get(selectedKey);
     if (!object) {
       return null;
     }

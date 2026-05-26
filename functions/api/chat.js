@@ -1643,22 +1643,21 @@ export async function onRequestPost(context) {
 
     const searchDepth = "advanced";
 
-    const [tavilyBatches, rawFxResults] = await Promise.all([
-      Promise.all(plannedQueries.map(plan =>
-        tavilySearch({
-          apiKey: env.TAVILY_API_KEY,
-          query: plan.query,
-          startDate: start_date,
-          endDate: end_date,
-          includeDomains: null,
-          maxResults: plan.maxResults || 5,
-          searchDepth
-        }).then(results => normalizeTavilyResults(results, plan.label))
-      )),
-      fetchFxRates(currencies, fxTenor)
-    ]);
+    const tavilyBatches = await Promise.all(plannedQueries.map(plan =>
+      tavilySearch({
+        apiKey: env.TAVILY_API_KEY,
+        query: plan.query,
+        startDate: start_date,
+        endDate: end_date,
+        includeDomains: null,
+        maxResults: plan.maxResults || 5,
+        searchDepth
+      }).then(results => normalizeTavilyResults(results, plan.label))
+    ));
 
-    const fxResults = await analyzeFxRates({ env, fxList: rawFxResults, sector, subsector, industry, tradeRoles, countries, tradeFlow, fxTenor });
+    // FX is now loaded independently through /api/fx so the chart/table can render as soon as Yahoo data and
+    // the R2 weekly-fx-research PDF commentary are ready. Keep an empty field for backward compatibility.
+    const fxResults = [];
 
     const primaryCandidateSources = prepareCandidateSources({
       sources: tavilyBatches.flat()

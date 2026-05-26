@@ -994,7 +994,7 @@ button.addEventListener("click", async function () {
   }
 
   button.disabled = true;
-  fxOutput.innerHTML = `<span class="loading">Checking FX...</span>`;
+  updateFxOnly();
   analysisOutput.innerHTML = `<span class="loading">Researching news...</span>`;
   renderFxContext("");
   sourcesOutput.innerHTML = `<span class="loading">Loading sources...</span>`;
@@ -1031,8 +1031,6 @@ button.addEventListener("click", async function () {
       return;
     }
 
-    renderFx(data.fx || []);
-    renderFxContext(data.fx_context || data.fxContext || "");
     renderSources(data.sources || [], Boolean(data.no_relevant_updates), Boolean(data.fallback_triggered));
     renderAnalysis(data.news?.content || data.analysis || "No analysis returned.");
     // Industry Context & RM Considerations is currently deactivated in the UI.
