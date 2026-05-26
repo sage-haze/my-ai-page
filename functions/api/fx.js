@@ -290,6 +290,56 @@ async function fetchFxRates(currencies, rangeDays = 30) {
   );
 }
 
+
+function calculateFxMetrics(fx, fxTenor = 30) {
+  const series = Array.isArray(fx?.series) ? fx.series : [];
+  if (series.length === 0) return null;
+
+  const rates = series
+    .map(item => Number(item.rate))
+    .filter(rate => Number.isFinite(rate));
+
+  if (rates.length === 0) return null;
+
+  const first = rates[0];
+  const last = rates[rates.length - 1];
+  const high = Math.max(...rates);
+  const low = Math.min(...rates);
+  const changePct = first ? ((last - first) / first) * 100 : 0;
+  const rangePct = low ? ((high - low) / low) * 100 : 0;
+  const firstDate = series[0]?.date || "";
+  const lastDate = series[series.length - 1]?.date || "";
+
+  const midpoint = (high + low) / 2;
+  const latestPosition = high === low
+    ? "flat range"
+    : last >= midpoint
+      ? "upper half of the observed range"
+      : "lower half of the observed range";
+
+  let direction = "broadly rangebound";
+  if (Math.abs(changePct) >= 0.15) {
+    direction = changePct > 0
+      ? `${fx.base || "base currency"} strengthened against THB`
+      : `${fx.base || "base currency"} weakened against THB`;
+  }
+
+  return {
+    tenor_days: Number(fxTenor) || 30,
+    first_date: firstDate,
+    last_date: lastDate,
+    first_rate: Number(first.toFixed(4)),
+    latest_rate: Number(last.toFixed(4)),
+    high_rate: Number(high.toFixed(4)),
+    low_rate: Number(low.toFixed(4)),
+    change_pct: Number(changePct.toFixed(2)),
+    observed_range_pct: Number(rangePct.toFixed(2)),
+    latest_position_in_range: latestPosition,
+    objective_direction: direction,
+    data_points: rates.length
+  };
+}
+
 function extractOutputText(data) {
   if (data.output_text) return data.output_text;
 
@@ -332,7 +382,8 @@ async function analyzeFxRates({ env, fxList, sector = "", subsector = "", indust
     highest_date: fx.highest_date,
     lowest_rate: fx.lowest_rate,
     lowest_date: fx.lowest_date,
-    series: fx.series
+    metrics: calculateFxMetrics(fx, fxTenor),
+    recent_series: fx.series
   }));
 
   const countryText = countries.map(country => country.label || country.name || country.code).filter(Boolean).join(", ");
@@ -354,7 +405,7 @@ async function analyzeFxRates({ env, fxList, sector = "", subsector = "", indust
     : "\nInternal weekly FX research PDF from R2: Not available for this request.\n";
 
   const prompt = `
-You are writing short FX movement notes for a Thailand-based relationship manager.
+You are preparing FX briefing notes for Thailand-based commercial relationship managers.
 
 Client context:
 - Client base: Thailand
@@ -362,25 +413,49 @@ Client context:
 - Subsector: ${subsector}
 - Specific industry: ${industry}
 - Directional trade flow:
-${tradeFlow ? tradeFlowSummary(tradeFlow) : `Client trade role: ${tradeRoles.join(", ")}\nExposure countries / markets: ${countryText}`}
+${tradeFlow ? tradeFlowSummary(tradeFlow) : `Client trade role: ${tradeRoles.join(", ")}
+Exposure countries / markets: ${countryText}`}
 
-Use the provided ${fxTenor}-day FX data below plus the attached internal weekly FX research PDF if available.
-For each pair, write two concise sentences.
-Sentence 1: observed FX movement, latest level versus the ${fxTenor}-day range, and whether the base currency strengthened or weakened against THB.
-Sentence 2: a calibrated implication for this Thailand-based client, using the directional purchase/sales currency context and the bank's internal FX view from the attached PDF where relevant.
-If the attached internal research is not directly relevant to a selected currency, do not force it.
-Do not mention Tavily sources. Do not give investment advice. Avoid pretending to know hedge ratios, exposure sizing, settlement timing, or net positions that were not provided. Keep each analysis under 60 words.
+You have two evidence sources:
+1. Structured ${fxTenor}-day FX market statistics from Yahoo Finance.
+2. An internal weekly FX research extract from the attached PDF, if available.
+
+For EACH selected FX pair, produce TWO clearly separated sections.
+
+MARKET OBSERVATION
+Use ONLY the supplied FX market statistics and recent series.
+Describe the observed range, latest level versus the range, directional movement, volatility/range behaviour, and whether momentum looks like continuation, fading, or reversal.
+This section must be objective and backward-looking.
+Do NOT forecast in this section.
+Keep to 2-4 sentences.
+
+INTERNAL ANALYSIS
+Use the internal research extract only as institutional support / house view for the upcoming week.
+Summarize the expected directional bias, key macro drivers, central bank expectations, upcoming risks/events, or support/resistance colour if available.
+Do not call it a PDF or mention the document/file name. Refer to it only as "internal analysis".
+If internal analysis is not directly relevant to the selected currency, say that no direct internal view was found and avoid inventing one.
+Keep to 2-4 sentences.
+
+Client implication discipline:
+- Where useful, connect the FX view to the purchase/sales currency context.
+- Do not pretend to know hedge ratios, exposure sizing, settlement timing, or net positions that were not provided.
+- Do not give investment advice.
+- Do not mention Tavily or external news sources.
 
 Return JSON only in this shape:
 {
   "analyses": [
-    { "pair": "USDTHB=X", "analysis": "..." }
+    {
+      "pair": "USDTHB=X",
+      "market_observation": "Objective observed movement based only on market data.",
+      "internal_analysis": "Forward-looking support based on internal analysis, or say no direct internal view was found."
+    }
   ],
   "research_extraction": {
     "status": "used | not_relevant | not_available",
-    "summary": "One short sentence explaining whether the attached PDF was used.",
+    "summary": "One short sentence explaining whether internal analysis was used.",
     "sections": [
-      { "currency": "USD", "text": "Only the relevant extracted USD section or a concise extract from the PDF. If not found, say not found." }
+      { "currency": "USD", "text": "Relevant extracted internal analysis for this currency. If not found, say not found." }
     ]
   }
 }
@@ -388,7 +463,7 @@ Return JSON only in this shape:
 For research_extraction.sections, include one entry for each selected currency in this list: ${currencyList.join(", ")}. This is a temporary diagnostic view for the user, so include enough extracted text to verify the right section was read, but keep each currency under 900 characters.
 
 ${internalFxResearchBlock}
-FX data:
+FX market statistics and recent series:
 ${JSON.stringify(compactFx, null, 2)}
 `.trim();
 
@@ -446,8 +521,20 @@ ${JSON.stringify(compactFx, null, 2)}
     const parsed = JSON.parse(text.slice(jsonStart, jsonEnd + 1));
     const analysisByPair = new Map(
       (parsed.analyses || [])
-        .filter(item => item.pair && item.analysis)
-        .map(item => [String(item.pair), String(item.analysis).trim()])
+        .filter(item => item.pair)
+        .map(item => {
+          const marketObservation = String(item.market_observation || "").trim();
+          const internalAnalysis = String(item.internal_analysis || "").trim();
+          const legacyAnalysis = String(item.analysis || "").trim();
+          const combined = marketObservation || internalAnalysis
+            ? [
+                marketObservation ? `Market Observation\n${marketObservation}` : "",
+                internalAnalysis ? `Internal Analysis\n${internalAnalysis}` : ""
+              ].filter(Boolean).join("\n\n")
+            : legacyAnalysis;
+          return [String(item.pair), combined];
+        })
+        .filter(([, analysis]) => analysis)
     );
 
     const researchExtraction = parsed.research_extraction || {};
