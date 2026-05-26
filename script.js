@@ -593,13 +593,51 @@ function getFxChartAxis(series, tenor) {
   return { tickLabels, majorTicks };
 }
 
-function renderFx(fxList) {
+function renderFxResearchDiagnostic(fxResearch) {
+  if (!fxResearch) return "";
+
+  const statusText = fxResearch.used
+    ? "PDF read successfully"
+    : fxResearch.found
+      ? "PDF found but not used"
+      : fxResearch.attempted
+        ? "PDF not read"
+        : "PDF not checked";
+
+  const meta = [
+    fxResearch.bucket_binding ? `Binding: ${fxResearch.bucket_binding}` : "",
+    fxResearch.filename ? `File: ${fxResearch.filename}` : "",
+    fxResearch.size_bytes ? `Size: ${Math.round(Number(fxResearch.size_bytes) / 1024)} KB` : ""
+  ].filter(Boolean).join(" • ");
+
+  const sections = Array.isArray(fxResearch.extracted_sections) ? fxResearch.extracted_sections : [];
+  const sectionHtml = sections.length
+    ? sections.map(section => `
+        <div class="fx-research-section">
+          <strong>${escapeHtml(section.currency || "Currency")}</strong>
+          <pre>${escapeHtml(section.text || "No extracted text returned.")}</pre>
+        </div>
+      `).join("")
+    : `<div class="fx-research-empty">No extracted currency section was returned.</div>`;
+
+  return `
+    <details class="fx-research-toggle">
+      <summary>${escapeHtml(statusText)}${meta ? ` <span>${escapeHtml(meta)}</span>` : ""}</summary>
+      <div class="fx-research-body">
+        <p>${escapeHtml(fxResearch.extraction_summary || fxResearch.message || "No PDF status message returned.")}</p>
+        ${sectionHtml}
+      </div>
+    </details>
+  `;
+}
+
+function renderFx(fxList, fxResearch = null) {
   const tenor = fxTenorBox?.value || "30";
   Object.values(fxCharts).forEach(chart => chart?.destroy?.());
   fxCharts = {};
 
   if (!fxList || fxList.length === 0) {
-    fxOutput.textContent = "No FX data returned.";
+    fxOutput.innerHTML = `${renderFxResearchDiagnostic(fxResearch)}<div>No FX data returned.</div>`;
     return;
   }
 
@@ -607,7 +645,7 @@ function renderFx(fxList) {
   const errors = fxList.filter(fx => fx.error);
 
   if (nonThb.length === 0 && errors.length === 0) {
-    fxOutput.textContent = "No non-THB FX selected.";
+    fxOutput.innerHTML = `${renderFxResearchDiagnostic(fxResearch)}<div>No non-THB FX selected.</div>`;
     return;
   }
 
@@ -674,6 +712,7 @@ function renderFx(fxList) {
 
   fxOutput.innerHTML = `
     <div class="fx-card-stack">
+      ${renderFxResearchDiagnostic(fxResearch)}
       ${fxCards}
       ${errorBlocks}
     </div>
@@ -877,7 +916,7 @@ async function updateFxOnly() {
       return;
     }
 
-    renderFx(data.fx || []);
+    renderFx(data.fx || [], data.fxResearch || null);
   } catch (error) {
     fxOutput.innerHTML = `<span class="error">FX network error.</span>`;
   } finally {

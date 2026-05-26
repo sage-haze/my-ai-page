@@ -63,11 +63,31 @@ function getFxResearchBucket(env) {
 }
 
 async function getLatestFxResearchPdf(env) {
+  const status = {
+    attempted: true,
+    found: false,
+    used: false,
+    bucket_binding: "",
+    key: "",
+    filename: "",
+    size_bytes: 0,
+    message: "PDF not checked yet."
+  };
+
   try {
     const bucket = getFxResearchBucket(env);
+    status.bucket_binding = env?.FX_REPORTS
+      ? "FX_REPORTS"
+      : env?.WEEKLY_FX_RESEARCH
+        ? "WEEKLY_FX_RESEARCH"
+        : env?.weeklyFxResearch
+          ? "weeklyFxResearch"
+          : "";
+
     if (!bucket) {
-      console.warn("No R2 binding found for weekly-fx-research. Create a Pages R2 binding named FX_REPORTS or WEEKLY_FX_RESEARCH and point it to the weekly-fx-research bucket.");
-      return null;
+      status.message = "No R2 binding found. Create a Pages R2 binding named FX_REPORTS or WEEKLY_FX_RESEARCH and point it to the weekly-fx-research bucket.";
+      console.warn(status.message);
+      return { pdf: null, status };
     }
 
     let selectedKey = String(env.FX_RESEARCH_OBJECT_KEY || "").trim();
@@ -82,31 +102,52 @@ async function getLatestFxResearchPdf(env) {
       selectedKey = pdfObjects[0]?.key || "";
     }
 
-    if (!selectedKey || !/\.pdf$/i.test(selectedKey)) {
-      return null;
+    if (!selectedKey) {
+      status.message = "Connected to R2, but no PDF was found in the configured prefix.";
+      return { pdf: null, status };
+    }
+
+    if (!/\.pdf$/i.test(selectedKey)) {
+      status.key = selectedKey;
+      status.message = "Configured FX research object is not a PDF.";
+      return { pdf: null, status };
     }
 
     const object = await bucket.get(selectedKey);
     if (!object) {
-      return null;
+      status.key = selectedKey;
+      status.message = "PDF key was selected, but the object could not be read from R2.";
+      return { pdf: null, status };
     }
 
     const size = Number(object.size || 0);
     const maxBytes = Number(env.FX_RESEARCH_MAX_BYTES || 12000000);
+    status.found = true;
+    status.key = selectedKey;
+    status.filename = selectedKey.split("/").pop() || "weekly-fx-research.pdf";
+    status.size_bytes = size;
+
     if (size > maxBytes) {
+      status.message = `PDF found but skipped because it is ${size} bytes, above limit ${maxBytes}.`;
       console.warn(`FX research PDF ${selectedKey} skipped because it is ${size} bytes, above limit ${maxBytes}.`);
-      return null;
+      return { pdf: null, status };
     }
 
     const arrayBuffer = await object.arrayBuffer();
+    status.used = true;
+    status.message = "PDF found in R2 and sent to OpenAI for currency-section extraction.";
     return {
-      key: selectedKey,
-      filename: selectedKey.split("/").pop() || "weekly-fx-research.pdf",
-      fileData: `data:application/pdf;base64,${arrayBufferToBase64(arrayBuffer)}`
+      pdf: {
+        key: selectedKey,
+        filename: status.filename,
+        fileData: `data:application/pdf;base64,${arrayBufferToBase64(arrayBuffer)}`
+      },
+      status
     };
   } catch (error) {
     console.error("FX research PDF retrieval failed:", error);
-    return null;
+    status.message = `FX research PDF retrieval failed: ${error.message || "Unknown error"}`;
+    return { pdf: null, status };
   }
 }
 
@@ -121,13 +162,8 @@ function tradeFlowSummary(tradeFlow) {
 }
 
 async function fetchYahooSeries(pair, rangeDays = 30) {
-  const safeRangeDays = [30, 90].includes(Number(rangeDays))
-    ? Number(rangeDays)
-    : 30;
-
-  const url =
-    `https://query1.finance.yahoo.com/v8/finance/chart/${pair}` +
-    `?interval=1d&range=${safeRangeDays}d`;
+  const safeRangeDays = [30, 90].includes(Number(rangeDays)) ? Number(rangeDays) : 30;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${pair}?interval=1d&range=${safeRangeDays}d`;
 
   const response = await fetch(url, {
     headers: {
@@ -138,19 +174,14 @@ async function fetchYahooSeries(pair, rangeDays = 30) {
   const rawText = await response.text();
 
   if (!response.ok) {
-    throw new Error(
-      `Yahoo Finance request failed for ${pair}: ${rawText.slice(0, 120)}`
-    );
+    throw new Error(`Yahoo Finance request failed for ${pair}: ${rawText.slice(0, 120)}`);
   }
 
   let data;
-
   try {
     data = JSON.parse(rawText);
-  } catch (err) {
-    throw new Error(
-      `Yahoo Finance returned invalid JSON for ${pair}.`
-    );
+  } catch (_) {
+    throw new Error(`Yahoo Finance returned invalid JSON for ${pair}: ${rawText.slice(0, 120)}`);
   }
 
   const result = data?.chart?.result?.[0];
@@ -160,7 +191,6 @@ async function fetchYahooSeries(pair, rangeDays = 30) {
   return timestamps
     .map((ts, i) => {
       const rate = prices[i];
-
       if (typeof rate !== "number") return null;
 
       return {
@@ -285,7 +315,13 @@ function extractOutputText(data) {
 async function analyzeFxRates({ env, fxList, sector = "", subsector = "", industry = "", tradeRoles = [], countries = [], tradeFlow = null, fxTenor = 30 }) {
   const usableFx = fxList.filter(fx => !fx.skip && !fx.error && Array.isArray(fx.series) && fx.series.length > 0);
 
-  if (usableFx.length === 0 || !env.OPENAI_API_KEY) return fxList;
+  if (usableFx.length === 0) {
+    return { fx: fxList, fxResearch: { attempted: false, found: false, used: false, message: "No usable non-THB FX series, so PDF research was not checked." } };
+  }
+
+  if (!env.OPENAI_API_KEY) {
+    return { fx: fxList, fxResearch: { attempted: false, found: false, used: false, message: "OPENAI_API_KEY is not configured, so PDF research was not checked." } };
+  }
 
   const compactFx = usableFx.map(fx => ({
     pair: fx.pair,
@@ -328,8 +364,17 @@ Return JSON only in this shape:
 {
   "analyses": [
     { "pair": "USDTHB=X", "analysis": "..." }
-  ]
+  ],
+  "research_extraction": {
+    "status": "used | not_relevant | not_available",
+    "summary": "One short sentence explaining whether the attached PDF was used.",
+    "sections": [
+      { "currency": "USD", "text": "Only the relevant extracted USD section or a concise extract from the PDF. If not found, say not found." }
+    ]
+  }
 }
+
+For research_extraction.sections, include one entry for each selected currency in this list: ${currencyList.join(", ")}. This is a temporary diagnostic view for the user, so include enough extracted text to verify the right section was read, but keep each currency under 900 characters.
 
 ${internalFxResearchBlock}
 FX data:
@@ -362,12 +407,30 @@ ${JSON.stringify(compactFx, null, 2)}
     });
 
     const data = await response.json();
-    if (!response.ok) return fxList;
+    if (!response.ok) {
+      return {
+        fx: fxList,
+        fxResearch: {
+          ...fxResearchStatus,
+          openai_status: "failed",
+          message: `${fxResearchStatus.message} OpenAI FX analysis failed.`
+        }
+      };
+    }
 
     const text = extractOutputText(data);
     const jsonStart = text.indexOf("{");
     const jsonEnd = text.lastIndexOf("}");
-    if (jsonStart === -1 || jsonEnd === -1) return fxList;
+    if (jsonStart === -1 || jsonEnd === -1) {
+      return {
+        fx: fxList,
+        fxResearch: {
+          ...fxResearchStatus,
+          openai_status: "no_json",
+          message: `${fxResearchStatus.message} OpenAI did not return parseable JSON.`
+        }
+      };
+    }
 
     const parsed = JSON.parse(text.slice(jsonStart, jsonEnd + 1));
     const analysisByPair = new Map(
@@ -376,12 +439,29 @@ ${JSON.stringify(compactFx, null, 2)}
         .map(item => [String(item.pair), String(item.analysis).trim()])
     );
 
-    return fxList.map(fx => ({
-      ...fx,
-      analysis: analysisByPair.get(fx.pair) || fx.analysis || ""
-    }));
-  } catch (_) {
-    return fxList;
+    const researchExtraction = parsed.research_extraction || {};
+    return {
+      fx: fxList.map(fx => ({
+        ...fx,
+        analysis: analysisByPair.get(fx.pair) || fx.analysis || ""
+      })),
+      fxResearch: {
+        ...fxResearchStatus,
+        openai_status: "ok",
+        extraction_status: researchExtraction.status || (internalFxResearchPdf ? "used" : "not_available"),
+        extraction_summary: researchExtraction.summary || "",
+        extracted_sections: Array.isArray(researchExtraction.sections) ? researchExtraction.sections : []
+      }
+    };
+  } catch (error) {
+    return {
+      fx: fxList,
+      fxResearch: {
+        ...fxResearchStatus,
+        openai_status: "error",
+        message: `${fxResearchStatus.message} FX research extraction failed: ${error.message || "Unknown error"}`
+      }
+    };
   }
 }
 
@@ -413,9 +493,9 @@ export async function onRequestPost(context) {
     }
 
     const rawFx = await fetchFxRates(currencies, fxTenor);
-    const fx = await analyzeFxRates({ env, fxList: rawFx, sector, subsector, industry, tradeRoles, countries, tradeFlow, fxTenor });
+    const analyzed = await analyzeFxRates({ env, fxList: rawFx, sector, subsector, industry, tradeRoles, countries, tradeFlow, fxTenor });
 
-    return Response.json({ fx });
+    return Response.json({ fx: analyzed.fx || rawFx, fxResearch: analyzed.fxResearch || null });
   } catch (error) {
     return Response.json({
       error: error.message || "FX update failed."
