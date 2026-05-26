@@ -337,7 +337,18 @@ async function analyzeFxRates({ env, fxList, sector = "", subsector = "", indust
 
   const countryText = countries.map(country => country.label || country.name || country.code).filter(Boolean).join(", ");
   const currencyList = usableFx.map(fx => fx.base).filter(Boolean);
-  const internalFxResearchPdf = await getLatestFxResearchPdf(env);
+  const internalFxResearchResult = await getLatestFxResearchPdf(env);
+  const internalFxResearchPdf = internalFxResearchResult?.pdf || null;
+  const fxResearchStatus = internalFxResearchResult?.status || {
+    attempted: true,
+    found: false,
+    used: false,
+    bucket_binding: "",
+    key: "",
+    filename: "",
+    size_bytes: 0,
+    message: "FX research PDF status was not available."
+  };
   const internalFxResearchBlock = internalFxResearchPdf
     ? `\nInternal weekly FX research PDF attached from R2: ${internalFxResearchPdf.filename}\n`
     : "\nInternal weekly FX research PDF from R2: Not available for this request.\n";
