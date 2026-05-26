@@ -44,36 +44,52 @@ function normalizeTradeFlow(raw = {}, fallbackCountries = [], fallbackCurrencies
 }
 
 
-async function getFXResearchContext(env, currencies = []) {
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = "";
+
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+
+  return btoa(binary);
+}
+
+async function getFXResearchPdfFile(env) {
   try {
     if (!env?.FX_REPORTS) {
-      return "";
+      return null;
     }
 
-    const object = await env.FX_REPORTS.get("latest-fx-note.txt");
+    const objectName = env.FX_REPORT_OBJECT_NAME || "latest-fx-note.pdf";
+    const object = await env.FX_REPORTS.get(objectName);
 
     if (!object) {
-      return "";
+      console.warn(`FX research PDF not found in R2: ${objectName}`);
+      return null;
     }
 
-    const rawText = await object.text();
+    const size = Number(object.size || 0);
+    const maxBytes = Number(env.FX_REPORT_MAX_BYTES || 12 * 1024 * 1024);
+    if (size && size > maxBytes) {
+      console.warn(`FX research PDF skipped because it is too large: ${size} bytes.`);
+      return null;
+    }
 
-    const selectedCurrencies = normalizeCurrencyList(currencies);
+    const contentType = object.httpMetadata?.contentType || object.writeHttpMetadata?.contentType || "application/pdf";
+    const buffer = await object.arrayBuffer();
 
-    const paragraphs = rawText
-      .split(/\n\s*\n/)
-      .map(p => p.trim())
-      .filter(Boolean);
-
-    const relevant = paragraphs.filter(paragraph => {
-      const upper = paragraph.toUpperCase();
-      return selectedCurrencies.some(currency => upper.includes(currency));
-    });
-
-    return relevant.slice(0, 8).join("\n\n").slice(0, 6000);
+    return {
+      filename: objectName,
+      mediaType: contentType.includes("pdf") ? contentType : "application/pdf",
+      base64: arrayBufferToBase64(buffer)
+    };
   } catch (error) {
-    console.error("FX research retrieval failed:", error);
-    return "";
+    console.error("FX research PDF retrieval failed:", error);
+    return null;
   }
 }
 
@@ -246,8 +262,16 @@ async function analyzeFxRates({ env, fxList, sector = "", subsector = "", indust
   }));
 
   const countryText = countries.map(country => country.label || country.name || country.code).filter(Boolean).join(", ");
+  const fxResearchPdf = await getFXResearchPdfFile(env);
   const prompt = `
-You are writing short FX movement notes for a Thailand-based relationship manager.
+You are writing structured FX movement notes for a Thailand-based relationship manager.
+
+Strict output discipline:
+- Return JSON only. No markdown. No prose outside JSON.
+- Keep exactly one analysis string per requested FX pair.
+- Keep the tone consistent across runs: factual, concise, calibrated, and banker-friendly.
+- Do not add headings, bullets, scores, confidence labels, or extra fields.
+- Do not mention the internal PDF unless it provides relevant context.
 
 Client context:
 - Client base: Thailand
@@ -257,10 +281,13 @@ Client context:
 - Directional trade flow:
 ${tradeFlow ? tradeFlowSummary(tradeFlow) : `Client trade role: ${tradeRoles.join(", ")}\nExposure countries / markets: ${countryText}`}
 
-Use only the provided ${fxTenor}-day FX data below. For each pair, write two concise sentences.
+Use the provided ${fxTenor}-day FX data as the primary quantitative source.
+If an internal weekly FX PDF is attached, use it only for relevant market narrative, house-view context, or macro explanation.
+Do not invent views that are not in the PDF. If the PDF is not relevant to a currency pair, rely only on the FX data and trade-flow context.
+For each pair, write exactly two concise sentences:
 Sentence 1: observed FX movement, latest level versus the ${fxTenor}-day range, and whether the base currency strengthened or weakened against THB.
-Sentence 2: what this could mean for the Thailand-based client in the given import/export context.
-Do not mention news or Tavily sources. Do not give investment advice. Keep each analysis under 45 words.
+Sentence 2: calibrated implication for this Thailand-based client, separating purchase-cost and sales-revenue effects where relevant.
+Do not mention Tavily sources. Do not give investment advice. Keep each analysis under 55 words.
 
 Return JSON only in this shape:
 {
@@ -268,6 +295,8 @@ Return JSON only in this shape:
     { "pair": "USDTHB=X", "analysis": "..." }
   ]
 }
+
+Internal weekly FX PDF availability: ${fxResearchPdf ? `Attached as ${fxResearchPdf.filename}. Use only relevant excerpts.` : "No internal FX PDF available."}
 
 FX data:
 ${JSON.stringify(compactFx, null, 2)}
@@ -281,8 +310,21 @@ ${JSON.stringify(compactFx, null, 2)}
         "Authorization": `Bearer ${env.OPENAI_API_KEY}`
       },
       body: JSON.stringify({
-        model: "gpt-4.1-mini",
-        input: prompt
+        model: env.OPENAI_FX_MODEL || env.OPENAI_ANALYSIS_MODEL || "gpt-4.1",
+        temperature: 0.2,
+        input: fxResearchPdf
+          ? [{
+              role: "user",
+              content: [
+                { type: "input_text", text: prompt },
+                {
+                  type: "input_file",
+                  filename: fxResearchPdf.filename,
+                  file_data: `data:${fxResearchPdf.mediaType};base64,${fxResearchPdf.base64}`
+                }
+              ]
+            }]
+          : prompt
       })
     });
 
@@ -350,6 +392,7 @@ export async function onRequestPost(context) {
 
 
 // Internal FX research integration
-// Upload a file named `latest-fx-note.txt` into your Cloudflare R2 bucket.
+// Upload a readable PDF named `latest-fx-note.pdf` into your Cloudflare R2 bucket.
 // Add an R2 binding named `FX_REPORTS` in Cloudflare Pages settings.
-// The system will automatically retrieve relevant currency excerpts.
+// Optional environment variable: FX_REPORT_OBJECT_NAME if you want to use a different filename.
+// The system attaches the private PDF to the FX OpenAI call for relevant house-view context.

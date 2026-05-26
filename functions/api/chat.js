@@ -1019,6 +1019,14 @@ Interpret purchase/sales strictly from the Thailand-based client's perspective. 
 Country-cross results, such as China-Indonesia, US-Indonesia, EU-China, or other non-selected market stories, should be LOW unless they have a clear Thailand or selected-market implication for the client. EU/China/global stories should normally be MEDIUM at most and should not displace Thailand/selected-market sources.
 Do not include sources merely to fill a quota. If relevance is weak or indirect, classify it as LOW and omit it.
 
+Output consistency rules:
+- Always return the same top-level JSON keys: status and themes.
+- Each theme must always contain exactly these keys: title, paragraph, supportingInformation, sourceNumbers.
+- supportingInformation must contain 1 to 3 concise strings.
+- Start each supportingInformation string with one of these labels only when appropriate: "Conversation opener:", "Watch point:", "Client implication:", or "RM follow-up:".
+- Do not use labels such as Risk / watch-out, Opportunity / RM angle, Primary Market Signal, signal strength, evidence score, or evidence basis.
+- Do not vary the format across runs.
+
 Return JSON only in this exact shape:
 {
   "hasRelevantUpdates": true,
@@ -1351,6 +1359,14 @@ Writing style:
 - When relevance is indirect, use cautious wording such as "may", "could", "worth monitoring", or "conversation opener".
 - Avoid overly promotional language.
 
+Output consistency rules:
+- Always return the same top-level JSON keys: status and themes.
+- Each theme must always contain exactly these keys: title, paragraph, supportingInformation, sourceNumbers.
+- supportingInformation must contain 1 to 3 concise strings.
+- Start each supportingInformation string with one of these labels only when appropriate: "Conversation opener:", "Watch point:", "Client implication:", or "RM follow-up:".
+- Do not use labels such as Risk / watch-out, Opportunity / RM angle, Primary Market Signal, signal strength, evidence score, or evidence basis.
+- Do not vary the format across runs.
+
 Return JSON only in this exact shape:
 {
   "status": "OK",
@@ -1386,6 +1402,7 @@ ${articleContext}
       },
       body: JSON.stringify({
         model: env.OPENAI_ANALYSIS_MODEL || OPENAI_ANALYSIS_MODEL,
+        temperature: 0.2,
         input: prompt
       })
     });
