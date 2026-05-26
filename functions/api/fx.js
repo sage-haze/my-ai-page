@@ -45,8 +45,8 @@ function normalizeTradeFlow(raw = {}, fallbackCountries = [], fallbackCurrencies
 
 
 
-function arrayBufferToBase64(buffer) {
-  const bytes = new Uint8Array(buffer);
+function arrayBufferToBase64(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer);
   const chunkSize = 0x8000;
   let binary = "";
 
@@ -58,41 +58,51 @@ function arrayBufferToBase64(buffer) {
   return btoa(binary);
 }
 
-async function getFXResearchPdfFile(env) {
+async function getLatestFxResearchPdf(env) {
   try {
     if (!env?.FX_REPORTS) {
       return null;
     }
 
-    const objectName = env.FX_REPORT_OBJECT_NAME || "latest-fx-note.pdf";
-    const object = await env.FX_REPORTS.get(objectName);
+    let selectedKey = String(env.FX_RESEARCH_OBJECT_KEY || "").trim();
 
+    if (!selectedKey) {
+      const prefix = String(env.FX_RESEARCH_PREFIX || "").trim();
+      const listed = await env.FX_REPORTS.list({ prefix, limit: 100 });
+      const pdfObjects = (listed?.objects || [])
+        .filter(item => /\.pdf$/i.test(item.key || ""))
+        .sort((a, b) => new Date(b.uploaded || 0) - new Date(a.uploaded || 0));
+
+      selectedKey = pdfObjects[0]?.key || "";
+    }
+
+    if (!selectedKey || !/\.pdf$/i.test(selectedKey)) {
+      return null;
+    }
+
+    const object = await env.FX_REPORTS.get(selectedKey);
     if (!object) {
-      console.warn(`FX research PDF not found in R2: ${objectName}`);
       return null;
     }
 
     const size = Number(object.size || 0);
-    const maxBytes = Number(env.FX_REPORT_MAX_BYTES || 12 * 1024 * 1024);
-    if (size && size > maxBytes) {
-      console.warn(`FX research PDF skipped because it is too large: ${size} bytes.`);
+    const maxBytes = Number(env.FX_RESEARCH_MAX_BYTES || 12000000);
+    if (size > maxBytes) {
+      console.warn(`FX research PDF ${selectedKey} skipped because it is ${size} bytes, above limit ${maxBytes}.`);
       return null;
     }
 
-    const contentType = object.httpMetadata?.contentType || object.writeHttpMetadata?.contentType || "application/pdf";
-    const buffer = await object.arrayBuffer();
-
+    const arrayBuffer = await object.arrayBuffer();
     return {
-      filename: objectName,
-      mediaType: contentType.includes("pdf") ? contentType : "application/pdf",
-      base64: arrayBufferToBase64(buffer)
+      key: selectedKey,
+      filename: selectedKey.split("/").pop() || "weekly-fx-research.pdf",
+      fileData: `data:application/pdf;base64,${arrayBufferToBase64(arrayBuffer)}`
     };
   } catch (error) {
     console.error("FX research PDF retrieval failed:", error);
     return null;
   }
 }
-
 
 function tradeFlowSummary(tradeFlow) {
   const list = countries => normalizeCountryList(countries).map(country => country.name || country.label || country.code).filter(Boolean).join(", ");
@@ -262,16 +272,14 @@ async function analyzeFxRates({ env, fxList, sector = "", subsector = "", indust
   }));
 
   const countryText = countries.map(country => country.label || country.name || country.code).filter(Boolean).join(", ");
-  const fxResearchPdf = await getFXResearchPdfFile(env);
-  const prompt = `
-You are writing structured FX movement notes for a Thailand-based relationship manager.
+  const currencyList = usableFx.map(fx => fx.base).filter(Boolean);
+  const internalFxResearchPdf = await getLatestFxResearchPdf(env);
+  const internalFxResearchBlock = internalFxResearchPdf
+    ? `\nInternal weekly FX research PDF attached from R2: ${internalFxResearchPdf.filename}\n`
+    : "\nInternal weekly FX research PDF from R2: Not available for this request.\n";
 
-Strict output discipline:
-- Return JSON only. No markdown. No prose outside JSON.
-- Keep exactly one analysis string per requested FX pair.
-- Keep the tone consistent across runs: factual, concise, calibrated, and banker-friendly.
-- Do not add headings, bullets, scores, confidence labels, or extra fields.
-- Do not mention the internal PDF unless it provides relevant context.
+  const prompt = `
+You are writing short FX movement notes for a Thailand-based relationship manager.
 
 Client context:
 - Client base: Thailand
@@ -281,13 +289,12 @@ Client context:
 - Directional trade flow:
 ${tradeFlow ? tradeFlowSummary(tradeFlow) : `Client trade role: ${tradeRoles.join(", ")}\nExposure countries / markets: ${countryText}`}
 
-Use the provided ${fxTenor}-day FX data as the primary quantitative source.
-If an internal weekly FX PDF is attached, use it only for relevant market narrative, house-view context, or macro explanation.
-Do not invent views that are not in the PDF. If the PDF is not relevant to a currency pair, rely only on the FX data and trade-flow context.
-For each pair, write exactly two concise sentences:
+Use the provided ${fxTenor}-day FX data below plus the attached internal weekly FX research PDF if available.
+For each pair, write two concise sentences.
 Sentence 1: observed FX movement, latest level versus the ${fxTenor}-day range, and whether the base currency strengthened or weakened against THB.
-Sentence 2: calibrated implication for this Thailand-based client, separating purchase-cost and sales-revenue effects where relevant.
-Do not mention Tavily sources. Do not give investment advice. Keep each analysis under 55 words.
+Sentence 2: a calibrated implication for this Thailand-based client, using the directional purchase/sales currency context and the bank's internal FX view from the attached PDF where relevant.
+If the attached internal research is not directly relevant to a selected currency, do not force it.
+Do not mention Tavily sources. Do not give investment advice. Avoid pretending to know hedge ratios, exposure sizing, settlement timing, or net positions that were not provided. Keep each analysis under 60 words.
 
 Return JSON only in this shape:
 {
@@ -296,8 +303,7 @@ Return JSON only in this shape:
   ]
 }
 
-Internal weekly FX PDF availability: ${fxResearchPdf ? `Attached as ${fxResearchPdf.filename}. Use only relevant excerpts.` : "No internal FX PDF available."}
-
+${internalFxResearchBlock}
 FX data:
 ${JSON.stringify(compactFx, null, 2)}
 `.trim();
@@ -311,20 +317,19 @@ ${JSON.stringify(compactFx, null, 2)}
       },
       body: JSON.stringify({
         model: env.OPENAI_FX_MODEL || env.OPENAI_ANALYSIS_MODEL || "gpt-4.1",
-        temperature: 0.2,
-        input: fxResearchPdf
-          ? [{
-              role: "user",
-              content: [
-                { type: "input_text", text: prompt },
-                {
-                  type: "input_file",
-                  filename: fxResearchPdf.filename,
-                  file_data: `data:${fxResearchPdf.mediaType};base64,${fxResearchPdf.base64}`
-                }
-              ]
-            }]
-          : prompt
+        input: [
+          {
+            role: "user",
+            content: [
+              { type: "input_text", text: prompt },
+              ...(internalFxResearchPdf ? [{
+                type: "input_file",
+                filename: internalFxResearchPdf.filename,
+                file_data: internalFxResearchPdf.fileData
+              }] : [])
+            ]
+          }
+        ]
       })
     });
 
@@ -389,10 +394,3 @@ export async function onRequestPost(context) {
     }, { status: 500 });
   }
 }
-
-
-// Internal FX research integration
-// Upload a readable PDF named `latest-fx-note.pdf` into your Cloudflare R2 bucket.
-// Add an R2 binding named `FX_REPORTS` in Cloudflare Pages settings.
-// Optional environment variable: FX_REPORT_OBJECT_NAME if you want to use a different filename.
-// The system attaches the private PDF to the FX OpenAI call for relevant house-view context.
