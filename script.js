@@ -1033,8 +1033,7 @@ button.addEventListener("click", async function () {
   }
 
   button.disabled = true;
-  updateFxOnly();
-  analysisOutput.innerHTML = `<span class="loading">Researching news...</span>`;
+  analysisOutput.innerHTML = `<span class="loading">Running analysis...</span>`;
   renderFxContext("");
   sourcesOutput.innerHTML = `<span class="loading">Loading sources...</span>`;
   if (contextOutput) contextOutput.textContent = "";
@@ -1064,7 +1063,6 @@ button.addEventListener("click", async function () {
 
     if (!response.ok) {
       analysisOutput.innerHTML = `<span class="error">${data.error || "Request failed."}</span>`;
-      fxOutput.textContent = "";
       sourcesOutput.textContent = "";
       if (contextOutput) contextOutput.textContent = "";
       return;
@@ -1076,7 +1074,6 @@ button.addEventListener("click", async function () {
     // renderContext(data.context || "");
   } catch (error) {
     analysisOutput.innerHTML = `<span class="error">Network error.</span>`;
-    fxOutput.textContent = "";
     sourcesOutput.textContent = "";
     if (contextOutput) contextOutput.textContent = "";
   } finally {

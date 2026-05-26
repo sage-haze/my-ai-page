@@ -124,13 +124,15 @@
           <textarea id="defaultPrompt" rows="3">Focus on trade finance implications relevant to this client’s directional trade flows. Separate purchase-side cost/supplier risks from sales-side revenue/demand risks, including supply chain dynamics, FX exposure, working capital needs, payment and counterparty risk, documentary trade, guarantees, and opportunities for trade finance solutions. Prioritise practical insights for a Thailand-based client.</textarea>
         </div>
 
-        <button id="send">Research</button>
+        <div class="action-row">
+          <button id="send" type="button">Run Analysis</button>
+          <button id="updateFx" type="button" class="secondary-button action-secondary">Update FX</button>
+        </div>
 
         <div class="results-stack">
           <div class="result-card">
             <div class="result-card-header">
               <h2>FX Rates</h2>
-              <button id="updateFx" type="button" class="secondary-button">Update FX</button>
             </div>
             <div id="fxOutput">FX rates will appear here.</div>
           </div>

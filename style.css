@@ -156,6 +156,23 @@ button:disabled {
   opacity: 0.6;
 }
 
+.action-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.action-row button {
+  margin-top: 0;
+}
+
+.action-secondary {
+  padding: 10px 16px;
+  font-size: 14px;
+}
+
 .secondary-button {
   background: #eef2ff;
   color: #2563eb;
