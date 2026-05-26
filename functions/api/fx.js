@@ -121,15 +121,36 @@ function tradeFlowSummary(tradeFlow) {
 }
 
 async function fetchYahooSeries(pair, rangeDays = 30) {
-  const safeRangeDays = [30, 90].includes(Number(rangeDays)) ? Number(rangeDays) : 30;
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${pair}?interval=1d&range=${safeRangeDays}d`;
+  const safeRangeDays = [30, 90].includes(Number(rangeDays))
+    ? Number(rangeDays)
+    : 30;
 
-  const response = await fetch(url);
+  const url =
+    `https://query1.finance.yahoo.com/v8/finance/chart/${pair}` +
+    `?interval=1d&range=${safeRangeDays}d`;
 
-  const data = await response.json();
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0"
+    }
+  });
+
+  const rawText = await response.text();
 
   if (!response.ok) {
-    throw new Error(`Yahoo Finance request failed for ${pair}.`);
+    throw new Error(
+      `Yahoo Finance request failed for ${pair}: ${rawText.slice(0, 120)}`
+    );
+  }
+
+  let data;
+
+  try {
+    data = JSON.parse(rawText);
+  } catch (err) {
+    throw new Error(
+      `Yahoo Finance returned invalid JSON for ${pair}.`
+    );
   }
 
   const result = data?.chart?.result?.[0];
@@ -139,6 +160,7 @@ async function fetchYahooSeries(pair, rangeDays = 30) {
   return timestamps
     .map((ts, i) => {
       const rate = prices[i];
+
       if (typeof rate !== "number") return null;
 
       return {
