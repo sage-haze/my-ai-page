@@ -13,6 +13,9 @@ const DEFAULT_APPROVED_DOMAINS = [
 
 const ALLOWED_CURRENCIES = ["THB", "USD", "JPY", "EUR", "CNY"];
 
+const OPENAI_FAST_MODEL = "gpt-4.1-mini";
+const OPENAI_ANALYSIS_MODEL = "gpt-4.1";
+
 const SUBSECTOR_KEYWORD_MAP = {
   "Thai commercial bank": [
     "Thailand banking",
@@ -246,110 +249,117 @@ function cleanQueryText(text) {
     .slice(0, 350);
 }
 
-function roleText(tradeRoles) {
-  if (tradeRoles.includes("importer") && tradeRoles.includes("exporter")) {
-    return "Thailand importer exporter overseas suppliers buyers";
-  }
-  if (tradeRoles.includes("importer")) {
-    return "Thailand importer overseas suppliers input costs";
-  }
-  if (tradeRoles.includes("exporter")) {
-    return "Thailand exporter overseas buyers demand";
-  }
-  return "Thailand import export trade";
+function normalizeCountryList(countries = []) {
+  const seen = new Set();
+  return (Array.isArray(countries) ? countries : [])
+    .map(country => ({
+      name: String(country?.name || "").trim(),
+      code: String(country?.code || "").trim(),
+      label: String(country?.label || country?.name || country?.code || "").trim()
+    }))
+    .filter(country => country.name || country.code || country.label)
+    .filter(country => {
+      const key = country.code || country.name || country.label;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 }
 
-function exposureTextForRole(tradeRoles, countries) {
-  const countryNames = countries.map(country => country.name).filter(Boolean).slice(0, 4);
-  if (countryNames.length === 0) return "overseas markets";
-
-  const markets = countryNames.join(" ");
-  if (tradeRoles.includes("importer") && tradeRoles.includes("exporter")) {
-    return `Thailand trade exposure ${markets} overseas suppliers buyers`;
-  }
-  if (tradeRoles.includes("importer")) {
-    return `Thailand sourcing exposure ${markets} overseas suppliers`;
-  }
-  if (tradeRoles.includes("exporter")) {
-    return `Thailand export market exposure ${markets} overseas buyers demand`;
-  }
-  return `Thailand market exposure ${markets}`;
+function normalizeCurrencyList(currencies = []) {
+  return uniqueArray((Array.isArray(currencies) ? currencies : [])
+    .map(currency => String(currency || "").toUpperCase().trim())
+    .filter(currency => ALLOWED_CURRENCIES.includes(currency)));
 }
 
-function buildFallbackQueries({ sector, subsector, industry, isicCode, tradeRoles, countries, deepSearch }) {
-  const baseKeywords = getSearchKeywords({ sector, subsector, industry, isicCode }).slice(0, 4).join(" ");
-  const thaiRoleLens = roleText(tradeRoles);
-  const exposureLens = exposureTextForRole(tradeRoles, countries);
+function normalizeTradeFlow(raw = {}, fallbackCountries = [], fallbackCurrencies = []) {
+  const purchase = raw?.purchase || {};
+  const sales = raw?.sales || {};
+  const fallback = normalizeCountryList(fallbackCountries);
+  const fallbackCurrencyList = normalizeCurrencyList(fallbackCurrencies);
 
-  const queries = [
-    {
-      label: "thai_client_context",
-      query: cleanQueryText(`Thailand ${industry} ${thaiRoleLens} news`),
-      maxResults: 5
+  return {
+    purchase: {
+      domestic: Boolean(purchase.domestic),
+      international: Boolean(purchase.international),
+      countries: normalizeCountryList(purchase.countries || []),
+      currencies: normalizeCurrencyList(purchase.currencies || fallbackCurrencyList)
     },
-    {
-      label: "global_industry_context",
-      query: cleanQueryText(`${industry} global supply chain demand prices trade news`),
-      maxResults: 5
-    }
-  ];
-
-  if (deepSearch) {
-    queries.push(
-      {
-        label: "thai_exposure_context",
-        query: cleanQueryText(`${industry} ${exposureLens} trade flows news`),
-        maxResults: 5
-      },
-      {
-        label: "risk_finance_context",
-        query: cleanQueryText(`${industry} ${baseKeywords} logistics tariffs payment risk working capital news`),
-        maxResults: 5
-      }
-    );
-  }
-
-  return queries;
+    sales: {
+      domestic: Boolean(sales.domestic),
+      international: Boolean(sales.international),
+      countries: normalizeCountryList(sales.countries || []),
+      currencies: normalizeCurrencyList(sales.currencies || fallbackCurrencyList)
+    },
+    legacyCountries: fallback
+  };
 }
 
-function buildRecoveryQueries({ sector, subsector, industry, isicCode, tradeRoles, countries, deepSearch }) {
-  const baseKeywords = getSearchKeywords({ sector, subsector, industry, isicCode }).slice(0, 3).join(" ");
-  const countryNames = countries.map(country => country.name).filter(Boolean).slice(0, 3).join(" ");
+function deriveTradeRolesFromFlow(tradeFlow, legacyRoles = []) {
+  const roles = [];
+  if (tradeFlow?.purchase?.international) roles.push("importer");
+  if (tradeFlow?.sales?.international) roles.push("exporter");
+  const cleanLegacy = (Array.isArray(legacyRoles) ? legacyRoles : [])
+    .map(role => String(role).toLowerCase())
+    .filter(role => ["importer", "exporter"].includes(role));
+  return uniqueArray([...roles, ...cleanLegacy]);
+}
 
+function getAllTradeFlowCountries(tradeFlow) {
+  return normalizeCountryList([
+    ...(tradeFlow?.purchase?.countries || []),
+    ...(tradeFlow?.sales?.countries || []),
+    ...(tradeFlow?.legacyCountries || [])
+  ]);
+}
+
+function getAllTradeFlowCurrencies(tradeFlow, legacyCurrencies = []) {
+  return uniqueArray([
+    ...(tradeFlow?.purchase?.currencies || []),
+    ...(tradeFlow?.sales?.currencies || []),
+    ...normalizeCurrencyList(legacyCurrencies)
+  ]);
+}
+
+function listCountries(countries = [], max = 4) {
+  return normalizeCountryList(countries).map(country => country.name || country.label || country.code).filter(Boolean).slice(0, max).join(" ");
+}
+
+function tradeFlowSummary(tradeFlow) {
+  const purchaseMarkets = tradeFlow?.purchase?.international ? listCountries(tradeFlow.purchase.countries, 6) || "international suppliers" : "none";
+  const salesMarkets = tradeFlow?.sales?.international ? listCountries(tradeFlow.sales.countries, 6) || "international buyers" : "none";
+  return [
+    `Purchase from: ${tradeFlow?.purchase?.domestic ? "Thailand domestic" : ""}${tradeFlow?.purchase?.domestic && tradeFlow?.purchase?.international ? "; " : ""}${tradeFlow?.purchase?.international ? purchaseMarkets : ""}`.trim(),
+    `Purchase currencies: ${(tradeFlow?.purchase?.currencies || []).join(", ") || "not specified"}`,
+    `Sales to: ${tradeFlow?.sales?.domestic ? "Thailand domestic" : ""}${tradeFlow?.sales?.domestic && tradeFlow?.sales?.international ? "; " : ""}${tradeFlow?.sales?.international ? salesMarkets : ""}`.trim(),
+    `Sales currencies: ${(tradeFlow?.sales?.currencies || []).join(", ") || "not specified"}`
+  ].join("\n");
+}
+
+function buildFallbackQueries({ sector, subsector, industry, isicCode, tradeFlow }) {
+  const baseKeywords = getSearchKeywords({ sector, subsector, industry, isicCode }).slice(0, 4).join(" ");
+  const purchaseMarkets = listCountries(tradeFlow?.purchase?.countries, 3);
+  const salesMarkets = listCountries(tradeFlow?.sales?.countries, 3);
   const queries = [
-    {
-      label: "fallback_thailand_industry",
-      query: cleanQueryText(`Thailand ${industry} trade supply chain demand news`),
-      maxResults: 5
-    }
+    { label: "purchase_cost_supply_context", query: cleanQueryText(`Thailand ${industry} import sourcing supplier costs ${purchaseMarkets} news`), maxResults: 5 },
+    { label: "sales_demand_export_context", query: cleanQueryText(`Thailand ${industry} exports demand buyers ${salesMarkets} news`), maxResults: 5 },
+    { label: "industry_trade_context", query: cleanQueryText(`${industry} global supply chain demand prices trade news`), maxResults: 5 },
+    { label: "fx_trade_crosswinds", query: cleanQueryText(`Thailand ${industry} FX currency trade impact ${baseKeywords} news`), maxResults: 5 }
   ];
-
-  if (deepSearch) {
-    queries.push({
-      label: "fallback_global_industry",
-      query: cleanQueryText(`${industry} global supply chain prices demand trade news`),
-      maxResults: 5
-    });
-  } else if (countryNames) {
-    queries.push({
-      label: "fallback_exposure_context",
-      query: cleanQueryText(`${industry} ${countryNames} global demand supply chain news`),
-      maxResults: 4
-    });
-  }
-
-  if (queries.length < 2 && baseKeywords) {
-    queries.push({
-      label: "fallback_sector_context",
-      query: cleanQueryText(`${industry} ${baseKeywords} global trade news`),
-      maxResults: 4
-    });
-  }
-
-  return queries.filter(item => item.query.length > 0).slice(0, deepSearch ? 2 : 2);
+  return queries.filter(item => item.query.length > 0).slice(0, 4);
 }
 
-function prepareCandidateSources({ sources, deepSearch }) {
+function buildRecoveryQueries({ sector, subsector, industry, isicCode, tradeFlow }) {
+  const baseKeywords = getSearchKeywords({ sector, subsector, industry, isicCode }).slice(0, 3).join(" ");
+  const markets = listCountries(getAllTradeFlowCountries(tradeFlow), 4);
+  return [
+    { label: "fallback_thailand_industry", query: cleanQueryText(`Thailand ${industry} trade supply chain demand news`), maxResults: 5 },
+    { label: "fallback_exposure_context", query: cleanQueryText(`${industry} ${markets} supply demand logistics tariffs news`), maxResults: 5 },
+    { label: "fallback_sector_context", query: cleanQueryText(`${industry} ${baseKeywords} global trade news`), maxResults: 5 }
+  ].filter(item => item.query.length > 0).slice(0, 3);
+}
+
+function prepareCandidateSources({ sources }) {
   const allCandidateSources = dedupeSources(sources)
     .sort((a, b) => {
       const aThai = isThailandRelatedSource(a) ? 1 : 0;
@@ -360,8 +370,8 @@ function prepareCandidateSources({ sources, deepSearch }) {
     });
 
   // Keep the review pool balanced so selected-country/global searches do not crowd out Thailand-related sources.
-  const candidateLimit = deepSearch ? 14 : 12;
-  const perGroupLimit = deepSearch ? 4 : 5;
+  const candidateLimit = 16;
+  const perGroupLimit = 5;
   const groupCounts = new Map();
   const balancedCandidates = [];
 
@@ -396,16 +406,15 @@ function parseQueryPlan(text) {
         maxResults: Number(item.maxResults || 4)
       }))
       .filter(item => item.query.length > 0)
-      .slice(0, 4);
+      .slice(0, 5);
   } catch (_) {
     return null;
   }
 }
 
-async function planTavilyQueries({ env, sector, subsector, industry, isicCode, tradeRoles, countries, timeframe, deepSearch }) {
-  const fallbackQueries = buildFallbackQueries({ sector, subsector, industry, isicCode, tradeRoles, countries, deepSearch });
-  const countryText = countries.map(country => country.label || `${country.name} (${country.code})`).join(", ");
-  const targetCount = deepSearch ? 4 : 2;
+async function planTavilyQueries({ env, sector, subsector, industry, isicCode, tradeFlow, timeframe }) {
+  const fallbackQueries = buildFallbackQueries({ sector, subsector, industry, isicCode, tradeFlow });
+  const targetCount = 5;
 
   const plannerPrompt = `
 Create ${targetCount} short Tavily news search queries for a Thailand-based bank RM.
@@ -415,29 +424,26 @@ Customer profile:
 - Sector: ${sector}
 - Subsector: ${subsector}
 - Specific industry / ISIC activity: ${industry}
-- Client trade role: ${tradeRoles.join(", ")}
-- Exposure countries / markets: ${countryText}
+- Directional trade flow:
+${tradeFlowSummary(tradeFlow)}
 - Timeframe: last ${timeframe} days
 - Core industry terms: ${getSearchKeywords({ sector, subsector, industry, isicCode }).slice(0, 10).join(", ")}
 
 Goal:
-Generate a mix of Thailand-prioritised and broader industry searches. Selected countries are exposure markets for the Thai client, not countries to cross-combine with each other.
+Generate one consistent premium search plan that separates purchase-side cost/supplier risk from sales-side demand/revenue risk, plus FX/trade crosswinds.
 
 Rules:
 - Return JSON only.
 - Tavily is keyword search, not reasoning. Keep each query short and keyword-style.
-- Use Industry as the main anchor.
-- Use sector/subsector as context, not as the main anchor.
-- Prioritise Thailand-related news first, then global industry news.
-- Generate queries with DIFFERENT strictness levels:
-  1. One Thailand/client-context query. This should include Thailand, the industry, and the Thai importer/exporter lens.
-  2. One broader global industry query. This should NOT include Thailand and should usually NOT include the selected countries.
-  3. In Deep Search only, add one Thailand exposure-market query and one risk/supply-chain/trade-finance query.
-- Do NOT create country-pair or country-combination searches such as "China Indonesia", "US Indonesia", or "China exports Indonesia" unless Thailand is explicitly the subject of the trade flow.
-- If exporter is selected, this means a Thai client exports to overseas buyers/markets. Search for Thai export-market demand, buyer demand, pricing, logistics, or trade restrictions that affect Thai exporters.
-- If importer is selected, this means a Thai client imports from overseas suppliers/markets. Search for Thai sourcing, supplier costs, supply chain, logistics, or trade restrictions that affect Thai importers.
-- Selected countries may appear in only ONE Thailand-centered exposure query; do not force them into every query.
-- Avoid over-constraining every query with all countries, role words, sector, and Thailand at the same time.
+- Use the specific industry as the main anchor.
+- Generate queries with DIFFERENT intent:
+  1. purchase_cost_supply_context: supplier conditions, input costs, imports, logistics, tariffs, purchase markets.
+  2. sales_demand_export_context: export demand, buyer markets, revenue conditions, regulation, sales markets.
+  3. thailand_client_context: Thailand industry trade flow / working capital relevance.
+  4. industry_trade_context: broader global industry context without overloading all country names.
+  5. fx_trade_crosswinds: currency, competitiveness, margin or payment implications tied to selected purchase/sales currencies.
+- Do NOT create random country-pair searches unless Thailand is part of the client flow.
+- Do NOT force every country into every query.
 - Avoid prompts, questions, and long sentences.
 - Each query must be under 180 characters.
 - Use maxResults 5 for each query.
@@ -445,8 +451,8 @@ Rules:
 JSON shape:
 {
   "queries": [
-    { "label": "strict_client_context", "query": "...", "maxResults": 5 },
-    { "label": "broader_industry_context", "query": "...", "maxResults": 5 }
+    { "label": "purchase_cost_supply_context", "query": "...", "maxResults": 5 },
+    { "label": "sales_demand_export_context", "query": "...", "maxResults": 5 }
   ]
 }`.trim();
 
@@ -457,17 +463,14 @@ JSON shape:
         "Content-Type": "application/json",
         "Authorization": `Bearer ${env.OPENAI_API_KEY}`
       },
-      body: JSON.stringify({
-        model: "gpt-4.1-mini",
-        input: plannerPrompt
-      })
+      body: JSON.stringify({ model: OPENAI_FAST_MODEL, input: plannerPrompt })
     });
 
     const data = await response.json();
     if (!response.ok) return fallbackQueries;
 
     const planned = parseQueryPlan(extractOutputText(data));
-    return planned && planned.length >= 2 ? planned.slice(0, targetCount) : fallbackQueries;
+    return planned && planned.length >= 3 ? planned.slice(0, targetCount) : fallbackQueries;
   } catch (_) {
     return fallbackQueries;
   }
@@ -762,7 +765,7 @@ async function fetchFxRates(currencies, rangeDays = 30) {
   );
 }
 
-async function analyzeFxRates({ env, fxList, sector = "", subsector = "", industry = "", tradeRoles = [], countries = [], fxTenor = 30 }) {
+async function analyzeFxRates({ env, fxList, sector = "", subsector = "", industry = "", tradeRoles = [], countries = [], tradeFlow = null, fxTenor = 30 }) {
   const usableFx = fxList.filter(fx => !fx.skip && !fx.error && Array.isArray(fx.series) && fx.series.length > 0);
 
   if (usableFx.length === 0) return fxList;
@@ -788,8 +791,8 @@ Client context:
 - Sector: ${sector}
 - Subsector: ${subsector}
 - Specific industry / ISIC activity: ${industry}
-- Client trade role: ${tradeRoles.join(", ")}
-- Exposure countries / markets: ${countryText}
+- Directional trade flow:
+${tradeFlow ? tradeFlowSummary(tradeFlow) : `Client trade role: ${tradeRoles.join(", ")}\nExposure countries / markets: ${countryText}`}
 
 Use only the provided ${fxTenor}-day FX data below. For each pair, write two concise sentences.
 Sentence 1: observed FX movement, latest level versus the ${fxTenor}-day range, and whether the base currency strengthened or weakened against THB.
@@ -815,7 +818,7 @@ ${JSON.stringify(compactFx, null, 2)}
         "Authorization": `Bearer ${env.OPENAI_API_KEY}`
       },
       body: JSON.stringify({
-        model: "gpt-4.1-mini",
+        model: OPENAI_FAST_MODEL,
         input: prompt
       })
     });
@@ -954,7 +957,7 @@ function sourcePriority(source, countries = [], termProfile = {}) {
   return levelScore + countryScore + authorityScore + recencyScore + groupScore + tavilyScore + industryScore;
 }
 
-async function assessSourceRelevance({ env, sources, sector, subsector, industry, isicCode, tradeRoles, countries, timeframe, plannedQueries }) {
+async function assessSourceRelevance({ env, sources, sector, subsector, industry, isicCode, tradeRoles, countries, tradeFlow = null, timeframe, plannedQueries }) {
   if (!sources.length) {
     return {
       hasRelevantUpdates: false,
@@ -993,9 +996,9 @@ Customer profile:
 - Sector: ${sector}
 - Subsector: ${subsector}
 - Specific industry / ISIC activity: ${industry}
-- Client trade role: ${tradeRoles.join(", ")}
 - Client base: Thailand
-- Exposure countries / markets: ${countryText}
+- Directional trade flow:
+${tradeFlow ? tradeFlowSummary(tradeFlow) : `Client trade role: ${tradeRoles.join(", ")}\nExposure countries / markets: ${countryText}`}
 - Timeframe: last ${timeframe} days
 - Core industry terms: ${(termProfile.high || []).slice(0, 12).join(", ")}
 - Medium industry terms: ${(termProfile.medium || []).slice(0, 8).join(", ")}
@@ -1012,7 +1015,7 @@ Prioritise sources in this order:
 
 A useful source must have a clear client implication. It is not enough that the article mentions a selected country, exporter/importer, or broad sector keyword.
 Industry criticality rule: Prefer articles that involve the core industry terms. Downrank or omit articles that mainly match weak-adjacent/exclusion terms without also matching core terms. For example, a sugar article should not become an animal-feed theme unless it explicitly mentions feed, molasses for feed, feed grain substitution, livestock feed costs, or another core feed linkage.
-Interpret importer/exporter strictly from the Thailand-based client's perspective; for example, China/US/Indonesia should be treated as exposure markets/sources/destinations, not as exporters/importers themselves unless that directly affects Thai client flows.
+Interpret purchase/sales strictly from the Thailand-based client's perspective. Purchase markets are supplier/cost-side exposures; sales markets are buyer/revenue-side exposures. Do not mix the two unless the source supports a crosswind or hedge implication.
 Country-cross results, such as China-Indonesia, US-Indonesia, EU-China, or other non-selected market stories, should be LOW unless they have a clear Thailand or selected-market implication for the client. EU/China/global stories should normally be MEDIUM at most and should not displace Thailand/selected-market sources.
 Do not include sources merely to fill a quota. If relevance is weak or indirect, classify it as LOW and omit it.
 
@@ -1056,7 +1059,7 @@ ${JSON.stringify(compactSources, null, 2)}
         "Authorization": `Bearer ${env.OPENAI_API_KEY}`
       },
       body: JSON.stringify({
-        model: "gpt-4.1-mini",
+        model: OPENAI_FAST_MODEL,
         input: prompt
       })
     });
@@ -1191,22 +1194,10 @@ function formatNewsThemesFromJson(parsed) {
       .map(item => `- ${item}`)
       .join("\n");
 
-    const signalStrength = String(theme.signalStrength || theme.signal_strength || "").trim();
-    const evidenceScore = Number.isFinite(Number(theme.evidenceScore ?? theme.evidence_score))
-      ? `${Math.max(0, Math.min(100, Math.round(Number(theme.evidenceScore ?? theme.evidence_score))))}/100`
-      : "";
-    const evidenceRationale = String(theme.evidenceRationale || theme.evidence_rationale || "").trim();
-    const metaLine = [
-      signalStrength ? `Signal strength: ${signalStrength}` : "",
-      evidenceScore ? `Evidence score: ${evidenceScore}` : "",
-      evidenceRationale ? `Evidence basis: ${evidenceRationale}` : ""
-    ].filter(Boolean).join(" | ");
-
     return [
       `Theme ${index + 1}: ${title}`,
-      metaLine,
       paragraph,
-      bulletText ? "Supporting information:" : "",
+      bulletText ? "Conversation notes:" : "",
       bulletText
     ].filter(Boolean).join("\n");
   }).filter(Boolean).join("\n\n");
@@ -1273,7 +1264,7 @@ function alignSourcesToAnalysis({ sources, newsSection, timeframe }) {
   };
 }
 
-async function analyzeNewsDevelopments({ env, sources, sector, subsector, industry, isicCode = "", tradeRoles, countries, timeframe, deepSearch, plannedQueries, defaultPrompt }) {
+async function analyzeNewsDevelopments({ env, sources, sector, subsector, industry, isicCode = "", tradeRoles, countries, tradeFlow = null, timeframe, plannedQueries, defaultPrompt }) {
   if (!sources.length) {
     return {
       status: "NO_NEWS",
@@ -1299,17 +1290,13 @@ Published: ${source.published_at || "Unknown"}
 Source type: ${source.source_group}
 ${Array.isArray(source.syndicated_via) && source.syndicated_via.length ? `Same/similar story also seen via: ${source.syndicated_via.join(", ")}` : ""}
 Relevance reviewer note: ${source.relevance_justification || ""}
-Evidence score: ${source.evidence_score ?? "Not scored"}/100
-Country relevance score: ${source.country_relevance_score ?? "Not scored"}
-Country relevance matches: ${Array.isArray(source.country_relevance_matches) ? source.country_relevance_matches.join(", ") : ""}
-Authority score: ${source.authority_score ?? "Not scored"}/5
 Content:
 ${trimmedText}
 `.trim();
   }).join("\n\n");
 
   const prompt = `
-You are an analyst supporting a Thailand-based relationship manager.
+You are a careful market analyst supporting a Thailand-based relationship manager.
 
 The user's custom focus/context is:
 ${defaultPrompt}
@@ -1318,62 +1305,62 @@ Customer profile:
 - Sector: ${sector}
 - Subsector: ${subsector}
 - Specific industry / ISIC activity: ${industry}
-- Client trade role: ${tradeRoles.join(", ")}
 - Client base: Thailand
-- Countries / markets relevant to the client: ${countryText}
+- Directional trade flow:
+${tradeFlow ? tradeFlowSummary(tradeFlow) : `Client trade role: ${tradeRoles.join(", ")}
+Countries / markets relevant to the client: ${countryText}`}
 - Timeframe for news search: last ${timeframe} days
-- Search mode: ${deepSearch ? "Deep Search" : "Standard Search"}
+- Search mode: Single adaptive directional search
 - Tavily queries used: ${plannedQueries.map(plan => `${plan.label}: ${plan.query}`).join(" | ")}
 
 Task:
-Generate NEWS-BASED market developments only from the provided sources.
+Create a concise, source-grounded customer conversation brief from the provided news sources.
 
-Organise insights by client-conversation relevance. Prioritise themes with direct Thailand and selected-market relevance. If you must use broader EU/China/global context, clearly label it as secondary and explain the bridge to Thailand/selected markets.
+Analysis standard:
+- The output should help an RM sound informed and commercially aware, not force every item into a product pitch.
+- Separate purchase-side cost/supplier implications from sales-side revenue/demand implications when the sources support that distinction.
+- Treat purchase countries as supplier/source markets and sales countries as buyer/revenue markets. Do not cross-combine countries randomly.
+- Prefer direct Thailand, selected purchase-market, selected sales-market, or selected-currency relevance.
+- Broader sector news may be used only when the bridge to this client profile is clear. If the article is not specific to the selected ISIC activity, say so plainly, e.g. "While this is broader fruit-sector news rather than durian-specific...".
 
-Strict rules:
+Grounding rules:
 - Use ONLY the provided sources.
-- Do NOT add general industry knowledge, background assumptions, or evergreen commentary.
-- Do NOT infer beyond what the sources directly support.
-- Selected countries / markets are the primary relevance anchor. A theme about non-selected markets such as EU or China must be included only if the source provides a clear bridge to Thailand, the selected markets, pricing, supply, demand, logistics, or compliance for this client.
-- Do not let indirect global themes displace direct Thailand/selected-market themes. If direct selected-market sources exist, use them first.
-- Do NOT use a country selection as a proxy for currency exposure. Only discuss a currency when that currency is explicitly selected by the user or directly mentioned in the cited article.
-- Do NOT analyze FX rate movements; FX commentary is generated separately.
+- Do NOT add unstated facts, general industry knowledge, background assumptions, or evergreen commentary as if sourced.
+- Do NOT imply that an article specifically discusses the client's product, market, currency, or trade flow unless the source explicitly does.
+- You may draw cautious implications, but clearly distinguish direct evidence from inferred relevance.
+- Do not cite a source unless it directly supports the statement being made.
+- Every theme must cite at least one source number from the provided sources.
+- Every bullet must include a source reference like [1], [2].
 - If the sources do not contain meaningful, recent developments relevant to this Thailand-based client context, return JSON with "status": "NO_NEWS" and an empty themes array.
 - If there is at least one useful news-based theme, return JSON with "status": "OK". Do NOT include the string NO_NEWS anywhere in titles, paragraphs, or bullets.
-- Be assertive. Do not create generic filler just to produce themes.
-- Every theme must cite at least one source number from the provided sources.
-- Every supporting bullet must include a source reference like [1], [2].
-- Each theme should balance risk and opportunity. Include at least one source-backed risk/watch-out and one source-backed opportunity/RM angle when the cited sources support both. If opportunity is not directly supported, write a cautious RM question rather than a factual claim.
-- Only use source numbers that support the specific statement.
-- Do not cite a source unless it is actually used in the theme.
-- Synthesis rule: where multiple sources naturally relate to the same development, combine them into one stronger theme instead of creating one theme per source.
-- A theme may reference multiple sources, but only when the connection is directly supported. Do not force connections.
+
+Relevance discipline:
+- Do not force weakly related articles into high-confidence themes.
+- Do not use numeric scores, signal strength labels, or evidence grades.
+- Do not use prefixes such as "Primary Market Signal" or "Secondary Global Context".
 - Prefer fewer, stronger themes over many isolated source summaries.
-- Theme titles should be specific and RM-ready: name the actual development, client implication, and trade-finance angle where possible. Avoid generic titles such as "Supply Chain Risk" or "Market Update".
-- Prefix title with "Primary Market Signal:" when directly tied to Thailand or selected countries. Prefix title with "Secondary Global Context:" only when the theme is broader global context.
-- Each theme should be relevant to trade finance, such as import/export flows, supply chain disruption, working capital, payment risk, guarantees, letters of credit, documentary collections, receivables, inventory financing, cash management, hedging conversations, or counterparty risk.
-- Treat selected countries as exposure markets/sourcing markets for the Thai client, not as countries to cross-combine with each other.
-- Do NOT assume a named company in an article is the bank's client or the user's client.
-- If an article is about a named company, frame the insight as a market signal, competitor signal, buyer/supplier signal, or sector development unless the user explicitly says that named company is the client.
-- RM recommendations must be applicable to a typical Thailand-based client in the selected industry, not only to the specific company mentioned in the article.
-- Avoid recommendations such as financing a specific expansion, acquisition, or project unless the source clearly says the selected client is undertaking it. Prefer phrasing such as "clients in this industry may face..." or "use this as a conversation opener...".
-- Down-rank or reject one-company corporate actions unless they clearly indicate broader sector implications for supply, demand, pricing, export channels, buyer requirements, logistics, working capital cycles, or trade-finance needs.
-- Include signalStrength and evidenceScore for every theme. High = direct Thailand/selected-market relevance and/or multiple strong sources. Medium = useful but partly indirect. Low = included only as clearly labelled secondary context.
-- evidenceScore should be 0-100 and should reflect direct country relevance, source authority, recency, and whether more than one source supports the theme.
+- If a development is only useful as a light conversation opener, frame it as a small-talk / awareness point rather than a risk or sales opportunity.
+- Not every theme needs a risk, opportunity, or RM angle. Only include those when genuinely supported.
+- Avoid recommendations such as financing a specific expansion, acquisition, or project unless the source clearly supports it for the selected client profile.
+- Do NOT assume a named company in an article is the bank's client or the user's client. Frame it as a sector signal, competitor signal, buyer/supplier signal, or market development.
+- Do NOT repeat the standalone FX rate commentary. Mention FX only when a source directly supports an implication, or when selected purchase/sales currencies create an obvious directional crosswind that is clearly presented as an inference.
+
+Writing style:
+- Use practical, banker-friendly titles. Avoid generic titles such as "Supply Chain Risk" or "Market Update".
+- Keep each paragraph short and calibrated.
+- When relevance is indirect, use cautious wording such as "may", "could", "worth monitoring", or "conversation opener".
+- Avoid overly promotional language.
 
 Return JSON only in this exact shape:
 {
   "status": "OK",
   "themes": [
     {
-      "title": "Primary Market Signal: Specific RM-ready news theme title, not a generic category",
-      "signalStrength": "High | Medium | Low",
-      "evidenceScore": 0,
-      "evidenceRationale": "Short reason based on source authority, direct selected-market relevance, and number of supporting sources.",
-      "paragraph": "One short paragraph explaining why this current development matters to the Thailand-based client, with source reference(s).",
+      "title": "Specific practical title without scoring or signal prefixes",
+      "paragraph": "One short paragraph explaining the development and its calibrated relevance to the Thailand-based client, with source reference(s).",
       "supportingInformation": [
-        "Risk / watch-out: specific source-backed point with source reference like [1]",
-        "Opportunity / RM angle: specific source-backed point or cautious RM question with source reference like [2]"
+        "Conversation opener: source-grounded point the RM can raise without forcing a sale [1]",
+        "Watch point: optional source-grounded risk, operational issue, or follow-up question only if supported [2]"
       ],
       "sourceNumbers": [1, 2]
     }
@@ -1398,7 +1385,7 @@ ${articleContext}
         "Authorization": `Bearer ${env.OPENAI_API_KEY}`
       },
       body: JSON.stringify({
-        model: "gpt-4.1-mini",
+        model: env.OPENAI_ANALYSIS_MODEL || OPENAI_ANALYSIS_MODEL,
         input: prompt
       })
     });
@@ -1470,9 +1457,9 @@ Client context:
 - Sector: ${sector}
 - Subsector: ${subsector}
 - Specific industry / ISIC activity: ${industry}
-- Client trade role: ${tradeRoles.join(", ")}
 - Client base: Thailand
-- Exposure countries / markets: ${countryText}
+- Directional trade flow:
+${tradeFlow ? tradeFlowSummary(tradeFlow) : `Client trade role: ${tradeRoles.join(", ")}\nExposure countries / markets: ${countryText}`}
 
 Return ONLY valid JSON in this exact structure:
 {
@@ -1525,7 +1512,7 @@ Strict requirements:
         "Authorization": `Bearer ${env.OPENAI_API_KEY}`
       },
       body: JSON.stringify({
-        model: "gpt-4.1-mini",
+        model: OPENAI_FAST_MODEL,
         input: prompt,
         text: {
           format: {
@@ -1611,22 +1598,24 @@ export async function onRequestPost(context) {
     const fxTenor = [30, 90].includes(Number(body.fxTenor)) ? Number(body.fxTenor) : 30;
     const isicCode = (body.isicCode || "").trim();
     if (isicCode && industry && !industry.includes(isicCode)) industry = `${isicCode} - ${industry}`;
-    const tradeRoles = Array.isArray(body.tradeRoles)
-      ? body.tradeRoles.map(role => String(role).toLowerCase()).filter(role => ["importer", "exporter"].includes(role))
-      : [];
-    const deepSearch = Boolean(body.deepSearch);
-    const currencies = Array.isArray(body.currencies)
-      ? body.currencies.map(c => String(c).toUpperCase())
-      : [];
-    const countries = Array.isArray(body.countries) ? body.countries : [];
+    const legacyCurrencies = Array.isArray(body.currencies) ? body.currencies.map(c => String(c).toUpperCase()) : [];
+    const legacyCountries = Array.isArray(body.countries) ? body.countries : [];
+    const tradeFlow = normalizeTradeFlow(body.tradeFlow || {}, legacyCountries, legacyCurrencies);
+    const tradeRoles = deriveTradeRolesFromFlow(tradeFlow, body.tradeRoles || []);
+    const currencies = getAllTradeFlowCurrencies(tradeFlow, legacyCurrencies);
+    const countries = getAllTradeFlowCountries(tradeFlow);
     const defaultPrompt = (body.defaultPrompt || "").trim();
 
     if (!sector) return Response.json({ error: "Please select a sector." }, { status: 400 });
     if (!subsector) return Response.json({ error: "Please select a subsector." }, { status: 400 });
     if (!industry) return Response.json({ error: "Please enter the client's industry." }, { status: 400 });
-    if (tradeRoles.length === 0) return Response.json({ error: "Please select whether the client is an importer, exporter, or both." }, { status: 400 });
+    if (!tradeFlow.purchase.domestic && !tradeFlow.purchase.international) return Response.json({ error: "Please select domestic and/or international for Purchase from." }, { status: 400 });
+    if (!tradeFlow.sales.domestic && !tradeFlow.sales.international) return Response.json({ error: "Please select domestic and/or international for Sales to." }, { status: 400 });
+    if (tradeFlow.purchase.international && tradeFlow.purchase.countries.length === 0) return Response.json({ error: "Please select at least one international purchase market." }, { status: 400 });
+    if (tradeFlow.sales.international && tradeFlow.sales.countries.length === 0) return Response.json({ error: "Please select at least one international sales market." }, { status: 400 });
+    if (tradeFlow.purchase.currencies.length === 0) return Response.json({ error: "Please select at least one purchase currency." }, { status: 400 });
+    if (tradeFlow.sales.currencies.length === 0) return Response.json({ error: "Please select at least one sales currency." }, { status: 400 });
     if (currencies.length === 0) return Response.json({ error: "Please select at least one currency." }, { status: 400 });
-    if (countries.length === 0) return Response.json({ error: "Please select at least one country / market." }, { status: 400 });
     const unsupported = currencies.filter(currency => !ALLOWED_CURRENCIES.includes(currency));
     if (unsupported.length > 0) {
       return Response.json({ error: `Unsupported currency selected: ${unsupported.join(", ")}` }, { status: 400 });
@@ -1648,34 +1637,30 @@ export async function onRequestPost(context) {
       subsector,
       industry,
       isicCode,
-      tradeRoles,
-      countries,
-      timeframe,
-      deepSearch
+      tradeFlow,
+      timeframe
     });
 
-    const searchDepth = deepSearch ? "advanced" : "basic";
+    const searchDepth = "advanced";
 
-    const [tavilyBatches, rawFxResults] = await Promise.all([
-      Promise.all(plannedQueries.map(plan =>
-        tavilySearch({
-          apiKey: env.TAVILY_API_KEY,
-          query: plan.query,
-          startDate: start_date,
-          endDate: end_date,
-          includeDomains: null,
-          maxResults: plan.maxResults || (deepSearch ? 4 : 5),
-          searchDepth
-        }).then(results => normalizeTavilyResults(results, plan.label))
-      )),
-      fetchFxRates(currencies, fxTenor)
-    ]);
+    const tavilyBatches = await Promise.all(plannedQueries.map(plan =>
+      tavilySearch({
+        apiKey: env.TAVILY_API_KEY,
+        query: plan.query,
+        startDate: start_date,
+        endDate: end_date,
+        includeDomains: null,
+        maxResults: plan.maxResults || 5,
+        searchDepth
+      }).then(results => normalizeTavilyResults(results, plan.label))
+    ));
 
-    const fxResults = await analyzeFxRates({ env, fxList: rawFxResults, sector, subsector, industry, tradeRoles, countries, fxTenor });
+    // FX is now loaded independently through /api/fx so the chart/table can render as soon as Yahoo data and
+    // the R2 weekly-fx-research PDF commentary are ready. Keep an empty field for backward compatibility.
+    const fxResults = [];
 
     const primaryCandidateSources = prepareCandidateSources({
-      sources: tavilyBatches.flat(),
-      deepSearch
+      sources: tavilyBatches.flat()
     });
 
     let effectiveQueries = [...plannedQueries];
@@ -1688,6 +1673,7 @@ export async function onRequestPost(context) {
       isicCode,
       tradeRoles,
       countries,
+      tradeFlow,
       timeframe,
       plannedQueries: effectiveQueries
     });
@@ -1703,9 +1689,7 @@ export async function onRequestPost(context) {
         subsector,
         industry,
         isicCode,
-        tradeRoles,
-        countries,
-        deepSearch
+        tradeFlow
       });
 
       const existingQueryText = new Set(effectiveQueries.map(plan => cleanQueryText(plan.query).toLowerCase()));
@@ -1727,8 +1711,7 @@ export async function onRequestPost(context) {
 
         effectiveQueries = [...effectiveQueries, ...newRecoveryQueries];
         candidateSources = prepareCandidateSources({
-          sources: [...tavilyBatches.flat(), ...fallbackBatches.flat()],
-          deepSearch
+          sources: [...tavilyBatches.flat(), ...fallbackBatches.flat()]
         });
 
         sourceAssessment = await assessSourceRelevance({
@@ -1740,6 +1723,7 @@ export async function onRequestPost(context) {
           isicCode,
           tradeRoles,
           countries,
+          tradeFlow,
           timeframe,
           plannedQueries: effectiveQueries
         });
@@ -1778,7 +1762,7 @@ export async function onRequestPost(context) {
         search_keywords: searchKeywords,
         search_queries: effectiveQueries,
         fallback_triggered: fallbackTriggered,
-        search_mode: deepSearch ? "deep" : "standard",
+        search_mode: "adaptive_directional",
         sources: []
       });
     }
@@ -1792,8 +1776,8 @@ export async function onRequestPost(context) {
       isicCode,
       tradeRoles,
       countries,
+      tradeFlow,
       timeframe,
-      deepSearch,
       plannedQueries: effectiveQueries,
       defaultPrompt
     });
@@ -1813,7 +1797,7 @@ export async function onRequestPost(context) {
       search_keywords: searchKeywords,
       search_queries: effectiveQueries,
       fallback_triggered: fallbackTriggered,
-      search_mode: deepSearch ? "deep" : "standard",
+      search_mode: "adaptive_directional",
       sources: aligned.newsSection.status === "NO_NEWS" ? [] : aligned.sources.map(source => ({
         number: source.source_number,
         title: source.title,

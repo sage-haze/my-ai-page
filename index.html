@@ -65,59 +65,74 @@
           </div>
         </div>
 
-        <div class="form-group">
-          <label>Client trade role</label>
-          <div class="checkbox-row">
-            <label><input type="checkbox" name="tradeRole" value="importer"> Importer</label>
-            <label><input type="checkbox" name="tradeRole" value="exporter"> Exporter</label>
-          </div>
-        </div>
+        <div class="trade-flow-grid">
+          <section class="trade-side-card" data-side="purchase">
+            <h2>Purchase from</h2>
+            <div class="checkbox-row stacked">
+              <label><input type="checkbox" id="purchaseDomestic" checked> Domestic (Thailand)</label>
+              <label><input type="checkbox" id="purchaseInternational"> International</label>
+            </div>
+            <div class="form-group conditional-field" id="purchaseCountryField">
+              <label>International purchase markets</label>
+              <div class="country-picker" data-picker="purchase">
+                <input id="purchaseCountrySearch" type="text" placeholder="Search supplier countries..." autocomplete="off">
+                <div id="purchaseCountryDropdown" class="country-dropdown hidden"></div>
+              </div>
+              <div id="selectedPurchaseCountries" class="selected-country-row"></div>
+            </div>
+            <div class="form-group">
+              <label>Purchase currencies</label>
+              <div class="checkbox-row stacked compact-currencies">
+                <label><input type="checkbox" name="purchaseCurrency" value="THB" checked> THB</label>
+                <label><input type="checkbox" name="purchaseCurrency" value="USD"> USD</label>
+                <label><input type="checkbox" name="purchaseCurrency" value="JPY"> JPY</label>
+                <label><input type="checkbox" name="purchaseCurrency" value="EUR"> EUR</label>
+                <label><input type="checkbox" name="purchaseCurrency" value="CNY"> CNY</label>
+              </div>
+            </div>
+          </section>
 
-        <div class="form-group">
-          <label>Search mode</label>
-          <div class="checkbox-row">
-            <label><input type="checkbox" id="deepSearch"> Deep Search</label>
-          </div>
-          <p class="field-hint">Deep Search runs a broader and more detailed review of recent market developments to surface less obvious but potentially relevant insights.</p>
-        </div>
-
-        <div class="form-group">
-          <label>Currencies</label>
-          <div class="checkbox-row">
-            <label><input type="checkbox" name="currency" value="THB" checked> THB</label>
-            <label><input type="checkbox" name="currency" value="USD"> USD</label>
-            <label><input type="checkbox" name="currency" value="JPY"> JPY</label>
-            <label><input type="checkbox" name="currency" value="EUR"> EUR</label>
-            <label><input type="checkbox" name="currency" value="CNY"> CNY</label>
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label>Countries / markets relevant to the client</label>
-          <div class="country-picker">
-            <input
-              id="countrySearch"
-              type="text"
-              placeholder="Search and select countries..."
-              autocomplete="off"
-            >
-            <div id="countryDropdown" class="country-dropdown hidden"></div>
-          </div>
-          <div id="selectedCountries" class="selected-country-row"></div>
+          <section class="trade-side-card" data-side="sales">
+            <h2>Sales to</h2>
+            <div class="checkbox-row stacked">
+              <label><input type="checkbox" id="salesDomestic" checked> Domestic (Thailand)</label>
+              <label><input type="checkbox" id="salesInternational"> International</label>
+            </div>
+            <div class="form-group conditional-field" id="salesCountryField">
+              <label>International sales markets</label>
+              <div class="country-picker" data-picker="sales">
+                <input id="salesCountrySearch" type="text" placeholder="Search customer countries..." autocomplete="off">
+                <div id="salesCountryDropdown" class="country-dropdown hidden"></div>
+              </div>
+              <div id="selectedSalesCountries" class="selected-country-row"></div>
+            </div>
+            <div class="form-group">
+              <label>Sales currencies</label>
+              <div class="checkbox-row stacked compact-currencies">
+                <label><input type="checkbox" name="salesCurrency" value="THB" checked> THB</label>
+                <label><input type="checkbox" name="salesCurrency" value="USD"> USD</label>
+                <label><input type="checkbox" name="salesCurrency" value="JPY"> JPY</label>
+                <label><input type="checkbox" name="salesCurrency" value="EUR"> EUR</label>
+                <label><input type="checkbox" name="salesCurrency" value="CNY"> CNY</label>
+              </div>
+            </div>
+          </section>
         </div>
 
         <div class="form-group">
           <label for="defaultPrompt">Custom Focus (Optional)</label>
-          <textarea id="defaultPrompt" rows="3">Focus on trade finance implications relevant to this client, including import/export activity, supply chain dynamics, FX exposure, working capital needs, payment and counterparty risk, documentary trade, guarantees, and opportunities for trade finance solutions. Prioritise insights that are practical for a Thailand-based client with cross-border exposure.</textarea>
+          <textarea id="defaultPrompt" rows="3">Focus on trade finance implications relevant to this client’s directional trade flows. Separate purchase-side cost/supplier risks from sales-side revenue/demand risks, including supply chain dynamics, FX exposure, working capital needs, payment and counterparty risk, documentary trade, guarantees, and opportunities for trade finance solutions. Prioritise practical insights for a Thailand-based client.</textarea>
         </div>
 
-        <button id="send">Research</button>
+        <div class="action-row">
+          <button id="send" type="button">Run Analysis</button>
+          <button id="updateFx" type="button">Update FX</button>
+        </div>
 
         <div class="results-stack">
           <div class="result-card">
             <div class="result-card-header">
               <h2>FX Rates</h2>
-              <button id="updateFx" type="button" class="secondary-button">Update FX</button>
             </div>
             <div id="fxOutput">FX rates will appear here.</div>
           </div>
