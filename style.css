@@ -156,14 +156,18 @@ button:disabled {
   opacity: 0.6;
 }
 
-.secondary-button {
-  background: #eef2ff;
-  color: #2563eb;
-  border: 1px solid #c7d2fe;
-  padding: 6px 10px;
-  font-size: 13px;
+.action-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.action-row button {
   margin-top: 0;
 }
+
 
 .result-card-header {
   display: flex;
@@ -702,6 +706,60 @@ select.auto-filled {
 
 .checkbox-row.stacked { flex-direction: column; }
 
+.fx-research-toggle {
+  border: 1px solid #d7dde8;
+  border-radius: 14px;
+  background: #f8fafc;
+  padding: 0.85rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.fx-research-toggle summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.fx-research-toggle summary span {
+  display: inline-block;
+  margin-left: 0.35rem;
+  font-weight: 500;
+  color: #64748b;
+  font-size: 0.88rem;
+}
+
+.fx-research-body {
+  margin-top: 0.75rem;
+  color: #334155;
+}
+
+.fx-research-section {
+  margin-top: 0.75rem;
+}
+
+.fx-research-section pre {
+  white-space: pre-wrap;
+  overflow-x: auto;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 0.75rem;
+  font-family: inherit;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.fx-research-empty {
+  color: #64748b;
+  font-style: italic;
+}
+
+.fx-analysis {
+  white-space: pre-line;
+}
+
+
+/* Conversation-card additions */
 .signal-thread-card {
   border: 1px solid #d8e2ea;
   border-radius: 12px;

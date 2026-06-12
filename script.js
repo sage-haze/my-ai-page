@@ -34,6 +34,68 @@ let selectedSalesCountries = [];
 let selectedIsic = null;
 let fxCharts = {};
 
+const BUSINESS_RELEVANCE_TERMS = [
+  "agriculture", "crop", "growing", "farming", "forestry", "fishing", "aquaculture",
+  "mining", "quarrying", "extraction",
+  "manufacture", "manufacturing", "processing", "production", "factory",
+  "wholesale", "retail", "trade", "trading", "distribution", "export", "import",
+  "transport", "storage", "logistics", "warehousing",
+  "construction", "installation", "repair", "maintenance",
+  "food", "beverage", "textile", "chemical", "metal", "machinery", "equipment",
+  "financial", "insurance", "professional", "technical", "information", "communication"
+];
+
+const SERVICE_CONTEXT_TERMS = [
+  "education", "school", "student", "students", "academic", "tutoring", "training",
+  "accommodation", "hotel", "restaurant", "tourism", "travel",
+  "health", "hospital", "medical", "social", "welfare",
+  "religious", "membership", "association", "public", "government", "administration",
+  "personal", "beauty", "wellness", "recreation", "entertainment", "sport"
+];
+
+const COMMERCIAL_FALLBACK_SECTORS = [
+  "agriculture, forestry and fishing",
+  "mining and quarrying",
+  "manufacturing",
+  "wholesale and retail trade; repair of motor vehicles and motorcycles",
+  "transportation and storage",
+  "construction"
+];
+
+const LOW_CONFIDENCE_MAX_RESULTS = 6;
+
+const GENERIC_QUERY_TERMS = new Set([
+  "business", "company", "industry", "activity", "activities", "service", "services",
+  "product", "products", "goods", "general", "other", "misc", "miscellaneous"
+]);
+
+const BUSINESS_CONCEPT_GROUPS = [
+  {
+    terms: ["fruit", "fruits", "vegetable", "vegetables", "crop", "crops", "grain", "grains", "bean", "beans", "nut", "nuts", "orchard", "plantation", "fresh produce", "banana", "mango", "durian", "pineapple", "papaya", "coconut"],
+    anchors: ["growing", "crop", "agriculture", "food", "wholesale", "retail"]
+  },
+  {
+    terms: ["metal", "metals", "mineral", "minerals", "ore", "ores", "steel", "iron", "copper", "aluminium", "aluminum", "zinc", "tin", "nickel", "gold", "silver", "platinum", "precious metal", "gem", "gems", "gemstone", "gemstones", "jewel", "jewels", "jewellery", "jewelry", "precious stone", "precious stones", "semi precious stone", "semi precious stones", "diamond", "ruby", "sapphire", "emerald"],
+    anchors: ["mining", "quarrying", "metal", "ore", "manufacture", "wholesale", "jewellery", "jewelry", "precious", "stone"]
+  },
+  {
+    terms: ["machine", "machinery", "equipment", "parts", "component", "components", "electronics", "electrical", "semiconductor", "automotive", "vehicle"],
+    anchors: ["manufacture", "machinery", "equipment", "electrical", "motor", "repair", "wholesale"]
+  },
+  {
+    terms: ["textile", "textiles", "garment", "garments", "apparel", "fabric", "clothing", "fashion", "cotton", "yarn"],
+    anchors: ["manufacture", "textile", "wearing", "apparel", "wholesale", "retail"]
+  },
+  {
+    terms: ["food", "beverage", "drink", "processed food", "ingredient", "feed", "animal feed", "seafood", "meat", "dairy"],
+    anchors: ["food", "beverage", "manufacture", "processing", "wholesale", "retail", "fishing", "animal"]
+  },
+  {
+    terms: ["freight", "shipping", "logistics", "warehouse", "warehousing", "transport", "distribution", "cargo", "cold chain"],
+    anchors: ["transport", "storage", "warehousing", "logistics", "support", "cargo"]
+  }
+];
+
 
 function normaliseSearchText(value) {
   return String(value || "")
@@ -84,74 +146,207 @@ function wordSimilarity(term, word) {
   return diceCoefficient(term, word);
 }
 
+function hasAnyWord(text, words) {
+  const haystack = ` ${normaliseSearchText(text)} `;
+  return words.some(word => haystack.includes(` ${normaliseSearchText(word)} `));
+}
+
+function getBusinessRelevance(entry) {
+  const combined = `${entry.sector || ""} ${entry.subsector || ""} ${entry.description || ""}`;
+  const words = uniqueWords(combined);
+  let relevance = 0;
+
+  BUSINESS_RELEVANCE_TERMS.forEach(term => {
+    if (words.includes(term)) relevance += 1;
+  });
+
+  const sectorText = normaliseSearchText(entry.sector || "");
+  if (COMMERCIAL_FALLBACK_SECTORS.includes(sectorText)) relevance += 2;
+
+  return Math.min(relevance, 6);
+}
+
+function getServiceContextPenalty(entry, queryWords) {
+  const combined = `${entry.sector || ""} ${entry.subsector || ""} ${entry.description || ""}`;
+  const entryLooksServiceHeavy = hasAnyWord(combined, SERVICE_CONTEXT_TERMS);
+  if (!entryLooksServiceHeavy) return 0;
+
+  const queryClearlyServiceRelated = queryWords.some(term =>
+    SERVICE_CONTEXT_TERMS.some(serviceTerm => wordSimilarity(term, serviceTerm) >= 0.9)
+  );
+
+  // Do not punish service-sector matches when the user clearly searched for that context.
+  if (queryClearlyServiceRelated) return 0;
+
+  return 45;
+}
+
+function getConceptScore(entry, queryWords) {
+  if (!queryWords.length) return 0;
+
+  const combined = normaliseSearchText(`${entry.sector || ""} ${entry.subsector || ""} ${entry.description || ""}`);
+  const entryWords = uniqueWords(combined);
+  let conceptScore = 0;
+
+  BUSINESS_CONCEPT_GROUPS.forEach(group => {
+    const queryMatchesGroup = queryWords.some(term =>
+      group.terms.some(groupTerm => wordSimilarity(term, groupTerm) >= 0.88)
+    );
+    if (!queryMatchesGroup) return;
+
+    const anchorHits = group.anchors.filter(anchor =>
+      entryWords.some(word => wordSimilarity(anchor, word) >= 0.92) || combined.includes(normaliseSearchText(anchor))
+    ).length;
+
+    if (anchorHits > 0) conceptScore += Math.min(90, 35 + anchorHits * 15);
+  });
+
+  return conceptScore;
+}
+
+function diversifyCommercialFallback(scored) {
+  const picks = [];
+  const usedSectors = new Set();
+  const usedCodes = new Set();
+
+  COMMERCIAL_FALLBACK_SECTORS.forEach(sectorName => {
+    const match = scored.find(entry =>
+      !usedCodes.has(entry.code) &&
+      normaliseSearchText(entry.sector || "") === sectorName &&
+      entry.businessScore >= 18 &&
+      entry.penaltyScore === 0
+    );
+    if (match) {
+      picks.push(match);
+      usedCodes.add(match.code);
+      usedSectors.add(normaliseSearchText(match.sector || ""));
+    }
+  });
+
+  scored.forEach(entry => {
+    if (picks.length >= LOW_CONFIDENCE_MAX_RESULTS) return;
+    if (usedCodes.has(entry.code) || entry.businessScore < 18 || entry.penaltyScore > 0) return;
+    picks.push(entry);
+    usedCodes.add(entry.code);
+  });
+
+  return picks.slice(0, LOW_CONFIDENCE_MAX_RESULTS);
+}
+
 function scoreIsicMatch(entry, query) {
   const q = normaliseSearchText(query);
   const entryText = normaliseSearchText(`${entry.code} ${entry.description}`);
-  const entryWords = uniqueWords(entryText);
+  const fullEntryText = normaliseSearchText(`${entry.code} ${entry.description} ${entry.sector || ""} ${entry.subsector || ""}`);
+  const entryWords = uniqueWords(fullEntryText);
 
   const sector = sectorBox?.value || "";
   const subsector = subsectorBox?.value || "";
   const contextText = normaliseSearchText(`${sector} ${subsector}`);
   const contextWords = uniqueWords(contextText);
+  const queryWords = uniqueWords(q).filter(term => term.length > 2);
 
   let score = 0;
   let queryScore = 0;
   let contextScore = 0;
+  let businessScore = getBusinessRelevance(entry) * 6;
+  let conceptScore = 0;
+  let penaltyScore = 0;
 
-  // Light boost only: sector/subsector helps ranking but never hides other ISIC activities.
+  // Sector/subsector helps ranking, but should not fully determine the answer.
   contextWords.forEach(term => {
     const best = Math.max(0, ...entryWords.map(word => wordSimilarity(term, word)));
-    if (best >= 0.9) contextScore += best * 12;
-    else if (best >= 0.8) contextScore += best * 6;
+    if (best >= 0.9) contextScore += best * 16;
+    else if (best >= 0.8) contextScore += best * 8;
   });
 
   if (!q) {
-    return { score: contextScore, queryScore: 0, contextScore };
+    score = contextScore + businessScore;
+    return { score, queryScore: 0, contextScore, businessScore, penaltyScore };
   }
 
   if (entryText === q) queryScore += 1000;
   if (entry.code && normaliseSearchText(entry.code) === q) queryScore += 900;
   if (entryText.includes(q)) queryScore += 450 + q.length;
+  else if (fullEntryText.includes(q)) queryScore += 280 + q.length;
 
-  const queryWords = uniqueWords(q).filter(term => term.length > 2);
   queryWords.forEach(term => {
     const best = Math.max(0, ...entryWords.map(word => wordSimilarity(term, word)));
 
-    // Keep fuzzy matching useful for typos, but avoid distant matches such as
-    // "papaya" returning "paper" / "abrasive" / "aluminium" just because of shared letters.
-    if (best >= 0.96) queryScore += 130;
-    else if (best >= 0.88) queryScore += 80;
-    else if (term.length >= 7 && best >= 0.82) queryScore += 35;
+    // Fuzzy matching should catch typos and related wording, but weak text overlap
+    // should not be enough to push unrelated institutional categories to the top.
+    if (best >= 0.97) queryScore += 140;
+    else if (best >= 0.91) queryScore += 90;
+    else if (term.length >= 7 && best >= 0.86) queryScore += 35;
   });
 
-  // Phrase similarity across the whole description is useful only when it is strong.
-  const phraseSimilarity = diceCoefficient(q, entryText);
-  if (phraseSimilarity >= 0.42) queryScore += phraseSimilarity * 80;
+  const phraseSimilarity = diceCoefficient(q, fullEntryText);
+  if (phraseSimilarity >= 0.48) queryScore += phraseSimilarity * 70;
 
-  score = queryScore + contextScore;
-  return { score, queryScore, contextScore };
+  conceptScore = getConceptScore(entry, queryWords);
+  penaltyScore = getServiceContextPenalty(entry, queryWords);
+
+  // Business relevance is a tie-breaker and safety signal, not a hardcoded synonym map.
+  // It helps broad product/service descriptions favour commercial activities over generic
+  // education, accommodation, membership, or public-service categories when confidence is low.
+  score = queryScore + conceptScore + contextScore + businessScore - penaltyScore;
+
+  return { score, queryScore, conceptScore, contextScore, businessScore, penaltyScore };
 }
 
 function getIsicMatches(query) {
   const q = normaliseSearchText(query);
+  const selectedSector = normaliseSearchText(sectorBox?.value || "");
+  const hasSelectedSector = Boolean(selectedSector);
+
   const scored = ISIC_DATA
     .map(entry => ({ ...entry, ...scoreIsicMatch(entry, q) }))
     .sort((a, b) => b.score - a.score || a.description.localeCompare(b.description));
 
-  if (!q) return scored.filter(entry => entry.score > 0).slice(0, 10);
+  // Empty input should not invent suggestions. Only show context-guided results when
+  // the user has already selected a sector/subsector.
+  if (!q) {
+    if (!hasSelectedSector && !normaliseSearchText(subsectorBox?.value || "")) return [];
+    return scored
+      .filter(entry => entry.contextScore > 0)
+      .slice(0, 10);
+  }
 
-  const strongMatches = scored.filter(entry => entry.queryScore >= 80).slice(0, 10);
+  const queryWords = uniqueWords(q).filter(term => term.length > 2 && !GENERIC_QUERY_TERMS.has(term));
+
+  // Strong lexical/code matches remain the most reliable and are shown first.
+  const strongMatches = scored
+    .filter(entry => entry.queryScore >= 90 && entry.score >= 70)
+    .slice(0, 10);
   if (strongMatches.length >= 4) return strongMatches;
 
-  const acceptableMatches = scored.filter(entry => entry.queryScore >= 35).slice(0, 8);
+  // Medium matches must have evidence from the user's typed words. Commercial relevance
+  // may boost ranking, but it should never be enough by itself to create suggestions.
+  const acceptableMatches = scored
+    .filter(entry => {
+      const sectorFit = hasSelectedSector && normaliseSearchText(entry.sector || "") === selectedSector;
+      const hasTypedEvidence = entry.queryScore >= 35 || entry.conceptScore >= 45;
+      const hasMinimumConfidence = entry.score >= 55;
+      return hasMinimumConfidence && hasTypedEvidence && (entry.penaltyScore === 0 || entry.queryScore >= 90 || sectorFit);
+    })
+    .slice(0, 8);
   if (acceptableMatches.length > 0) return acceptableMatches;
 
-  // If the typed word is not in ISIC and fuzzy confidence is weak, do not show
-  // misleading unrelated matches. Fall back to sector/subsector-guided suggestions.
-  const contextMatches = scored.filter(entry => entry.contextScore > 0).slice(0, 8);
+  // If the user selected a sector, use it as a fallback. Without a sector, avoid
+  // returning random fuzzy guesses for unfamiliar words.
+  const contextMatches = scored
+    .filter(entry => entry.contextScore > 0 && entry.score >= 20)
+    .slice(0, 8);
   if (contextMatches.length > 0) return contextMatches;
 
-  return scored.slice(0, 6);
+  // Last resort: only show very close word matches. Otherwise show no dropdown so the
+  // user can keep their free-text industry description without being misled.
+  const closeWordMatches = scored
+    .filter(entry => entry.queryScore >= 70 && entry.score >= 70)
+    .slice(0, LOW_CONFIDENCE_MAX_RESULTS);
+
+  if (closeWordMatches.length > 0) return closeWordMatches;
+
+  return [];
 }
 function autoFillSectorFromIsic(entry) {
   if (!entry?.sector || !entry?.subsector || !sectorBox || !subsectorBox) return;
@@ -203,7 +398,7 @@ function renderIsicDropdown() {
 
   const hasStrongQueryMatch = matches.some(entry => entry.queryScore >= 35);
   const heading = query
-    ? (hasStrongQueryMatch ? "Closest ISIC matches" : "No close word match — showing sector/subsector suggestions")
+    ? (hasStrongQueryMatch ? "Closest ISIC matches" : "Related ISIC suggestions")
     : "Suggested ISIC activities";
 
   isicDropdown.classList.remove("hidden");
@@ -272,16 +467,6 @@ function getSelectedTradeRolesFromFlow(tradeFlow) {
 
 function getAllTradeFlowCountries(tradeFlow) {
   return uniqueByCode([...(tradeFlow?.purchase?.countries || []), ...(tradeFlow?.sales?.countries || [])]);
-}
-
-function getSignalThreads() {
-  const checked = Array.from(document.querySelectorAll('input[name="signalThread"]:checked'))
-    .map(input => input.value)
-    .filter(Boolean);
-
-  return checked.length
-    ? checked
-    : ["sector_news", "fx_rates", "geopolitics", "trade_supply_chain"];
 }
 
 function populateSectors() {
@@ -604,13 +789,51 @@ function getFxChartAxis(series, tenor) {
   return { tickLabels, majorTicks };
 }
 
-function renderFx(fxList) {
+function renderFxResearchDiagnostic(fxResearch) {
+  if (!fxResearch) return "";
+
+  const statusText = fxResearch.used
+    ? "PDF read successfully"
+    : fxResearch.found
+      ? "PDF found but not used"
+      : fxResearch.attempted
+        ? "PDF not read"
+        : "PDF not checked";
+
+  const meta = [
+    fxResearch.bucket_binding ? `Binding: ${fxResearch.bucket_binding}` : "",
+    fxResearch.filename ? `File: ${fxResearch.filename}` : "",
+    fxResearch.size_bytes ? `Size: ${Math.round(Number(fxResearch.size_bytes) / 1024)} KB` : ""
+  ].filter(Boolean).join(" • ");
+
+  const sections = Array.isArray(fxResearch.extracted_sections) ? fxResearch.extracted_sections : [];
+  const sectionHtml = sections.length
+    ? sections.map(section => `
+        <div class="fx-research-section">
+          <strong>${escapeHtml(section.currency || "Currency")}</strong>
+          <pre>${escapeHtml(section.text || "No extracted text returned.")}</pre>
+        </div>
+      `).join("")
+    : `<div class="fx-research-empty">No extracted currency section was returned.</div>`;
+
+  return `
+    <details class="fx-research-toggle">
+      <summary>${escapeHtml(statusText)}${meta ? ` <span>${escapeHtml(meta)}</span>` : ""}</summary>
+      <div class="fx-research-body">
+        <p>${escapeHtml(fxResearch.extraction_summary || fxResearch.message || "No PDF status message returned.")}</p>
+        ${sectionHtml}
+      </div>
+    </details>
+  `;
+}
+
+function renderFx(fxList, fxResearch = null) {
   const tenor = fxTenorBox?.value || "30";
   Object.values(fxCharts).forEach(chart => chart?.destroy?.());
   fxCharts = {};
 
   if (!fxList || fxList.length === 0) {
-    fxOutput.textContent = "No FX data returned.";
+    fxOutput.innerHTML = `${renderFxResearchDiagnostic(fxResearch)}<div>No FX data returned.</div>`;
     return;
   }
 
@@ -618,7 +841,7 @@ function renderFx(fxList) {
   const errors = fxList.filter(fx => fx.error);
 
   if (nonThb.length === 0 && errors.length === 0) {
-    fxOutput.textContent = "No non-THB FX selected.";
+    fxOutput.innerHTML = `${renderFxResearchDiagnostic(fxResearch)}<div>No non-THB FX selected.</div>`;
     return;
   }
 
@@ -685,6 +908,7 @@ function renderFx(fxList) {
 
   fxOutput.innerHTML = `
     <div class="fx-card-stack">
+      ${renderFxResearchDiagnostic(fxResearch)}
       ${fxCards}
       ${errorBlocks}
     </div>
@@ -730,11 +954,70 @@ function renderSources(sources, noRelevantUpdates = false, fallbackTriggered = f
   sourcesOutput.innerHTML = fallbackNote + sourceCards;
 }
 
+function parseConversationCardBlock(block) {
+  const lines = String(block || "")
+    .split("\n")
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  const heading = lines.shift() || "Card";
+  const sections = [];
+  const sectionPattern = /^(Plain-English context|Plain English context|Client relevance lens|Gentle observation|Soft invitation|If client engages|Bank relevance|Handoff cue)\s*:\s*(.*)$/i;
+  let current = null;
+
+  lines.forEach(line => {
+    const match = line.match(sectionPattern);
+    if (match) {
+      current = {
+        label: match[1].replace("Plain English", "Plain-English"),
+        text: match[2] || ""
+      };
+      sections.push(current);
+    } else if (current) {
+      current.text = `${current.text} ${line}`.trim();
+    } else {
+      sections.push({ label: "Context", text: line });
+    }
+  });
+
+  return { heading, sections };
+}
+
+function renderConversationCards(text) {
+  const cardBlocks = String(text || "")
+    .split(/(?=Card\s+\d+\s*:)/i)
+    .map(block => block.trim())
+    .filter(Boolean);
+
+  if (cardBlocks.length === 0) return false;
+
+  analysisOutput.innerHTML = cardBlocks.map(block => {
+    const { heading, sections } = parseConversationCardBlock(block);
+    const sectionHtml = sections.map(section => `
+      <div class="conversation-section">
+        <div class="conversation-label">${escapeHtml(section.label)}</div>
+        <div>${escapeHtml(section.text)}</div>
+      </div>
+    `).join("");
+
+    return `
+      <div class="theme-card conversation-card">
+        <h3>${escapeHtml(heading)}</h3>
+        ${sectionHtml}
+      </div>
+    `;
+  }).join("");
+
+  return true;
+}
+
 function renderAnalysis(text) {
   if (!text) {
     analysisOutput.textContent = "No analysis returned.";
     return;
   }
+
+  if (renderConversationCards(text)) return;
 
   const themeBlocks = text
     .split(/(?=Theme\s+\d+\s*:)/i)
@@ -773,14 +1056,14 @@ function renderAnalysis(text) {
 
     const bullets = bulletLines.map(line => {
       const clean = line.replace(/^-+\s*/, "");
-      return `<li>${clean}</li>`;
+      return `<li>${escapeHtml(clean)}</li>`;
     }).join("");
 
     return `
       <div class="theme-card">
-        <h3>${heading}</h3>
-        ${meta ? `<div class="theme-meta">${meta}</div>` : ""}
-        ${paragraph ? `<p>${paragraph}</p>` : ""}
+        <h3>${escapeHtml(heading)}</h3>
+        ${meta ? `<div class="theme-meta">${escapeHtml(meta)}</div>` : ""}
+        ${paragraph ? `<p>${escapeHtml(paragraph)}</p>` : ""}
         ${bullets ? `<ul>${bullets}</ul>` : ""}
       </div>
     `;
@@ -843,6 +1126,17 @@ function renderContext(context) {
   }).join("");
 }
 
+
+function getSignalThreads() {
+  const checked = Array.from(document.querySelectorAll('input[name="signalThread"]:checked'))
+    .map(input => input.value)
+    .filter(Boolean);
+
+  return checked.length
+    ? checked
+    : ["sector_news", "fx_rates", "geopolitics", "trade_supply_chain"];
+}
+
 async function updateFxOnly() {
   const tradeFlow = getTradeFlow();
   const currencies = [...new Set([...(tradeFlow.purchase.currencies || []), ...(tradeFlow.sales.currencies || [])])];
@@ -888,7 +1182,7 @@ async function updateFxOnly() {
       return;
     }
 
-    renderFx(data.fx || []);
+    renderFx(data.fx || [], data.fxResearch || null);
   } catch (error) {
     fxOutput.innerHTML = `<span class="error">FX network error.</span>`;
   } finally {
@@ -952,14 +1246,14 @@ button.addEventListener("click", async function () {
   const isicCode = selectedIsic?.code || "";
   const timeframe = timeframeBox.value;
   const fxTenor = fxTenorBox?.value || "30";
+  const conversationGoal = conversationGoalBox?.value || "general_check_in";
+  const signalThreads = getSignalThreads();
   const tradeFlow = getTradeFlow();
   const currencies = [...new Set([...(tradeFlow.purchase.currencies || []), ...(tradeFlow.sales.currencies || [])])];
   const tradeRoles = getSelectedTradeRolesFromFlow(tradeFlow);
   const countries = getAllTradeFlowCountries(tradeFlow);
 
   const defaultPrompt = defaultPromptBox.value.trim();
-  const conversationGoal = conversationGoalBox?.value || "general_check_in";
-  const signalThreads = getSignalThreads();
 
   if (!sector) {
     analysisOutput.textContent = "Please select a sector.";
@@ -1007,7 +1301,6 @@ button.addEventListener("click", async function () {
   }
 
   button.disabled = true;
-  fxOutput.innerHTML = `<span class="loading">Checking FX...</span>`;
   analysisOutput.innerHTML = `<span class="loading">Researching news...</span>`;
   renderFxContext("");
   sourcesOutput.innerHTML = `<span class="loading">Loading sources...</span>`;
@@ -1040,21 +1333,17 @@ button.addEventListener("click", async function () {
 
     if (!response.ok) {
       analysisOutput.innerHTML = `<span class="error">${data.error || "Request failed."}</span>`;
-      fxOutput.textContent = "";
       sourcesOutput.textContent = "";
       if (contextOutput) contextOutput.textContent = "";
       return;
     }
 
-    renderFx(data.fx || []);
-    renderFxContext(data.fx_context || data.fxContext || "");
     renderSources(data.sources || [], Boolean(data.no_relevant_updates), Boolean(data.fallback_triggered));
     renderAnalysis(data.news?.content || data.analysis || "No analysis returned.");
     // Industry Context & RM Considerations is currently deactivated in the UI.
     // renderContext(data.context || "");
   } catch (error) {
     analysisOutput.innerHTML = `<span class="error">Network error.</span>`;
-    fxOutput.textContent = "";
     sourcesOutput.textContent = "";
     if (contextOutput) contextOutput.textContent = "";
   } finally {
