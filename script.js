@@ -274,6 +274,16 @@ function getAllTradeFlowCountries(tradeFlow) {
   return uniqueByCode([...(tradeFlow?.purchase?.countries || []), ...(tradeFlow?.sales?.countries || [])]);
 }
 
+function getSignalThreads() {
+  const checked = Array.from(document.querySelectorAll('input[name="signalThread"]:checked'))
+    .map(input => input.value)
+    .filter(Boolean);
+
+  return checked.length
+    ? checked
+    : ["sector_news", "fx_rates", "geopolitics", "trade_supply_chain"];
+}
+
 function populateSectors() {
   Object.keys(SECTOR_DATA).forEach(sector => {
     const option = document.createElement("option");
