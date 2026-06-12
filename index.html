@@ -63,6 +63,18 @@
               <option value="90">Last 90 days</option>
             </select>
           </div>
+
+          <div class="form-group">
+            <label for="conversationGoal">Conversation goal</label>
+            <select id="conversationGoal">
+              <option value="general_check_in" selected>General client check-in</option>
+              <option value="working_capital_review">Working capital review</option>
+              <option value="trade_finance_discussion">Trade finance discussion</option>
+              <option value="fx_treasury_discussion">FX / treasury discussion</option>
+              <option value="liquidity_cash_management">Liquidity / cash management discussion</option>
+              <option value="post_news_check_in">Post-news client check-in</option>
+            </select>
+          </div>
         </div>
 
         <div class="trade-flow-grid">
@@ -119,27 +131,38 @@
           </section>
         </div>
 
+        <div class="form-group signal-thread-card">
+          <label>External signal threads</label>
+          <div class="checkbox-row stacked thread-grid">
+            <label><input type="checkbox" name="signalThread" value="sector_news" checked> Sector / market news</label>
+            <label><input type="checkbox" name="signalThread" value="fx_rates" checked> FX and rates</label>
+            <label><input type="checkbox" name="signalThread" value="geopolitics" checked> Geopolitics / policy risk</label>
+            <label><input type="checkbox" name="signalThread" value="trade_supply_chain" checked> Trade and supply chain</label>
+            <label><input type="checkbox" name="signalThread" value="commodities"> Commodities / input costs</label>
+            <label><input type="checkbox" name="signalThread" value="macro_indicators"> Macro background</label>
+          </div>
+          <div class="field-hint">The app will scan selected threads, then return only the client-relevant conversation cards.</div>
+        </div>
+
         <div class="form-group">
           <label for="defaultPrompt">Custom Focus (Optional)</label>
           <textarea id="defaultPrompt" rows="3">Focus on trade finance implications relevant to this client’s directional trade flows. Separate purchase-side cost/supplier risks from sales-side revenue/demand risks, including supply chain dynamics, FX exposure, working capital needs, payment and counterparty risk, documentary trade, guarantees, and opportunities for trade finance solutions. Prioritise practical insights for a Thailand-based client.</textarea>
         </div>
 
-        <div class="action-row">
-          <button id="send" type="button">Run Analysis</button>
-          <button id="updateFx" type="button">Update FX</button>
-        </div>
+        <button id="send">Research</button>
 
         <div class="results-stack">
           <div class="result-card">
             <div class="result-card-header">
               <h2>FX Rates</h2>
+              <button id="updateFx" type="button" class="secondary-button">Update FX</button>
             </div>
             <div id="fxOutput">FX rates will appear here.</div>
           </div>
 
           <div class="result-card">
-            <h2>Analysis</h2>
-            <div id="analysisOutput">The analysis will appear here.</div>
+            <h2>Client Conversation Cards</h2>
+            <div id="analysisOutput">Conversation cards will appear here.</div>
           </div>
 
           <div class="result-card">

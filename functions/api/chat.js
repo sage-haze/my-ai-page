@@ -336,17 +336,21 @@ function tradeFlowSummary(tradeFlow) {
   ].join("\n");
 }
 
-function buildFallbackQueries({ sector, subsector, industry, isicCode, tradeFlow }) {
+function buildFallbackQueries({ sector, subsector, industry, isicCode, tradeFlow, signalThreads = [] }) {
   const baseKeywords = getSearchKeywords({ sector, subsector, industry, isicCode }).slice(0, 4).join(" ");
   const purchaseMarkets = listCountries(tradeFlow?.purchase?.countries, 3);
   const salesMarkets = listCountries(tradeFlow?.sales?.countries, 3);
+  const enabled = new Set(signalThreads && signalThreads.length ? signalThreads : ["sector_news", "fx_rates", "geopolitics", "trade_supply_chain"]);
   const queries = [
-    { label: "purchase_cost_supply_context", query: cleanQueryText(`Thailand ${industry} import sourcing supplier costs ${purchaseMarkets} news`), maxResults: 5 },
-    { label: "sales_demand_export_context", query: cleanQueryText(`Thailand ${industry} exports demand buyers ${salesMarkets} news`), maxResults: 5 },
-    { label: "industry_trade_context", query: cleanQueryText(`${industry} global supply chain demand prices trade news`), maxResults: 5 },
-    { label: "fx_trade_crosswinds", query: cleanQueryText(`Thailand ${industry} FX currency trade impact ${baseKeywords} news`), maxResults: 5 }
+    { label: "purchase_cost_supply_context", thread: "trade_supply_chain", query: cleanQueryText(`Thailand ${industry} import sourcing supplier costs logistics ${purchaseMarkets} news`), maxResults: 5 },
+    { label: "sales_demand_export_context", thread: "sector_news", query: cleanQueryText(`Thailand ${industry} exports demand buyers ${salesMarkets} news`), maxResults: 5 },
+    { label: "industry_trade_context", thread: "sector_news", query: cleanQueryText(`${industry} global supply chain demand prices trade news`), maxResults: 5 },
+    { label: "fx_trade_crosswinds", thread: "fx_rates", query: cleanQueryText(`Thailand ${industry} FX currency trade impact ${baseKeywords} news`), maxResults: 5 },
+    { label: "geopolitics_policy_risk", thread: "geopolitics", query: cleanQueryText(`${industry} Thailand trade geopolitics sanctions shipping policy disruption news`), maxResults: 5 },
+    { label: "commodities_input_costs", thread: "commodities", query: cleanQueryText(`${industry} commodity input costs prices margins Thailand news`), maxResults: 5 },
+    { label: "macro_background", thread: "macro_indicators", query: cleanQueryText(`Thailand ${industry} macro inflation PMI exports demand news`), maxResults: 5 }
   ];
-  return queries.filter(item => item.query.length > 0).slice(0, 4);
+  return queries.filter(item => enabled.has(item.thread) && item.query.length > 0).slice(0, 6);
 }
 
 function buildRecoveryQueries({ sector, subsector, industry, isicCode, tradeFlow }) {
@@ -406,15 +410,15 @@ function parseQueryPlan(text) {
         maxResults: Number(item.maxResults || 4)
       }))
       .filter(item => item.query.length > 0)
-      .slice(0, 5);
+      .slice(0, 7);
   } catch (_) {
     return null;
   }
 }
 
-async function planTavilyQueries({ env, sector, subsector, industry, isicCode, tradeFlow, timeframe }) {
-  const fallbackQueries = buildFallbackQueries({ sector, subsector, industry, isicCode, tradeFlow });
-  const targetCount = 5;
+async function planTavilyQueries({ env, sector, subsector, industry, isicCode, tradeFlow, timeframe, signalThreads = [] }) {
+  const fallbackQueries = buildFallbackQueries({ sector, subsector, industry, isicCode, tradeFlow, signalThreads });
+  const targetCount = 6;
 
   const plannerPrompt = `
 Create ${targetCount} short Tavily news search queries for a Thailand-based bank RM.
@@ -428,9 +432,10 @@ Customer profile:
 ${tradeFlowSummary(tradeFlow)}
 - Timeframe: last ${timeframe} days
 - Core industry terms: ${getSearchKeywords({ sector, subsector, industry, isicCode }).slice(0, 10).join(", ")}
+- Enabled signal threads: ${signalThreads.join(", ") || "sector_news, fx_rates, geopolitics, trade_supply_chain"}
 
 Goal:
-Generate one consistent premium search plan that separates purchase-side cost/supplier risk from sales-side demand/revenue risk, plus FX/trade crosswinds.
+Generate one consistent premium search plan that separates purchase-side cost/supplier risk from sales-side demand/revenue risk, plus selected external signal threads such as FX/rates, geopolitics, trade disruption, commodities, and macro background.
 
 Rules:
 - Return JSON only.
@@ -442,6 +447,10 @@ Rules:
   3. thailand_client_context: Thailand industry trade flow / working capital relevance.
   4. industry_trade_context: broader global industry context without overloading all country names.
   5. fx_trade_crosswinds: currency, competitiveness, margin or payment implications tied to selected purchase/sales currencies.
+  6. geopolitics_policy_risk: sanctions, shipping lanes, tariffs, elections, conflict or policy risk affecting trade flows.
+  7. commodities_input_costs: oil, energy, food, metals, freight or other inputs only where relevant to the selected industry.
+  8. macro_background: inflation, PMI, rates, demand and confidence only where useful for client conversation context.
+- Only include query intents that match the enabled signal threads.
 - Do NOT create random country-pair searches unless Thailand is part of the client flow.
 - Do NOT force every country into every query.
 - Avoid prompts, questions, and long sentences.
@@ -638,6 +647,59 @@ async function tavilySearch({ apiKey, query, startDate, endDate, includeDomains 
   }
 
   return data.results || [];
+}
+
+
+function gdeltTimespanFromDays(days) {
+  const safeDays = Math.max(1, Math.min(Number(days || 30), 90));
+  return `${safeDays}d`;
+}
+
+async function gdeltDocSearch({ query, timeframe = 30, maxRecords = 10 }) {
+  const url = new URL("https://api.gdeltproject.org/api/v2/doc/doc");
+  url.searchParams.set("query", query);
+  url.searchParams.set("mode", "ArtList");
+  url.searchParams.set("format", "json");
+  url.searchParams.set("maxrecords", String(maxRecords));
+  url.searchParams.set("sort", "HybridRel");
+  url.searchParams.set("timespan", gdeltTimespanFromDays(timeframe));
+
+  const response = await fetch(url.toString(), {
+    headers: { "User-Agent": "conversation-builder/1.0" }
+  });
+
+  if (!response.ok) return [];
+  const data = await response.json().catch(() => null);
+  return Array.isArray(data?.articles) ? data.articles : [];
+}
+
+function normalizeGdeltResults(results, sourceGroup) {
+  return (results || []).map(item => ({
+    title: item.title || item.url || "Untitled GDELT source",
+    url: item.url,
+    source: item.source || item.domain || "GDELT",
+    domain: item.domain || (item.url ? new URL(item.url).hostname.replace(/^www\./, "") : ""),
+    published_at: item.seendate || "",
+    summary: item.title || "",
+    raw_content: item.title || "",
+    score: 0.5,
+    source_group: sourceGroup
+  })).filter(item => item.url);
+}
+
+function buildGdeltQueries({ industry, tradeFlow, signalThreads = [] }) {
+  const enabled = new Set(signalThreads || []);
+  if (!enabled.has("geopolitics") && !enabled.has("trade_supply_chain")) return [];
+  const markets = listCountries(getAllTradeFlowCountries(tradeFlow), 4);
+  const base = cleanQueryText(`Thailand ${industry} ${markets}`);
+  const queries = [];
+  if (enabled.has("geopolitics")) {
+    queries.push({ label: "gdelt_geopolitics_policy", query: cleanQueryText(`${base} geopolitics sanctions tariffs conflict election trade`) });
+  }
+  if (enabled.has("trade_supply_chain")) {
+    queries.push({ label: "gdelt_supply_chain_logistics", query: cleanQueryText(`${base} supply chain shipping port logistics disruption`) });
+  }
+  return queries.filter(item => item.query.length > 0).slice(0, 2);
 }
 
 async function fetchYahooSeries(pair, rangeDays = 30) {
@@ -1179,28 +1241,49 @@ function normalizeNoNewsText(timeframe) {
 }
 
 function formatNewsThemesFromJson(parsed) {
-  const themes = Array.isArray(parsed.themes) ? parsed.themes : [];
+  const cards = Array.isArray(parsed.cards) ? parsed.cards : (Array.isArray(parsed.themes) ? parsed.themes : []);
 
-  return themes.map((theme, index) => {
-    const title = String(theme.title || `Theme ${index + 1}`).replace(/^Theme\s*\d+\s*:\s*/i, "").trim();
-    const paragraph = String(theme.paragraph || theme.explanation || "").trim();
-    const bullets = Array.isArray(theme.supportingInformation || theme.supporting_information || theme.bullets)
-      ? (theme.supportingInformation || theme.supporting_information || theme.bullets)
-      : [];
+  return cards.map((card, index) => {
+    const title = String(card.title || `Card ${index + 1}`).replace(/^(Theme|Card)\s*\d+\s*:\s*/i, "").trim();
 
-    const bulletText = bullets
-      .map(item => String(item || "").trim())
-      .filter(Boolean)
-      .map(item => `- ${item}`)
-      .join("\n");
+    const plainEnglishContext = String(card.plainEnglishContext || card.plain_english_context || card.paragraph || card.explanation || "").trim();
+    const clientRelevanceLens = String(card.clientRelevanceLens || card.client_relevance_lens || "").trim();
+    const gentleObservation = String(card.gentleObservation || card.gentle_observation || "").trim();
+    const softInvitation = String(card.softInvitation || card.soft_invitation || "").trim();
+    const ifClientEngages = String(card.ifClientEngages || card.if_client_engages || "").trim();
+    const bankRelevance = String(card.bankRelevance || card.bank_relevance || "").trim();
+    const handoffCue = String(card.handoffCue || card.handoff_cue || "").trim();
 
     return [
-      `Theme ${index + 1}: ${title}`,
-      paragraph,
-      bulletText ? "Conversation notes:" : "",
-      bulletText
+      `Card ${index + 1}: ${title}`,
+      plainEnglishContext ? `Plain-English context: ${plainEnglishContext}` : "",
+      clientRelevanceLens ? `Client relevance lens: ${clientRelevanceLens}` : "",
+      gentleObservation ? `Gentle observation: ${gentleObservation}` : "",
+      softInvitation ? `Soft invitation: ${softInvitation}` : "",
+      ifClientEngages ? `If client engages: ${ifClientEngages}` : "",
+      bankRelevance ? `Bank relevance: ${bankRelevance}` : "",
+      handoffCue ? `Handoff cue: ${handoffCue}` : ""
     ].filter(Boolean).join("\n");
   }).filter(Boolean).join("\n\n");
+}
+
+
+function formatStructuralNoNewsCard({ timeframe, industry, tradeFlow, conversationGoal }) {
+  const currencies = getAllTradeFlowCurrencies(tradeFlow, []);
+  const purchaseMarkets = listCountries(tradeFlow?.purchase?.countries, 3) || "domestic suppliers";
+  const salesMarkets = listCountries(tradeFlow?.sales?.countries, 3) || "domestic customers";
+  const currencyText = currencies.length ? currencies.join("/") : "selected currencies";
+
+  return [
+    `Card 1: Structural conversation angle when no strong recent news is found`,
+    `Plain-English context: No significant or clearly relevant market development was identified in the selected ${timeframe}-day period for this client profile. This card is therefore structural context, not a news-based signal.`,
+    `Client relevance lens: For a Thailand-based ${industry} client, the practical discussion can still be anchored on cash visibility, supplier and buyer payment timing, working capital discipline, and recurring ${currencyText} flows.`,
+    `Gentle observation: We are not seeing a strong recent headline for this profile, but for companies with purchases from ${purchaseMarkets} and sales to ${salesMarkets}, the practical treasury conversation often starts with payment timing, cash buffers, and whether working capital still fits the operating cycle.`,
+    `Soft invitation: I am not sure whether that is relevant for your business right now, but it is a useful area to keep in view when external news is quiet.`,
+    `If client engages: If the client opens up, explore whether the issue is mainly supplier terms, receivables timing, inventory buffers, or currency mismatch.`,
+    `Bank relevance: Possible relevance to cash forecasting, liquidity structure, trade lines, receivables/payables flows, and FX process discipline.`,
+    `Handoff cue: Bring in FX, trade, cash management, or credit specialists if the client asks for specific hedge levels, facility sizing, structure, legal, sanctions, or credit advice.`
+  ].join("\n");
 }
 
 function remapSourceNumbersInText(text, numberMap) {
@@ -1264,7 +1347,7 @@ function alignSourcesToAnalysis({ sources, newsSection, timeframe }) {
   };
 }
 
-async function analyzeNewsDevelopments({ env, sources, sector, subsector, industry, isicCode = "", tradeRoles, countries, tradeFlow = null, timeframe, plannedQueries, defaultPrompt }) {
+async function analyzeNewsDevelopments({ env, sources, sector, subsector, industry, isicCode = "", tradeRoles, countries, tradeFlow = null, timeframe, plannedQueries, defaultPrompt, conversationGoal = "general_check_in", signalThreads = [] }) {
   if (!sources.length) {
     return {
       status: "NO_NEWS",
@@ -1296,7 +1379,7 @@ ${trimmedText}
   }).join("\n\n");
 
   const prompt = `
-You are a careful market analyst supporting a Thailand-based relationship manager.
+You are a transaction banking conversation coach supporting a junior Thailand-based relationship manager.
 
 The user's custom focus/context is:
 ${defaultPrompt}
@@ -1310,18 +1393,22 @@ Customer profile:
 ${tradeFlow ? tradeFlowSummary(tradeFlow) : `Client trade role: ${tradeRoles.join(", ")}
 Countries / markets relevant to the client: ${countryText}`}
 - Timeframe for news search: last ${timeframe} days
-- Search mode: Single adaptive directional search
-- Tavily queries used: ${plannedQueries.map(plan => `${plan.label}: ${plan.query}`).join(" | ")}
+- Conversation goal: ${conversationGoal}
+- Enabled signal threads: ${signalThreads.join(", ") || "sector_news, fx_rates, geopolitics, trade_supply_chain"}
+- Search mode: Conversation-card signal scan
+- Search queries used: ${plannedQueries.map(plan => `${plan.label}: ${plan.query}`).join(" | ")}
 
 Task:
-Create a concise, source-grounded customer conversation brief from the provided news sources.
+Create source-grounded client conversation cards from the provided sources. The cards should help a junior transaction banker offer useful observations, not recite a market view.
 
-Analysis standard:
-- The output should help an RM sound informed and commercially aware, not force every item into a product pitch.
+Conversation standard:
+- The output should help the RM think and speak better; do not give a polished monologue to recite.
+- Translate external developments into cash, trade, payments, FX flows, working capital, liquidity, operational resilience, and specialist handoff.
 - Separate purchase-side cost/supplier implications from sales-side revenue/demand implications when the sources support that distinction.
 - Treat purchase countries as supplier/source markets and sales countries as buyer/revenue markets. Do not cross-combine countries randomly.
 - Prefer direct Thailand, selected purchase-market, selected sales-market, or selected-currency relevance.
-- Broader sector news may be used only when the bridge to this client profile is clear. If the article is not specific to the selected ISIC activity, say so plainly, e.g. "While this is broader fruit-sector news rather than durian-specific...".
+- Use gentle observations and soft invitations. Do not interrogate the client with blunt questions unless it is in the "If client engages" section.
+- Broader sector news may be used only when the bridge to this client profile is clear. If the article is not specific to the selected ISIC activity, say so plainly.
 
 Grounding rules:
 - Use ONLY the provided sources.
@@ -1329,18 +1416,18 @@ Grounding rules:
 - Do NOT imply that an article specifically discusses the client's product, market, currency, or trade flow unless the source explicitly does.
 - You may draw cautious implications, but clearly distinguish direct evidence from inferred relevance.
 - Do not cite a source unless it directly supports the statement being made.
-- Every theme must cite at least one source number from the provided sources.
-- Every bullet must include a source reference like [1], [2].
-- If the sources do not contain meaningful, recent developments relevant to this Thailand-based client context, return JSON with "status": "NO_NEWS" and an empty themes array.
-- If there is at least one useful news-based theme, return JSON with "status": "OK". Do NOT include the string NO_NEWS anywhere in titles, paragraphs, or bullets.
+- Every card must cite at least one source number from the provided sources.
+- Every source-grounded statement should include a source reference like [1], [2].
+- If the sources do not contain meaningful, recent developments relevant to this Thailand-based client context, return JSON with "status": "NO_NEWS" and an empty cards array.
+- If there is at least one useful news-based card, return JSON with "status": "OK". Do NOT include the string NO_NEWS anywhere in titles, paragraphs, or bullets.
 
 Relevance discipline:
-- Do not force weakly related articles into high-confidence themes.
+- Do not force weakly related articles into high-confidence cards.
 - Do not use numeric scores, signal strength labels, or evidence grades.
 - Do not use prefixes such as "Primary Market Signal" or "Secondary Global Context".
-- Prefer fewer, stronger themes over many isolated source summaries.
+- Prefer fewer, stronger cards over many isolated source summaries.
 - If a development is only useful as a light conversation opener, frame it as a small-talk / awareness point rather than a risk or sales opportunity.
-- Not every theme needs a risk, opportunity, or RM angle. Only include those when genuinely supported.
+- Not every card needs a risk, opportunity, or RM angle. Only include those when genuinely supported.
 - Avoid recommendations such as financing a specific expansion, acquisition, or project unless the source clearly supports it for the selected client profile.
 - Do NOT assume a named company in an article is the bank's client or the user's client. Frame it as a sector signal, competitor signal, buyer/supplier signal, or market development.
 - Do NOT repeat the standalone FX rate commentary. Mention FX only when a source directly supports an implication, or when selected purchase/sales currencies create an obvious directional crosswind that is clearly presented as an inference.
@@ -1354,14 +1441,16 @@ Writing style:
 Return JSON only in this exact shape:
 {
   "status": "OK",
-  "themes": [
+  "cards": [
     {
       "title": "Specific practical title without scoring or signal prefixes",
-      "paragraph": "One short paragraph explaining the development and its calibrated relevance to the Thailand-based client, with source reference(s).",
-      "supportingInformation": [
-        "Conversation opener: source-grounded point the RM can raise without forcing a sale [1]",
-        "Watch point: optional source-grounded risk, operational issue, or follow-up question only if supported [2]"
-      ],
+      "plainEnglishContext": "One simple, source-grounded explanation of what is happening [1].",
+      "clientRelevanceLens": "How this may connect to cash, trade, payments, FX flows, liquidity, working capital, or resilience for this client profile [1].",
+      "gentleObservation": "A useful observation the RM can offer without forcing the client to disclose a problem [1].",
+      "softInvitation": "A low-pressure phrase that leaves room for the client to respond.",
+      "ifClientEngages": "One natural follow-up path only if the client shows interest.",
+      "bankRelevance": "Possible relevance to cash management, trade finance, FX flows, liquidity, payments, or working capital.",
+      "handoffCue": "When to bring in FX, markets, trade, cash, compliance, sanctions, legal, tax, credit, or sector specialists.",
       "sourceNumbers": [1, 2]
     }
   ]
@@ -1370,7 +1459,7 @@ Return JSON only in this exact shape:
 If not relevant, return exactly this JSON:
 {
   "status": "NO_NEWS",
-  "themes": []
+  "cards": []
 }
 
 Provided sources:
@@ -1414,16 +1503,16 @@ ${articleContext}
     }
 
     const status = String(parsed.status || "").toUpperCase();
-    const themes = Array.isArray(parsed.themes) ? parsed.themes : [];
+    const cards = Array.isArray(parsed.cards) ? parsed.cards : (Array.isArray(parsed.themes) ? parsed.themes : []);
 
-    if (status === "NO_NEWS" || themes.length === 0) {
+    if (status === "NO_NEWS" || cards.length === 0) {
       return {
         status: "NO_NEWS",
         content: normalizeNoNewsText(timeframe)
       };
     }
 
-    const content = formatNewsThemesFromJson(parsed).replace(/\bNO_NEWS\b/g, "").trim();
+    const content = formatNewsThemesFromJson({ ...parsed, cards }).replace(/\bNO_NEWS\b/g, "").trim();
     const sourceRefs = extractSourceRefs(content);
 
     if (!content || sourceRefs.length === 0) {
@@ -1605,6 +1694,10 @@ export async function onRequestPost(context) {
     const currencies = getAllTradeFlowCurrencies(tradeFlow, legacyCurrencies);
     const countries = getAllTradeFlowCountries(tradeFlow);
     const defaultPrompt = (body.defaultPrompt || "").trim();
+    const conversationGoal = (body.conversationGoal || "general_check_in").trim();
+    const signalThreads = Array.isArray(body.signalThreads) && body.signalThreads.length
+      ? body.signalThreads.map(item => String(item))
+      : ["sector_news", "fx_rates", "geopolitics", "trade_supply_chain"];
 
     if (!sector) return Response.json({ error: "Please select a sector." }, { status: 400 });
     if (!subsector) return Response.json({ error: "Please select a subsector." }, { status: 400 });
@@ -1638,32 +1731,42 @@ export async function onRequestPost(context) {
       industry,
       isicCode,
       tradeFlow,
-      timeframe
+      timeframe,
+      signalThreads
     });
 
     const searchDepth = "advanced";
+    const gdeltQueries = buildGdeltQueries({ industry, tradeFlow, signalThreads });
 
-    const tavilyBatches = await Promise.all(plannedQueries.map(plan =>
-      tavilySearch({
-        apiKey: env.TAVILY_API_KEY,
-        query: plan.query,
-        startDate: start_date,
-        endDate: end_date,
-        includeDomains: null,
-        maxResults: plan.maxResults || 5,
-        searchDepth
-      }).then(results => normalizeTavilyResults(results, plan.label))
-    ));
+    const [tavilyBatches, gdeltBatches, rawFxResults] = await Promise.all([
+      Promise.all(plannedQueries.map(plan =>
+        tavilySearch({
+          apiKey: env.TAVILY_API_KEY,
+          query: plan.query,
+          startDate: start_date,
+          endDate: end_date,
+          includeDomains: null,
+          maxResults: plan.maxResults || 5,
+          searchDepth
+        }).then(results => normalizeTavilyResults(results, plan.label))
+      )),
+      Promise.all(gdeltQueries.map(plan =>
+        gdeltDocSearch({
+          query: plan.query,
+          timeframe,
+          maxRecords: 8
+        }).then(results => normalizeGdeltResults(results, plan.label)).catch(() => [])
+      )),
+      fetchFxRates(currencies, fxTenor)
+    ]);
 
-    // FX is now loaded independently through /api/fx so the chart/table can render as soon as Yahoo data and
-    // the R2 weekly-fx-research PDF commentary are ready. Keep an empty field for backward compatibility.
-    const fxResults = [];
+    const fxResults = await analyzeFxRates({ env, fxList: rawFxResults, sector, subsector, industry, tradeRoles, countries, tradeFlow, fxTenor });
 
     const primaryCandidateSources = prepareCandidateSources({
-      sources: tavilyBatches.flat()
+      sources: [...tavilyBatches.flat(), ...gdeltBatches.flat()]
     });
 
-    let effectiveQueries = [...plannedQueries];
+    let effectiveQueries = [...plannedQueries, ...gdeltQueries];
     let sourceAssessment = await assessSourceRelevance({
       env,
       sources: primaryCandidateSources,
@@ -1711,7 +1814,7 @@ export async function onRequestPost(context) {
 
         effectiveQueries = [...effectiveQueries, ...newRecoveryQueries];
         candidateSources = prepareCandidateSources({
-          sources: [...tavilyBatches.flat(), ...fallbackBatches.flat()]
+          sources: [...tavilyBatches.flat(), ...gdeltBatches.flat(), ...fallbackBatches.flat()]
         });
 
         sourceAssessment = await assessSourceRelevance({
@@ -1750,7 +1853,7 @@ export async function onRequestPost(context) {
     if (!sourceAssessment.hasRelevantUpdates || mergedSources.length === 0) {
       const noNews = {
         status: "NO_NEWS",
-        content: sourceAssessment.noRelevantUpdateMessage || `No significant or relevant market developments identified for this industry and client context in the selected ${timeframe}-day period.`
+        content: formatStructuralNoNewsCard({ timeframe, industry, tradeFlow, conversationGoal })
       };
 
       return Response.json({
@@ -1762,7 +1865,7 @@ export async function onRequestPost(context) {
         search_keywords: searchKeywords,
         search_queries: effectiveQueries,
         fallback_triggered: fallbackTriggered,
-        search_mode: "adaptive_directional",
+        search_mode: "conversation_card_signal_scan",
         sources: []
       });
     }
@@ -1779,7 +1882,9 @@ export async function onRequestPost(context) {
       tradeFlow,
       timeframe,
       plannedQueries: effectiveQueries,
-      defaultPrompt
+      defaultPrompt,
+      conversationGoal,
+      signalThreads
     });
 
     const aligned = alignSourcesToAnalysis({
@@ -1797,7 +1902,7 @@ export async function onRequestPost(context) {
       search_keywords: searchKeywords,
       search_queries: effectiveQueries,
       fallback_triggered: fallbackTriggered,
-      search_mode: "adaptive_directional",
+      search_mode: "conversation_card_signal_scan",
       sources: aligned.newsSection.status === "NO_NEWS" ? [] : aligned.sources.map(source => ({
         number: source.source_number,
         title: source.title,

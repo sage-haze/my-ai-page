@@ -58,43 +58,17 @@ function arrayBufferToBase64(arrayBuffer) {
   return btoa(binary);
 }
 
-function getFxResearchBucket(env) {
-  return env?.FX_REPORTS || env?.WEEKLY_FX_RESEARCH || env?.weeklyFxResearch || null;
-}
-
 async function getLatestFxResearchPdf(env) {
-  const status = {
-    attempted: true,
-    found: false,
-    used: false,
-    bucket_binding: "",
-    key: "",
-    filename: "",
-    size_bytes: 0,
-    message: "PDF not checked yet."
-  };
-
   try {
-    const bucket = getFxResearchBucket(env);
-    status.bucket_binding = env?.FX_REPORTS
-      ? "FX_REPORTS"
-      : env?.WEEKLY_FX_RESEARCH
-        ? "WEEKLY_FX_RESEARCH"
-        : env?.weeklyFxResearch
-          ? "weeklyFxResearch"
-          : "";
-
-    if (!bucket) {
-      status.message = "No R2 binding found. Create a Pages R2 binding named FX_REPORTS or WEEKLY_FX_RESEARCH and point it to the weekly-fx-research bucket.";
-      console.warn(status.message);
-      return { pdf: null, status };
+    if (!env?.FX_REPORTS) {
+      return null;
     }
 
     let selectedKey = String(env.FX_RESEARCH_OBJECT_KEY || "").trim();
 
     if (!selectedKey) {
       const prefix = String(env.FX_RESEARCH_PREFIX || "").trim();
-      const listed = await bucket.list({ prefix, limit: 100 });
+      const listed = await env.FX_REPORTS.list({ prefix, limit: 100 });
       const pdfObjects = (listed?.objects || [])
         .filter(item => /\.pdf$/i.test(item.key || ""))
         .sort((a, b) => new Date(b.uploaded || 0) - new Date(a.uploaded || 0));
@@ -102,52 +76,31 @@ async function getLatestFxResearchPdf(env) {
       selectedKey = pdfObjects[0]?.key || "";
     }
 
-    if (!selectedKey) {
-      status.message = "Connected to R2, but no PDF was found in the configured prefix.";
-      return { pdf: null, status };
+    if (!selectedKey || !/\.pdf$/i.test(selectedKey)) {
+      return null;
     }
 
-    if (!/\.pdf$/i.test(selectedKey)) {
-      status.key = selectedKey;
-      status.message = "Configured FX research object is not a PDF.";
-      return { pdf: null, status };
-    }
-
-    const object = await bucket.get(selectedKey);
+    const object = await env.FX_REPORTS.get(selectedKey);
     if (!object) {
-      status.key = selectedKey;
-      status.message = "PDF key was selected, but the object could not be read from R2.";
-      return { pdf: null, status };
+      return null;
     }
 
     const size = Number(object.size || 0);
     const maxBytes = Number(env.FX_RESEARCH_MAX_BYTES || 12000000);
-    status.found = true;
-    status.key = selectedKey;
-    status.filename = selectedKey.split("/").pop() || "weekly-fx-research.pdf";
-    status.size_bytes = size;
-
     if (size > maxBytes) {
-      status.message = `PDF found but skipped because it is ${size} bytes, above limit ${maxBytes}.`;
       console.warn(`FX research PDF ${selectedKey} skipped because it is ${size} bytes, above limit ${maxBytes}.`);
-      return { pdf: null, status };
+      return null;
     }
 
     const arrayBuffer = await object.arrayBuffer();
-    status.used = true;
-    status.message = "PDF found in R2 and sent to OpenAI for currency-section extraction.";
     return {
-      pdf: {
-        key: selectedKey,
-        filename: status.filename,
-        fileData: `data:application/pdf;base64,${arrayBufferToBase64(arrayBuffer)}`
-      },
-      status
+      key: selectedKey,
+      filename: selectedKey.split("/").pop() || "weekly-fx-research.pdf",
+      fileData: `data:application/pdf;base64,${arrayBufferToBase64(arrayBuffer)}`
     };
   } catch (error) {
     console.error("FX research PDF retrieval failed:", error);
-    status.message = `FX research PDF retrieval failed: ${error.message || "Unknown error"}`;
-    return { pdf: null, status };
+    return null;
   }
 }
 
@@ -165,23 +118,12 @@ async function fetchYahooSeries(pair, rangeDays = 30) {
   const safeRangeDays = [30, 90].includes(Number(rangeDays)) ? Number(rangeDays) : 30;
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${pair}?interval=1d&range=${safeRangeDays}d`;
 
-  const response = await fetch(url, {
-    headers: {
-      "User-Agent": "Mozilla/5.0"
-    }
-  });
+  const response = await fetch(url);
 
-  const rawText = await response.text();
+  const data = await response.json();
 
   if (!response.ok) {
-    throw new Error(`Yahoo Finance request failed for ${pair}: ${rawText.slice(0, 120)}`);
-  }
-
-  let data;
-  try {
-    data = JSON.parse(rawText);
-  } catch (_) {
-    throw new Error(`Yahoo Finance returned invalid JSON for ${pair}: ${rawText.slice(0, 120)}`);
+    throw new Error(`Yahoo Finance request failed for ${pair}.`);
   }
 
   const result = data?.chart?.result?.[0];
@@ -290,56 +232,6 @@ async function fetchFxRates(currencies, rangeDays = 30) {
   );
 }
 
-
-function calculateFxMetrics(fx, fxTenor = 30) {
-  const series = Array.isArray(fx?.series) ? fx.series : [];
-  if (series.length === 0) return null;
-
-  const rates = series
-    .map(item => Number(item.rate))
-    .filter(rate => Number.isFinite(rate));
-
-  if (rates.length === 0) return null;
-
-  const first = rates[0];
-  const last = rates[rates.length - 1];
-  const high = Math.max(...rates);
-  const low = Math.min(...rates);
-  const changePct = first ? ((last - first) / first) * 100 : 0;
-  const rangePct = low ? ((high - low) / low) * 100 : 0;
-  const firstDate = series[0]?.date || "";
-  const lastDate = series[series.length - 1]?.date || "";
-
-  const midpoint = (high + low) / 2;
-  const latestPosition = high === low
-    ? "flat range"
-    : last >= midpoint
-      ? "upper half of the observed range"
-      : "lower half of the observed range";
-
-  let direction = "broadly rangebound";
-  if (Math.abs(changePct) >= 0.15) {
-    direction = changePct > 0
-      ? `${fx.base || "base currency"} strengthened against THB`
-      : `${fx.base || "base currency"} weakened against THB`;
-  }
-
-  return {
-    tenor_days: Number(fxTenor) || 30,
-    first_date: firstDate,
-    last_date: lastDate,
-    first_rate: Number(first.toFixed(4)),
-    latest_rate: Number(last.toFixed(4)),
-    high_rate: Number(high.toFixed(4)),
-    low_rate: Number(low.toFixed(4)),
-    change_pct: Number(changePct.toFixed(2)),
-    observed_range_pct: Number(rangePct.toFixed(2)),
-    latest_position_in_range: latestPosition,
-    objective_direction: direction,
-    data_points: rates.length
-  };
-}
-
 function extractOutputText(data) {
   if (data.output_text) return data.output_text;
 
@@ -365,13 +257,7 @@ function extractOutputText(data) {
 async function analyzeFxRates({ env, fxList, sector = "", subsector = "", industry = "", tradeRoles = [], countries = [], tradeFlow = null, fxTenor = 30 }) {
   const usableFx = fxList.filter(fx => !fx.skip && !fx.error && Array.isArray(fx.series) && fx.series.length > 0);
 
-  if (usableFx.length === 0) {
-    return { fx: fxList, fxResearch: { attempted: false, found: false, used: false, message: "No usable non-THB FX series, so PDF research was not checked." } };
-  }
-
-  if (!env.OPENAI_API_KEY) {
-    return { fx: fxList, fxResearch: { attempted: false, found: false, used: false, message: "OPENAI_API_KEY is not configured, so PDF research was not checked." } };
-  }
+  if (usableFx.length === 0 || !env.OPENAI_API_KEY) return fxList;
 
   const compactFx = usableFx.map(fx => ({
     pair: fx.pair,
@@ -382,30 +268,18 @@ async function analyzeFxRates({ env, fxList, sector = "", subsector = "", indust
     highest_date: fx.highest_date,
     lowest_rate: fx.lowest_rate,
     lowest_date: fx.lowest_date,
-    metrics: calculateFxMetrics(fx, fxTenor),
-    recent_series: fx.series
+    series: fx.series
   }));
 
   const countryText = countries.map(country => country.label || country.name || country.code).filter(Boolean).join(", ");
   const currencyList = usableFx.map(fx => fx.base).filter(Boolean);
-  const internalFxResearchResult = await getLatestFxResearchPdf(env);
-  const internalFxResearchPdf = internalFxResearchResult?.pdf || null;
-  const fxResearchStatus = internalFxResearchResult?.status || {
-    attempted: true,
-    found: false,
-    used: false,
-    bucket_binding: "",
-    key: "",
-    filename: "",
-    size_bytes: 0,
-    message: "FX research PDF status was not available."
-  };
+  const internalFxResearchPdf = await getLatestFxResearchPdf(env);
   const internalFxResearchBlock = internalFxResearchPdf
     ? `\nInternal weekly FX research PDF attached from R2: ${internalFxResearchPdf.filename}\n`
     : "\nInternal weekly FX research PDF from R2: Not available for this request.\n";
 
   const prompt = `
-You are preparing FX briefing notes for Thailand-based commercial relationship managers.
+You are writing short FX movement notes for a Thailand-based relationship manager.
 
 Client context:
 - Client base: Thailand
@@ -413,57 +287,24 @@ Client context:
 - Subsector: ${subsector}
 - Specific industry: ${industry}
 - Directional trade flow:
-${tradeFlow ? tradeFlowSummary(tradeFlow) : `Client trade role: ${tradeRoles.join(", ")}
-Exposure countries / markets: ${countryText}`}
+${tradeFlow ? tradeFlowSummary(tradeFlow) : `Client trade role: ${tradeRoles.join(", ")}\nExposure countries / markets: ${countryText}`}
 
-You have two evidence sources:
-1. Structured ${fxTenor}-day FX market statistics from Yahoo Finance.
-2. An internal weekly FX research extract from the attached PDF, if available.
-
-For EACH selected FX pair, produce TWO clearly separated sections.
-
-MARKET OBSERVATION
-Use ONLY the supplied FX market statistics and recent series.
-Describe the observed range, latest level versus the range, directional movement, volatility/range behaviour, and whether momentum looks like continuation, fading, or reversal.
-This section must be objective and backward-looking.
-Do NOT forecast in this section.
-Keep to 2-4 sentences.
-
-INTERNAL ANALYSIS
-Use the internal research extract only as institutional support / house view for the upcoming week.
-Summarize the expected directional bias, key macro drivers, central bank expectations, upcoming risks/events, or support/resistance colour if available.
-Do not call it a PDF or mention the document/file name. Refer to it only as "internal analysis".
-If internal analysis is not directly relevant to the selected currency, say that no direct internal view was found and avoid inventing one.
-Keep to 2-4 sentences.
-
-Client implication discipline:
-- Where useful, connect the FX view to the purchase/sales currency context.
-- Do not pretend to know hedge ratios, exposure sizing, settlement timing, or net positions that were not provided.
-- Do not give investment advice.
-- Do not mention Tavily or external news sources.
+Use the provided ${fxTenor}-day FX data below plus the attached internal weekly FX research PDF if available.
+For each pair, write two concise sentences.
+Sentence 1: observed FX movement, latest level versus the ${fxTenor}-day range, and whether the base currency strengthened or weakened against THB.
+Sentence 2: a calibrated implication for this Thailand-based client, using the directional purchase/sales currency context and the bank's internal FX view from the attached PDF where relevant.
+If the attached internal research is not directly relevant to a selected currency, do not force it.
+Do not mention Tavily sources. Do not give investment advice. Avoid pretending to know hedge ratios, exposure sizing, settlement timing, or net positions that were not provided. Keep each analysis under 60 words.
 
 Return JSON only in this shape:
 {
   "analyses": [
-    {
-      "pair": "USDTHB=X",
-      "market_observation": "Objective observed movement based only on market data.",
-      "internal_analysis": "Forward-looking support based on internal analysis, or say no direct internal view was found."
-    }
-  ],
-  "research_extraction": {
-    "status": "used | not_relevant | not_available",
-    "summary": "One short sentence explaining whether internal analysis was used.",
-    "sections": [
-      { "currency": "USD", "text": "Relevant extracted internal analysis for this currency. If not found, say not found." }
-    ]
-  }
+    { "pair": "USDTHB=X", "analysis": "..." }
+  ]
 }
 
-For research_extraction.sections, include one entry for each selected currency in this list: ${currencyList.join(", ")}. This is a temporary diagnostic view for the user, so include enough extracted text to verify the right section was read, but keep each currency under 900 characters.
-
 ${internalFxResearchBlock}
-FX market statistics and recent series:
+FX data:
 ${JSON.stringify(compactFx, null, 2)}
 `.trim();
 
@@ -493,73 +334,26 @@ ${JSON.stringify(compactFx, null, 2)}
     });
 
     const data = await response.json();
-    if (!response.ok) {
-      return {
-        fx: fxList,
-        fxResearch: {
-          ...fxResearchStatus,
-          openai_status: "failed",
-          message: `${fxResearchStatus.message} OpenAI FX analysis failed.`
-        }
-      };
-    }
+    if (!response.ok) return fxList;
 
     const text = extractOutputText(data);
     const jsonStart = text.indexOf("{");
     const jsonEnd = text.lastIndexOf("}");
-    if (jsonStart === -1 || jsonEnd === -1) {
-      return {
-        fx: fxList,
-        fxResearch: {
-          ...fxResearchStatus,
-          openai_status: "no_json",
-          message: `${fxResearchStatus.message} OpenAI did not return parseable JSON.`
-        }
-      };
-    }
+    if (jsonStart === -1 || jsonEnd === -1) return fxList;
 
     const parsed = JSON.parse(text.slice(jsonStart, jsonEnd + 1));
     const analysisByPair = new Map(
       (parsed.analyses || [])
-        .filter(item => item.pair)
-        .map(item => {
-          const marketObservation = String(item.market_observation || "").trim();
-          const internalAnalysis = String(item.internal_analysis || "").trim();
-          const legacyAnalysis = String(item.analysis || "").trim();
-          const combined = marketObservation || internalAnalysis
-            ? [
-                marketObservation ? `Market Observation\n${marketObservation}` : "",
-                internalAnalysis ? `Internal Analysis\n${internalAnalysis}` : ""
-              ].filter(Boolean).join("\n\n")
-            : legacyAnalysis;
-          return [String(item.pair), combined];
-        })
-        .filter(([, analysis]) => analysis)
+        .filter(item => item.pair && item.analysis)
+        .map(item => [String(item.pair), String(item.analysis).trim()])
     );
 
-    const researchExtraction = parsed.research_extraction || {};
-    return {
-      fx: fxList.map(fx => ({
-        ...fx,
-        analysis: analysisByPair.get(fx.pair) || fx.analysis || ""
-      })),
-      fxResearch: {
-        ...fxResearchStatus,
-        openai_status: "ok",
-        extraction_status: researchExtraction.status || (internalFxResearchPdf ? "used" : "not_available"),
-        extraction_summary: researchExtraction.summary || "",
-        extracted_sections: Array.isArray(researchExtraction.sections) ? researchExtraction.sections : []
-      }
-    };
-  } catch (error) {
-    return {
-      fx: fxList,
-      fxResearch: {
-        ...fxResearchStatus,
-        openai_status: "error",
-        message: `${fxResearchStatus.message} FX research extraction failed: ${error.message || "Unknown error"}`
-      }
-    };
+    return fxList.map(fx => ({
+      ...fx,
+      analysis: analysisByPair.get(fx.pair) || fx.analysis || ""
+    }));
+  } catch (_) {
+    return fxList;
   }
 }
 
@@ -591,9 +385,9 @@ export async function onRequestPost(context) {
     }
 
     const rawFx = await fetchFxRates(currencies, fxTenor);
-    const analyzed = await analyzeFxRates({ env, fxList: rawFx, sector, subsector, industry, tradeRoles, countries, tradeFlow, fxTenor });
+    const fx = await analyzeFxRates({ env, fxList: rawFx, sector, subsector, industry, tradeRoles, countries, tradeFlow, fxTenor });
 
-    return Response.json({ fx: analyzed.fx || rawFx, fxResearch: analyzed.fxResearch || null });
+    return Response.json({ fx });
   } catch (error) {
     return Response.json({
       error: error.message || "FX update failed."

@@ -6,6 +6,7 @@ const subsectorBox = document.getElementById("subsector");
 const industryBox = document.getElementById("industry");
 const timeframeBox = document.getElementById("timeframe");
 const fxTenorBox = document.getElementById("fxTenor");
+const conversationGoalBox = document.getElementById("conversationGoal");
 const purchaseDomesticBox = document.getElementById("purchaseDomestic");
 const purchaseInternationalBox = document.getElementById("purchaseInternational");
 const salesDomesticBox = document.getElementById("salesDomestic");
@@ -593,51 +594,13 @@ function getFxChartAxis(series, tenor) {
   return { tickLabels, majorTicks };
 }
 
-function renderFxResearchDiagnostic(fxResearch) {
-  if (!fxResearch) return "";
-
-  const statusText = fxResearch.used
-    ? "PDF read successfully"
-    : fxResearch.found
-      ? "PDF found but not used"
-      : fxResearch.attempted
-        ? "PDF not read"
-        : "PDF not checked";
-
-  const meta = [
-    fxResearch.bucket_binding ? `Binding: ${fxResearch.bucket_binding}` : "",
-    fxResearch.filename ? `File: ${fxResearch.filename}` : "",
-    fxResearch.size_bytes ? `Size: ${Math.round(Number(fxResearch.size_bytes) / 1024)} KB` : ""
-  ].filter(Boolean).join(" • ");
-
-  const sections = Array.isArray(fxResearch.extracted_sections) ? fxResearch.extracted_sections : [];
-  const sectionHtml = sections.length
-    ? sections.map(section => `
-        <div class="fx-research-section">
-          <strong>${escapeHtml(section.currency || "Currency")}</strong>
-          <pre>${escapeHtml(section.text || "No extracted text returned.")}</pre>
-        </div>
-      `).join("")
-    : `<div class="fx-research-empty">No extracted currency section was returned.</div>`;
-
-  return `
-    <details class="fx-research-toggle">
-      <summary>${escapeHtml(statusText)}${meta ? ` <span>${escapeHtml(meta)}</span>` : ""}</summary>
-      <div class="fx-research-body">
-        <p>${escapeHtml(fxResearch.extraction_summary || fxResearch.message || "No PDF status message returned.")}</p>
-        ${sectionHtml}
-      </div>
-    </details>
-  `;
-}
-
-function renderFx(fxList, fxResearch = null) {
+function renderFx(fxList) {
   const tenor = fxTenorBox?.value || "30";
   Object.values(fxCharts).forEach(chart => chart?.destroy?.());
   fxCharts = {};
 
   if (!fxList || fxList.length === 0) {
-    fxOutput.innerHTML = `${renderFxResearchDiagnostic(fxResearch)}<div>No FX data returned.</div>`;
+    fxOutput.textContent = "No FX data returned.";
     return;
   }
 
@@ -645,7 +608,7 @@ function renderFx(fxList, fxResearch = null) {
   const errors = fxList.filter(fx => fx.error);
 
   if (nonThb.length === 0 && errors.length === 0) {
-    fxOutput.innerHTML = `${renderFxResearchDiagnostic(fxResearch)}<div>No non-THB FX selected.</div>`;
+    fxOutput.textContent = "No non-THB FX selected.";
     return;
   }
 
@@ -712,7 +675,6 @@ function renderFx(fxList, fxResearch = null) {
 
   fxOutput.innerHTML = `
     <div class="fx-card-stack">
-      ${renderFxResearchDiagnostic(fxResearch)}
       ${fxCards}
       ${errorBlocks}
     </div>
@@ -916,7 +878,7 @@ async function updateFxOnly() {
       return;
     }
 
-    renderFx(data.fx || [], data.fxResearch || null);
+    renderFx(data.fx || []);
   } catch (error) {
     fxOutput.innerHTML = `<span class="error">FX network error.</span>`;
   } finally {
@@ -986,6 +948,8 @@ button.addEventListener("click", async function () {
   const countries = getAllTradeFlowCountries(tradeFlow);
 
   const defaultPrompt = defaultPromptBox.value.trim();
+  const conversationGoal = conversationGoalBox?.value || "general_check_in";
+  const signalThreads = getSignalThreads();
 
   if (!sector) {
     analysisOutput.textContent = "Please select a sector.";
@@ -1033,7 +997,8 @@ button.addEventListener("click", async function () {
   }
 
   button.disabled = true;
-  analysisOutput.innerHTML = `<span class="loading">Running analysis...</span>`;
+  fxOutput.innerHTML = `<span class="loading">Checking FX...</span>`;
+  analysisOutput.innerHTML = `<span class="loading">Researching news...</span>`;
   renderFxContext("");
   sourcesOutput.innerHTML = `<span class="loading">Loading sources...</span>`;
   if (contextOutput) contextOutput.textContent = "";
@@ -1055,7 +1020,9 @@ button.addEventListener("click", async function () {
         fxTenor,
         currencies,
         countries,
-        defaultPrompt
+        defaultPrompt,
+        conversationGoal,
+        signalThreads
       })
     });
 
@@ -1063,17 +1030,21 @@ button.addEventListener("click", async function () {
 
     if (!response.ok) {
       analysisOutput.innerHTML = `<span class="error">${data.error || "Request failed."}</span>`;
+      fxOutput.textContent = "";
       sourcesOutput.textContent = "";
       if (contextOutput) contextOutput.textContent = "";
       return;
     }
 
+    renderFx(data.fx || []);
+    renderFxContext(data.fx_context || data.fxContext || "");
     renderSources(data.sources || [], Boolean(data.no_relevant_updates), Boolean(data.fallback_triggered));
     renderAnalysis(data.news?.content || data.analysis || "No analysis returned.");
     // Industry Context & RM Considerations is currently deactivated in the UI.
     // renderContext(data.context || "");
   } catch (error) {
     analysisOutput.innerHTML = `<span class="error">Network error.</span>`;
+    fxOutput.textContent = "";
     sourcesOutput.textContent = "";
     if (contextOutput) contextOutput.textContent = "";
   } finally {
