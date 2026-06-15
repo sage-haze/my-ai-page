@@ -793,3 +793,39 @@ select.auto-filled {
   font-weight: 700;
   margin-bottom: 4px;
 }
+
+/* Conversation setup additions */
+.hidden {
+  display: none !important;
+}
+
+.setup-card {
+  border: 1px solid #d8e2ea;
+  border-radius: 12px;
+  padding: 14px;
+  background: #f8fbfd;
+  margin: 16px 0;
+}
+
+.section-heading-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.section-subtitle {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 0.92rem;
+  line-height: 1.35;
+}
+
+.compact-grid {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.developer-focus {
+  margin-top: 12px;
+}

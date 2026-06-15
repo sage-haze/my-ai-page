@@ -336,6 +336,72 @@ function tradeFlowSummary(tradeFlow) {
   ].join("\n");
 }
 
+const CLIENT_PROFILE_LABELS = {
+  relationshipContext: {
+    unknown: "not specified",
+    first_meeting: "first meeting / prospect",
+    regular_check_in: "regular relationship check-in",
+    annual_review: "annual or periodic review",
+    post_news_follow_up: "follow-up after recent market news",
+    senior_meeting_prep: "preparing for senior client meeting"
+  },
+  outputDepth: {
+    quick: "quick: 2 cards",
+    standard: "standard: 3–4 cards",
+    detailed: "detailed: up to 5 cards"
+  },
+  cashPosition: {
+    unknown: "unknown / not discussed",
+    surplus_cash: "likely surplus cash",
+    borrowing_need: "likely borrowing or funding need",
+    mixed_or_seasonal: "mixed or seasonal cash cycle",
+    cash_buffer_focus: "focused on cash buffers / resilience"
+  },
+  treasuryProfile: {
+    unknown: "unknown / not discussed",
+    mostly_domestic: "mostly domestic flows",
+    cross_border_flows: "meaningful cross-border flows",
+    recurring_fx_exposure: "recurring FX exposure",
+    high_payment_volume: "high payment / collection volume"
+  },
+  supplyChainProfile: {
+    unknown: "unknown / not discussed",
+    mostly_domestic: "mostly domestic supply chain",
+    regional_asean: "regional / ASEAN-linked supply chain",
+    global_supply_chain: "global supply chain",
+    concentrated_suppliers: "concentrated supplier base"
+  }
+};
+
+function normalizeClientProfile(profile = {}) {
+  return {
+    relationshipContext: String(profile.relationshipContext || "unknown"),
+    outputDepth: ["quick", "standard", "detailed"].includes(String(profile.outputDepth || "")) ? String(profile.outputDepth) : "standard",
+    cashPosition: String(profile.cashPosition || "unknown"),
+    treasuryProfile: String(profile.treasuryProfile || "unknown"),
+    supplyChainProfile: String(profile.supplyChainProfile || "unknown")
+  };
+}
+
+function clientProfileSummary(profile = {}) {
+  const clean = normalizeClientProfile(profile);
+  const label = (group, value) => CLIENT_PROFILE_LABELS[group]?.[value] || value || "not specified";
+  return [
+    `Relationship context: ${label("relationshipContext", clean.relationshipContext)}`,
+    `Output depth: ${label("outputDepth", clean.outputDepth)}`,
+    `Client cash position: ${label("cashPosition", clean.cashPosition)}`,
+    `Treasury profile: ${label("treasuryProfile", clean.treasuryProfile)}`,
+    `Supply chain profile: ${label("supplyChainProfile", clean.supplyChainProfile)}`
+  ].join("\n");
+}
+
+function outputDepthInstruction(profile = {}) {
+  const depth = normalizeClientProfile(profile).outputDepth;
+  if (depth === "quick") return "Generate exactly 2 cards unless there is only one genuinely relevant issue.";
+  if (depth === "detailed") return "Generate up to 5 cards, but prefer fewer if the source evidence is weak.";
+  return "Generate 3–4 cards, but prefer fewer if the source evidence is weak.";
+}
+
 function buildFallbackQueries({ sector, subsector, industry, isicCode, tradeFlow, signalThreads = [] }) {
   const baseKeywords = getSearchKeywords({ sector, subsector, industry, isicCode }).slice(0, 4).join(" ");
   const purchaseMarkets = listCountries(tradeFlow?.purchase?.countries, 3);
@@ -1268,16 +1334,17 @@ function formatNewsThemesFromJson(parsed) {
 }
 
 
-function formatStructuralNoNewsCard({ timeframe, industry, tradeFlow, conversationGoal }) {
+function formatStructuralNoNewsCard({ timeframe, industry, tradeFlow, conversationGoal, clientProfile = {} }) {
   const currencies = getAllTradeFlowCurrencies(tradeFlow, []);
   const purchaseMarkets = listCountries(tradeFlow?.purchase?.countries, 3) || "domestic suppliers";
   const salesMarkets = listCountries(tradeFlow?.sales?.countries, 3) || "domestic customers";
   const currencyText = currencies.length ? currencies.join("/") : "selected currencies";
+  const profileText = clientProfileSummary(clientProfile).replace(/\n/g, "; ");
 
   return [
     `Card 1: Structural conversation angle when no strong recent news is found`,
     `Plain-English context: No significant or clearly relevant market development was identified in the selected ${timeframe}-day period for this client profile. This card is therefore structural context, not a news-based signal.`,
-    `Client relevance lens: For a Thailand-based ${industry} client, the practical discussion can still be anchored on cash visibility, supplier and buyer payment timing, working capital discipline, and recurring ${currencyText} flows.`,
+    `Client relevance lens: For a Thailand-based ${industry} client, the practical discussion can still be anchored on cash visibility, supplier and buyer payment timing, working capital discipline, and recurring ${currencyText} flows. Additional setup: ${profileText}.`,
     `Gentle observation: We are not seeing a strong recent headline for this profile, but for companies with purchases from ${purchaseMarkets} and sales to ${salesMarkets}, the practical treasury conversation often starts with payment timing, cash buffers, and whether working capital still fits the operating cycle.`,
     `Soft invitation: I am not sure whether that is relevant for your business right now, but it is a useful area to keep in view when external news is quiet.`,
     `If client engages: If the client opens up, explore whether the issue is mainly supplier terms, receivables timing, inventory buffers, or currency mismatch.`,
@@ -1347,7 +1414,7 @@ function alignSourcesToAnalysis({ sources, newsSection, timeframe }) {
   };
 }
 
-async function analyzeNewsDevelopments({ env, sources, sector, subsector, industry, isicCode = "", tradeRoles, countries, tradeFlow = null, timeframe, plannedQueries, defaultPrompt, conversationGoal = "general_check_in", signalThreads = [] }) {
+async function analyzeNewsDevelopments({ env, sources, sector, subsector, industry, isicCode = "", tradeRoles, countries, tradeFlow = null, timeframe, plannedQueries, defaultPrompt, conversationGoal = "general_check_in", clientProfile = {}, signalThreads = [] }) {
   if (!sources.length) {
     return {
       status: "NO_NEWS",
@@ -1394,16 +1461,19 @@ ${tradeFlow ? tradeFlowSummary(tradeFlow) : `Client trade role: ${tradeRoles.joi
 Countries / markets relevant to the client: ${countryText}`}
 - Timeframe for news search: last ${timeframe} days
 - Conversation goal: ${conversationGoal}
+- Additional client / conversation setup:
+${clientProfileSummary(clientProfile)}
 - Enabled signal threads: ${signalThreads.join(", ") || "sector_news, fx_rates, geopolitics, trade_supply_chain"}
 - Search mode: Conversation-card signal scan
 - Search queries used: ${plannedQueries.map(plan => `${plan.label}: ${plan.query}`).join(" | ")}
 
 Task:
 Create source-grounded client conversation cards from the provided sources. The cards should help a junior transaction banker offer useful observations, not recite a market view.
+${outputDepthInstruction(clientProfile)}
 
 Conversation standard:
 - The output should help the RM think and speak better; do not give a polished monologue to recite.
-- Translate external developments into cash, trade, payments, FX flows, working capital, liquidity, operational resilience, and specialist handoff.
+- Translate external developments into cash, trade, payments, FX flows, working capital, liquidity, operational resilience, and specialist handoff. Use the client cash position, treasury profile, supply-chain profile, and relationship context when they are specified. Do not overfit to fields marked unknown.
 - Separate purchase-side cost/supplier implications from sales-side revenue/demand implications when the sources support that distinction.
 - Treat purchase countries as supplier/source markets and sales countries as buyer/revenue markets. Do not cross-combine countries randomly.
 - Prefer direct Thailand, selected purchase-market, selected sales-market, or selected-currency relevance.
@@ -1695,6 +1765,7 @@ export async function onRequestPost(context) {
     const countries = getAllTradeFlowCountries(tradeFlow);
     const defaultPrompt = (body.defaultPrompt || "").trim();
     const conversationGoal = (body.conversationGoal || "general_check_in").trim();
+    const clientProfile = normalizeClientProfile(body.clientProfile || {});
     const signalThreads = Array.isArray(body.signalThreads) && body.signalThreads.length
       ? body.signalThreads.map(item => String(item))
       : ["sector_news", "fx_rates", "geopolitics", "trade_supply_chain"];
@@ -1853,7 +1924,7 @@ export async function onRequestPost(context) {
     if (!sourceAssessment.hasRelevantUpdates || mergedSources.length === 0) {
       const noNews = {
         status: "NO_NEWS",
-        content: formatStructuralNoNewsCard({ timeframe, industry, tradeFlow, conversationGoal })
+        content: formatStructuralNoNewsCard({ timeframe, industry, tradeFlow, conversationGoal, clientProfile })
       };
 
       return Response.json({
@@ -1884,6 +1955,7 @@ export async function onRequestPost(context) {
       plannedQueries: effectiveQueries,
       defaultPrompt,
       conversationGoal,
+      clientProfile,
       signalThreads
     });
 

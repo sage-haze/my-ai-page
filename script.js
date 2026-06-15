@@ -7,6 +7,11 @@ const industryBox = document.getElementById("industry");
 const timeframeBox = document.getElementById("timeframe");
 const fxTenorBox = document.getElementById("fxTenor");
 const conversationGoalBox = document.getElementById("conversationGoal");
+const relationshipContextBox = document.getElementById("relationshipContext");
+const outputDepthBox = document.getElementById("outputDepth");
+const cashPositionBox = document.getElementById("cashPosition");
+const treasuryProfileBox = document.getElementById("treasuryProfile");
+const supplyChainProfileBox = document.getElementById("supplyChainProfile");
 const purchaseDomesticBox = document.getElementById("purchaseDomestic");
 const purchaseInternationalBox = document.getElementById("purchaseInternational");
 const salesDomesticBox = document.getElementById("salesDomestic");
@@ -1239,6 +1244,16 @@ document.addEventListener("click", function (event) {
   }
 });
 
+function getClientProfile() {
+  return {
+    relationshipContext: relationshipContextBox?.value || "unknown",
+    outputDepth: outputDepthBox?.value || "standard",
+    cashPosition: cashPositionBox?.value || "unknown",
+    treasuryProfile: treasuryProfileBox?.value || "unknown",
+    supplyChainProfile: supplyChainProfileBox?.value || "unknown"
+  };
+}
+
 button.addEventListener("click", async function () {
   const sector = sectorBox.value;
   const subsector = subsectorBox.value;
@@ -1247,6 +1262,7 @@ button.addEventListener("click", async function () {
   const timeframe = timeframeBox.value;
   const fxTenor = fxTenorBox?.value || "30";
   const conversationGoal = conversationGoalBox?.value || "general_check_in";
+  const clientProfile = getClientProfile();
   const signalThreads = getSignalThreads();
   const tradeFlow = getTradeFlow();
   const currencies = [...new Set([...(tradeFlow.purchase.currencies || []), ...(tradeFlow.sales.currencies || [])])];
@@ -1325,6 +1341,7 @@ button.addEventListener("click", async function () {
         countries,
         defaultPrompt,
         conversationGoal,
+        clientProfile,
         signalThreads
       })
     });
