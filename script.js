@@ -191,6 +191,21 @@ const DOMAIN_FAMILIES = [
     anchors: ["chemical", "pharmaceutical", "rubber", "plastics", "coke", "refined petroleum", "petroleum", "natural gas", "non metallic mineral", "cement", "ceramic", "glass", "basic metals", "fabricated metal", "steel", "metal"]
   },
   {
+    id: "metals_minerals_jewellery",
+    label: "Metals / minerals / jewellery",
+    terms: [
+      "metal", "metals", "metal ore", "metal ores", "ore", "ores", "mineral", "minerals",
+      "precious metal", "precious metals", "non ferrous", "ferrous", "base metal", "base metals",
+      "gold", "silver", "platinum", "palladium", "copper", "zinc", "tin", "nickel", "aluminium", "aluminum", "steel", "iron",
+      "gem", "gems", "gemstone", "gemstones", "precious stone", "precious stones", "diamond", "diamonds", "ruby", "sapphire", "emerald",
+      "jewellery", "jewelry", "goldsmith", "goldsmiths", "bijouterie", "watch", "watches"
+    ],
+    anchors: [
+      "metal ores", "non-ferrous metal ores", "ferrous", "non-ferrous", "basic precious metals", "basic metals", "fabricated metal",
+      "precious", "semi-precious", "stones", "jewellery", "goldsmiths", "bijouterie", "diamonds", "metal in primary forms", "ores and metals"
+    ]
+  },
+  {
     id: "automotive_transport_equipment",
     label: "Automotive / transport equipment",
     terms: ["auto", "automotive", "vehicle", "motor vehicle", "motorcycle", "trailer", "auto parts", "vehicle parts", "motor vehicle parts", "transport equipment"],
@@ -739,9 +754,11 @@ function getFallbackIsicSuggestions(q, scored) {
   const contextFallback = getContextFallbackSuggestions(scored);
   if (contextFallback.entries.length) return mark(contextFallback.entries, contextFallback.reason);
 
-  // Final fallback: the field is compulsory, so provide starting points, but label
-  // the low-confidence nature clearly.
-  return mark(getBroadStartingPointSuggestions(scored), "No close match — broad starting points");
+  // Final fallback: if the typed text gives no usable signal and no sector context
+  // exists, do not show random cross-sector representatives. Keeping the dropdown
+  // closed is less misleading than offering unrelated activities just because the
+  // field is compulsory; validation will still require a proper ISIC selection.
+  return [];
 }
 
 function getIsicMatches(query) {
