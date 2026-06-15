@@ -345,41 +345,19 @@ const CLIENT_PROFILE_LABELS = {
     post_news_follow_up: "follow-up after recent market news",
     senior_meeting_prep: "preparing for senior client meeting"
   },
-  outputDepth: {
-    quick: "quick: 2 cards",
-    standard: "standard: 3–4 cards",
-    detailed: "detailed: up to 5 cards"
-  },
   cashPosition: {
     unknown: "unknown / not discussed",
     surplus_cash: "likely surplus cash",
     borrowing_need: "likely borrowing or funding need",
     mixed_or_seasonal: "mixed or seasonal cash cycle",
     cash_buffer_focus: "focused on cash buffers / resilience"
-  },
-  treasuryProfile: {
-    unknown: "unknown / not discussed",
-    mostly_domestic: "mostly domestic flows",
-    cross_border_flows: "meaningful cross-border flows",
-    recurring_fx_exposure: "recurring FX exposure",
-    high_payment_volume: "high payment / collection volume"
-  },
-  supplyChainProfile: {
-    unknown: "unknown / not discussed",
-    mostly_domestic: "mostly domestic supply chain",
-    regional_asean: "regional / ASEAN-linked supply chain",
-    global_supply_chain: "global supply chain",
-    concentrated_suppliers: "concentrated supplier base"
   }
 };
 
 function normalizeClientProfile(profile = {}) {
   return {
     relationshipContext: String(profile.relationshipContext || "unknown"),
-    outputDepth: ["quick", "standard", "detailed"].includes(String(profile.outputDepth || "")) ? String(profile.outputDepth) : "standard",
-    cashPosition: String(profile.cashPosition || "unknown"),
-    treasuryProfile: String(profile.treasuryProfile || "unknown"),
-    supplyChainProfile: String(profile.supplyChainProfile || "unknown")
+    cashPosition: String(profile.cashPosition || "unknown")
   };
 }
 
@@ -388,18 +366,12 @@ function clientProfileSummary(profile = {}) {
   const label = (group, value) => CLIENT_PROFILE_LABELS[group]?.[value] || value || "not specified";
   return [
     `Relationship context: ${label("relationshipContext", clean.relationshipContext)}`,
-    `Output depth: ${label("outputDepth", clean.outputDepth)}`,
-    `Client cash position: ${label("cashPosition", clean.cashPosition)}`,
-    `Treasury profile: ${label("treasuryProfile", clean.treasuryProfile)}`,
-    `Supply chain profile: ${label("supplyChainProfile", clean.supplyChainProfile)}`
+    `Client cash position: ${label("cashPosition", clean.cashPosition)}`
   ].join("\n");
 }
 
-function outputDepthInstruction(profile = {}) {
-  const depth = normalizeClientProfile(profile).outputDepth;
-  if (depth === "quick") return "Generate exactly 2 cards unless there is only one genuinely relevant issue.";
-  if (depth === "detailed") return "Generate up to 5 cards, but prefer fewer if the source evidence is weak.";
-  return "Generate 3–4 cards, but prefer fewer if the source evidence is weak.";
+function cardCountInstruction() {
+  return "Generate up to 4 cards. Prefer fewer high-quality cards over filling space. If only one or two issues are genuinely relevant, return only one or two cards.";
 }
 
 function buildFallbackQueries({ sector, subsector, industry, isicCode, tradeFlow, signalThreads = [] }) {
@@ -1312,23 +1284,35 @@ function formatNewsThemesFromJson(parsed) {
   return cards.map((card, index) => {
     const title = String(card.title || `Card ${index + 1}`).replace(/^(Theme|Card)\s*\d+\s*:\s*/i, "").trim();
 
-    const plainEnglishContext = String(card.plainEnglishContext || card.plain_english_context || card.paragraph || card.explanation || "").trim();
-    const clientRelevanceLens = String(card.clientRelevanceLens || card.client_relevance_lens || "").trim();
-    const gentleObservation = String(card.gentleObservation || card.gentle_observation || "").trim();
-    const softInvitation = String(card.softInvitation || card.soft_invitation || "").trim();
-    const ifClientEngages = String(card.ifClientEngages || card.if_client_engages || "").trim();
-    const bankRelevance = String(card.bankRelevance || card.bank_relevance || "").trim();
+    const backgroundCue = String(
+      card.backgroundCue ||
+      card.background_cue ||
+      card.whyThisMayMatter ||
+      card.why_this_may_matter ||
+      card.plainEnglishContext ||
+      card.plain_english_context ||
+      card.clientRelevanceLens ||
+      card.client_relevance_lens ||
+      card.paragraph ||
+      card.explanation ||
+      ""
+    ).trim();
+    const transactionBankingAngle = String(card.transactionBankingAngle || card.transaction_banking_angle || "").trim();
+    const usefulObservation = String(card.usefulObservation || card.useful_observation || card.gentleObservation || card.gentle_observation || "").trim();
+    const leaveSpace = String(card.leaveSpace || card.leave_space || card.softInvitation || card.soft_invitation || "").trim();
+    const ifTheyPickUp = String(card.ifTheyPickUp || card.if_they_pick_up || card.ifClientEngages || card.if_client_engages || "").trim();
+    const bankAngle = String(card.bankAngle || card.bank_angle || card.bankRelevance || card.bank_relevance || "").trim();
     const handoffCue = String(card.handoffCue || card.handoff_cue || "").trim();
+    const bankAngleHandoff = [bankAngle, handoffCue].filter(Boolean).join(" ").trim();
+    const background = [backgroundCue, transactionBankingAngle].filter(Boolean).join(" ").trim();
 
     return [
       `Card ${index + 1}: ${title}`,
-      plainEnglishContext ? `Plain-English context: ${plainEnglishContext}` : "",
-      clientRelevanceLens ? `Client relevance lens: ${clientRelevanceLens}` : "",
-      gentleObservation ? `Gentle observation: ${gentleObservation}` : "",
-      softInvitation ? `Soft invitation: ${softInvitation}` : "",
-      ifClientEngages ? `If client engages: ${ifClientEngages}` : "",
-      bankRelevance ? `Bank relevance: ${bankRelevance}` : "",
-      handoffCue ? `Handoff cue: ${handoffCue}` : ""
+      background ? `Why this may matter: ${background}` : "",
+      usefulObservation ? `Useful observation to offer: ${usefulObservation}` : "",
+      leaveSpace ? `Leave space: ${leaveSpace}` : "",
+      ifTheyPickUp ? `If they pick up on it: ${ifTheyPickUp}` : "",
+      bankAngleHandoff ? `Bank angle / handoff: ${bankAngleHandoff}` : ""
     ].filter(Boolean).join("\n");
   }).filter(Boolean).join("\n\n");
 }
@@ -1343,13 +1327,13 @@ function formatStructuralNoNewsCard({ timeframe, industry, tradeFlow, conversati
 
   return [
     `Card 1: Structural conversation angle when no strong recent news is found`,
-    `Plain-English context: No significant or clearly relevant market development was identified in the selected ${timeframe}-day period for this client profile. This card is therefore structural context, not a news-based signal.`,
-    `Client relevance lens: For a Thailand-based ${industry} client, the practical discussion can still be anchored on cash visibility, supplier and buyer payment timing, working capital discipline, and recurring ${currencyText} flows. Additional setup: ${profileText}.`,
-    `Gentle observation: We are not seeing a strong recent headline for this profile, but for companies with purchases from ${purchaseMarkets} and sales to ${salesMarkets}, the practical treasury conversation often starts with payment timing, cash buffers, and whether working capital still fits the operating cycle.`,
-    `Soft invitation: I am not sure whether that is relevant for your business right now, but it is a useful area to keep in view when external news is quiet.`,
-    `If client engages: If the client opens up, explore whether the issue is mainly supplier terms, receivables timing, inventory buffers, or currency mismatch.`,
-    `Bank relevance: Possible relevance to cash forecasting, liquidity structure, trade lines, receivables/payables flows, and FX process discipline.`,
-    `Handoff cue: Bring in FX, trade, cash management, or credit specialists if the client asks for specific hedge levels, facility sizing, structure, legal, sanctions, or credit advice.`
+    `Why this may matter: No significant or clearly relevant market development was identified in the selected ${timeframe}-day period for this client profile. This card is therefore structural context, not a news-based signal.`,
+    `Why this may matter: For a Thailand-based ${industry} client, the practical discussion can still be anchored on cash visibility, supplier and buyer payment timing, working capital discipline, and recurring ${currencyText} flows. Additional setup: ${profileText}.`,
+    `Useful observation to offer: We are not seeing a strong recent headline for this profile, but for companies with purchases from ${purchaseMarkets} and sales to ${salesMarkets}, the practical treasury conversation often starts with payment timing, cash buffers, and whether working capital still fits the operating cycle.`,
+    `Leave space: I am not sure whether that is relevant for your business right now, but it is a useful area to keep in view when external news is quiet.`,
+    `If they pick up on it: If the client opens up, explore whether the issue is mainly supplier terms, receivables timing, inventory buffers, or currency mismatch.`,
+    `Bank angle / handoff: Possible relevance to cash forecasting, liquidity structure, trade lines, receivables/payables flows, and FX process discipline.`,
+    `Bank angle / handoff: Bring in FX, trade, cash management, or credit specialists if the client asks for specific hedge levels, facility sizing, structure, legal, sanctions, or credit advice.`
   ].join("\n");
 }
 
@@ -1469,15 +1453,15 @@ ${clientProfileSummary(clientProfile)}
 
 Task:
 Create source-grounded client conversation cards from the provided sources. The cards should help a junior transaction banker offer useful observations, not recite a market view.
-${outputDepthInstruction(clientProfile)}
+${cardCountInstruction()}
 
 Conversation standard:
 - The output should help the RM think and speak better; do not give a polished monologue to recite.
-- Translate external developments into cash, trade, payments, FX flows, working capital, liquidity, operational resilience, and specialist handoff. Use the client cash position, treasury profile, supply-chain profile, and relationship context when they are specified. Do not overfit to fields marked unknown.
+- Translate external developments into cash, trade, payments, FX flows, working capital, liquidity, operational resilience, and specialist handoff. Use the client cash position, purchase/sales markets, purchase/sales currencies, and relationship context when they are specified. Do not overfit to fields marked unknown.
 - Separate purchase-side cost/supplier implications from sales-side revenue/demand implications when the sources support that distinction.
 - Treat purchase countries as supplier/source markets and sales countries as buyer/revenue markets. Do not cross-combine countries randomly.
 - Prefer direct Thailand, selected purchase-market, selected sales-market, or selected-currency relevance.
-- Use gentle observations and soft invitations. Do not interrogate the client with blunt questions unless it is in the "If client engages" section.
+- Make the card conversation-first: keep background short, make the useful observation the main field, then provide a soft invitation and a follow-up only if the client engages. Do not interrogate the client with blunt questions unless it is in the "ifTheyPickUp" field.
 - Broader sector news may be used only when the bridge to this client profile is clear. If the article is not specific to the selected ISIC activity, say so plainly.
 
 Grounding rules:
@@ -1514,12 +1498,11 @@ Return JSON only in this exact shape:
   "cards": [
     {
       "title": "Specific practical title without scoring or signal prefixes",
-      "plainEnglishContext": "One simple, source-grounded explanation of what is happening [1].",
-      "clientRelevanceLens": "How this may connect to cash, trade, payments, FX flows, liquidity, working capital, or resilience for this client profile [1].",
-      "gentleObservation": "A useful observation the RM can offer without forcing the client to disclose a problem [1].",
-      "softInvitation": "A low-pressure phrase that leaves room for the client to respond.",
-      "ifClientEngages": "One natural follow-up path only if the client shows interest.",
-      "bankRelevance": "Possible relevance to cash management, trade finance, FX flows, liquidity, payments, or working capital.",
+      "backgroundCue": "One short background sentence explaining why this may matter for the client profile [1]. Keep this softer than the banker observation.",
+      "usefulObservation": "The main banker-ready observation to offer. It should be natural, commercially useful, and non-invasive [1].",
+      "leaveSpace": "A low-pressure phrase that lets the client respond without forcing disclosure.",
+      "ifTheyPickUp": "One natural follow-up path only if the client shows interest.",
+      "bankAngle": "Possible relevance to cash management, trade finance, FX flows, liquidity, payments, working capital, or operating resilience.",
       "handoffCue": "When to bring in FX, markets, trade, cash, compliance, sanctions, legal, tax, credit, or sector specialists.",
       "sourceNumbers": [1, 2]
     }

@@ -8,10 +8,7 @@ const timeframeBox = document.getElementById("timeframe");
 const fxTenorBox = document.getElementById("fxTenor");
 const conversationGoalBox = document.getElementById("conversationGoal");
 const relationshipContextBox = document.getElementById("relationshipContext");
-const outputDepthBox = document.getElementById("outputDepth");
 const cashPositionBox = document.getElementById("cashPosition");
-const treasuryProfileBox = document.getElementById("treasuryProfile");
-const supplyChainProfileBox = document.getElementById("supplyChainProfile");
 const purchaseDomesticBox = document.getElementById("purchaseDomestic");
 const purchaseInternationalBox = document.getElementById("purchaseInternational");
 const salesDomesticBox = document.getElementById("salesDomestic");
@@ -959,6 +956,56 @@ function renderSources(sources, noRelevantUpdates = false, fallbackTriggered = f
   sourcesOutput.innerHTML = fallbackNote + sourceCards;
 }
 
+function normaliseConversationLabel(label) {
+  const clean = String(label || "").trim().toLowerCase();
+  const labelMap = {
+    "plain-english context": "Why this may matter",
+    "plain english context": "Why this may matter",
+    "background cue": "Why this may matter",
+    "why this may matter": "Why this may matter",
+    "client relevance lens": "Why this may matter",
+    "transaction banking angle": "Why this may matter",
+    "gentle observation": "Useful observation to offer",
+    "useful observation": "Useful observation to offer",
+    "useful observation to offer": "Useful observation to offer",
+    "soft invitation": "Leave space",
+    "leave space": "Leave space",
+    "if client engages": "If they pick up on it",
+    "if they pick up on it": "If they pick up on it",
+    "bank relevance": "Bank angle / handoff",
+    "bank angle": "Bank angle / handoff",
+    "bank angle / handoff": "Bank angle / handoff",
+    "handoff cue": "Bank angle / handoff"
+  };
+  return labelMap[clean] || label || "Context";
+}
+
+function conversationSectionClass(label) {
+  const normalised = normaliseConversationLabel(label).toLowerCase();
+  if (normalised === "why this may matter") return "conversation-section background-cue";
+  if (normalised === "useful observation to offer") return "conversation-section hero-observation";
+  if (normalised === "leave space") return "conversation-section soft-invitation";
+  if (normalised === "if they pick up on it") return "conversation-section follow-up-path";
+  if (normalised === "bank angle / handoff") return "conversation-section bank-handoff";
+  return "conversation-section";
+}
+
+function mergeAdjacentConversationSections(sections) {
+  const merged = [];
+  sections.forEach(section => {
+    const label = normaliseConversationLabel(section.label);
+    const text = String(section.text || "").trim();
+    if (!text) return;
+    const last = merged[merged.length - 1];
+    if (last && last.label === label) {
+      last.text = `${last.text} ${text}`.trim();
+    } else {
+      merged.push({ label, text });
+    }
+  });
+  return merged;
+}
+
 function parseConversationCardBlock(block) {
   const lines = String(block || "")
     .split("\n")
@@ -967,25 +1014,25 @@ function parseConversationCardBlock(block) {
 
   const heading = lines.shift() || "Card";
   const sections = [];
-  const sectionPattern = /^(Plain-English context|Plain English context|Client relevance lens|Gentle observation|Soft invitation|If client engages|Bank relevance|Handoff cue)\s*:\s*(.*)$/i;
+  const sectionPattern = /^(Why this may matter|Background cue|Plain-English context|Plain English context|Client relevance lens|Transaction banking angle|Useful observation(?: to offer)?|Gentle observation|Leave space|Soft invitation|If they pick up on it|If client engages|Bank angle(?: \/ handoff)?|Bank relevance|Handoff cue)\s*:\s*(.*)$/i;
   let current = null;
 
   lines.forEach(line => {
     const match = line.match(sectionPattern);
     if (match) {
       current = {
-        label: match[1].replace("Plain English", "Plain-English"),
+        label: normaliseConversationLabel(match[1]),
         text: match[2] || ""
       };
       sections.push(current);
     } else if (current) {
       current.text = `${current.text} ${line}`.trim();
     } else {
-      sections.push({ label: "Context", text: line });
+      sections.push({ label: "Why this may matter", text: line });
     }
   });
 
-  return { heading, sections };
+  return { heading, sections: mergeAdjacentConversationSections(sections) };
 }
 
 function renderConversationCards(text) {
@@ -998,16 +1045,17 @@ function renderConversationCards(text) {
 
   analysisOutput.innerHTML = cardBlocks.map(block => {
     const { heading, sections } = parseConversationCardBlock(block);
+    const cleanHeading = heading.replace(/^(Card\s+\d+\s*:\s*)/i, "").trim() || heading;
     const sectionHtml = sections.map(section => `
-      <div class="conversation-section">
+      <div class="${conversationSectionClass(section.label)}">
         <div class="conversation-label">${escapeHtml(section.label)}</div>
-        <div>${escapeHtml(section.text)}</div>
+        <div class="conversation-text">${escapeHtml(section.text)}</div>
       </div>
     `).join("");
 
     return `
       <div class="theme-card conversation-card">
-        <h3>${escapeHtml(heading)}</h3>
+        <h3>${escapeHtml(cleanHeading)}</h3>
         ${sectionHtml}
       </div>
     `;
@@ -1247,10 +1295,7 @@ document.addEventListener("click", function (event) {
 function getClientProfile() {
   return {
     relationshipContext: relationshipContextBox?.value || "unknown",
-    outputDepth: outputDepthBox?.value || "standard",
-    cashPosition: cashPositionBox?.value || "unknown",
-    treasuryProfile: treasuryProfileBox?.value || "unknown",
-    supplyChainProfile: supplyChainProfileBox?.value || "unknown"
+    cashPosition: cashPositionBox?.value || "unknown"
   };
 }
 
