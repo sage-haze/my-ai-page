@@ -13,6 +13,34 @@ const DEFAULT_APPROVED_DOMAINS = [
 
 const ALLOWED_CURRENCIES = ["THB", "USD", "JPY", "EUR", "CNY"];
 
+const ISO2_TO_ISO3 = {
+  TH: "THA", US: "USA", CN: "CHN", JP: "JPN", KR: "KOR", SG: "SGP", MY: "MYS", ID: "IDN", VN: "VNM", PH: "PHL",
+  KH: "KHM", LA: "LAO", MM: "MMR", BN: "BRN", IN: "IND", AU: "AUS", NZ: "NZL", GB: "GBR", DE: "DEU", FR: "FRA",
+  IT: "ITA", NL: "NLD", BE: "BEL", ES: "ESP", CA: "CAN", MX: "MEX", BR: "BRA", AE: "ARE", SA: "SAU", ZA: "ZAF"
+};
+
+const COUNTRY_NAME_TO_ISO3 = {
+  thailand: "THA", "united states": "USA", usa: "USA", china: "CHN", japan: "JPN", "south korea": "KOR", singapore: "SGP",
+  malaysia: "MYS", indonesia: "IDN", vietnam: "VNM", "viet nam": "VNM", philippines: "PHL", cambodia: "KHM", laos: "LAO",
+  "lao pdr": "LAO", myanmar: "MMR", brunei: "BRN", india: "IND", australia: "AUS", "united kingdom": "GBR", germany: "DEU",
+  france: "FRA", italy: "ITA", netherlands: "NLD", belgium: "BEL", spain: "ESP", canada: "CAN", mexico: "MEX", brazil: "BRA",
+  "united arab emirates": "ARE", "saudi arabia": "SAU", "south africa": "ZAF"
+};
+
+const WORLD_BANK_INDICATORS = [
+  { id: "NY.GDP.MKTP.KD.ZG", label: "real GDP growth", unit: "%", thread: "macro_indicators" },
+  { id: "FP.CPI.TOTL.ZG", label: "consumer inflation", unit: "%", thread: "macro_indicators" },
+  { id: "NE.EXP.GNFS.ZS", label: "exports of goods and services", unit: "% of GDP", thread: "trade_supply_chain" },
+  { id: "NE.IMP.GNFS.ZS", label: "imports of goods and services", unit: "% of GDP", thread: "trade_supply_chain" },
+  { id: "BX.KLT.DINV.WD.GD.ZS", label: "net FDI inflows", unit: "% of GDP", thread: "capital_flows" }
+];
+
+const IMF_DATAMAPPER_INDICATORS = [
+  { id: "NGDP_RPCH", label: "IMF real GDP growth", unit: "%", thread: "macro_indicators" },
+  { id: "PCPIPCH", label: "IMF consumer inflation", unit: "%", thread: "macro_indicators" },
+  { id: "BCA_NGDPD", label: "IMF current account balance", unit: "% of GDP", thread: "macro_indicators" }
+];
+
 const OPENAI_FAST_MODEL = "gpt-4.1-mini";
 const OPENAI_ANALYSIS_MODEL = "gpt-4.1";
 
@@ -270,6 +298,189 @@ function normalizeCurrencyList(currencies = []) {
   return uniqueArray((Array.isArray(currencies) ? currencies : [])
     .map(currency => String(currency || "").toUpperCase().trim())
     .filter(currency => ALLOWED_CURRENCIES.includes(currency)));
+}
+
+function countryToIso3(country) {
+  const code = String(country?.code || "").toUpperCase().trim();
+  if (code.length === 3) return code;
+  if (code.length === 2 && ISO2_TO_ISO3[code]) return ISO2_TO_ISO3[code];
+
+  const name = String(country?.name || country?.label || "").toLowerCase().trim();
+  return COUNTRY_NAME_TO_ISO3[name] || "";
+}
+
+function getEvidenceCountryCodes(tradeFlow, maxCountries = 5) {
+  const selectedCountries = getAllTradeFlowCountries(tradeFlow);
+  const codes = ["THA", ...selectedCountries.map(countryToIso3)]
+    .map(code => String(code || "").toUpperCase().trim())
+    .filter(Boolean);
+
+  return uniqueArray(codes).slice(0, maxCountries);
+}
+
+function shouldFetchOfficialEvidence(signalThreads = []) {
+  const enabled = new Set(signalThreads && signalThreads.length ? signalThreads : ["sector_news", "fx_rates", "geopolitics", "trade_supply_chain"]);
+  return ["macro_indicators", "trade_supply_chain", "sector_news", "fx_rates"].some(thread => enabled.has(thread));
+}
+
+function latestByCountry(rows = []) {
+  const byCountry = new Map();
+  for (const row of rows || []) {
+    if (row?.value === null || row?.value === undefined) continue;
+    const countryCode = row?.countryiso3code || row?.country?.id || "";
+    const countryName = row?.country?.value || countryCode;
+    const year = Number(row?.date);
+    if (!countryCode || !Number.isFinite(year)) continue;
+    const existing = byCountry.get(countryCode);
+    if (!existing || year > existing.year) {
+      byCountry.set(countryCode, {
+        countryCode,
+        countryName,
+        year,
+        value: Number(row.value)
+      });
+    }
+  }
+  return [...byCountry.values()].sort((a, b) => a.countryName.localeCompare(b.countryName));
+}
+
+function formatDataPointValue(value, unit = "") {
+  if (!Number.isFinite(Number(value))) return "n/a";
+  const abs = Math.abs(Number(value));
+  const digits = abs >= 100 ? 1 : 2;
+  return `${Number(value).toFixed(digits)}${unit ? ` ${unit}` : ""}`;
+}
+
+function sourceDateFromYear(year) {
+  const safeYear = Number(year);
+  return Number.isFinite(safeYear) && safeYear > 1900 ? `${safeYear}-12-31` : "";
+}
+
+function includeOfficialIndicator(indicator, signalThreads = []) {
+  const enabled = new Set(signalThreads && signalThreads.length ? signalThreads : []);
+  if (enabled.has("macro_indicators")) return true;
+  if (indicator.thread === "trade_supply_chain" && enabled.has("trade_supply_chain")) return true;
+  if (indicator.thread === "capital_flows" && (enabled.has("sector_news") || enabled.has("trade_supply_chain"))) return true;
+  if (!enabled.size) return true;
+  return false;
+}
+
+async function fetchWorldBankEvidence({ countryCodes = [], signalThreads = [] }) {
+  const countries = uniqueArray(countryCodes).slice(0, 5);
+  if (!countries.length) return [];
+
+  const selectedIndicators = WORLD_BANK_INDICATORS.filter(indicator => includeOfficialIndicator(indicator, signalThreads));
+  const countryPath = countries.join(";");
+  const evidence = [];
+
+  for (const indicator of selectedIndicators) {
+    const url = new URL(`https://api.worldbank.org/v2/country/${countryPath}/indicator/${indicator.id}`);
+    url.searchParams.set("format", "json");
+    url.searchParams.set("per_page", "80");
+    url.searchParams.set("date", "2019:2030");
+
+    try {
+      const response = await fetch(url.toString(), { headers: { "User-Agent": "conversation-builder/1.0" } });
+      if (!response.ok) continue;
+      const data = await response.json().catch(() => null);
+      const rows = Array.isArray(data?.[1]) ? data[1] : [];
+      const latest = latestByCountry(rows);
+      if (!latest.length) continue;
+
+      const latestYear = Math.max(...latest.map(item => item.year));
+      const summaryLines = latest.map(item => `${item.countryName}: ${formatDataPointValue(item.value, indicator.unit)} (${item.year})`);
+      const summary = `${indicator.label}: ${summaryLines.join("; ")}.`;
+
+      evidence.push({
+        title: `World Bank data: ${indicator.label}`,
+        url: url.toString(),
+        source: "World Bank Indicators API",
+        domain: "worldbank.org",
+        published_at: sourceDateFromYear(latestYear),
+        summary,
+        raw_content: `Official World Bank indicator ${indicator.id}. ${summary} Use as periodic structural context rather than daily news.`,
+        score: 0.95,
+        source_group: `official_world_bank_${indicator.thread}`,
+        evidence_kind: "official_data"
+      });
+    } catch (_) {
+      // Keep official sources best-effort so a public API outage does not break the app.
+    }
+  }
+
+  return evidence;
+}
+
+function latestImfValues(valuesByCountry = {}) {
+  return Object.entries(valuesByCountry || {}).map(([countryCode, values]) => {
+    const yearEntries = Object.entries(values || {})
+      .map(([year, value]) => ({ year: Number(year), value: Number(value) }))
+      .filter(item => Number.isFinite(item.year) && Number.isFinite(item.value))
+      .sort((a, b) => b.year - a.year);
+    const latest = yearEntries[0];
+    if (!latest) return null;
+    return { countryCode, year: latest.year, value: latest.value };
+  }).filter(Boolean);
+}
+
+async function fetchImfDatamapperEvidence({ countryCodes = [], signalThreads = [] }) {
+  const countries = uniqueArray(countryCodes).slice(0, 5);
+  if (!countries.length) return [];
+
+  const selectedIndicators = IMF_DATAMAPPER_INDICATORS.filter(indicator => includeOfficialIndicator(indicator, signalThreads));
+  const evidence = [];
+
+  for (const indicator of selectedIndicators) {
+    const url = `https://www.imf.org/external/datamapper/api/v1/${indicator.id}/${countries.join("/")}`;
+
+    try {
+      const response = await fetch(url, { headers: { "User-Agent": "conversation-builder/1.0" } });
+      if (!response.ok) continue;
+      const data = await response.json().catch(() => null);
+      const rawValues = data?.values?.[indicator.id] || data?.values || {};
+      const latest = latestImfValues(rawValues);
+      if (!latest.length) continue;
+
+      const latestYear = Math.max(...latest.map(item => item.year));
+      const countryNames = data?.countries || {};
+      const summaryLines = latest.map(item => {
+        const countryName = countryNames?.[item.countryCode]?.label || countryNames?.[item.countryCode] || item.countryCode;
+        return `${countryName}: ${formatDataPointValue(item.value, indicator.unit)} (${item.year})`;
+      });
+      const summary = `${indicator.label}: ${summaryLines.join("; ")}.`;
+
+      evidence.push({
+        title: `IMF DataMapper: ${indicator.label}`,
+        url,
+        source: "IMF DataMapper API",
+        domain: "imf.org",
+        published_at: sourceDateFromYear(latestYear),
+        summary,
+        raw_content: `Official IMF DataMapper indicator ${indicator.id}. ${summary} Use as macro context and peer comparison, not daily news.`,
+        score: 0.9,
+        source_group: `official_imf_${indicator.thread}`,
+        evidence_kind: "official_data"
+      });
+    } catch (_) {
+      // Best-effort only.
+    }
+  }
+
+  return evidence;
+}
+
+async function fetchNoKeyOfficialEvidence({ tradeFlow, signalThreads = [] }) {
+  if (!shouldFetchOfficialEvidence(signalThreads)) return [];
+
+  const countryCodes = getEvidenceCountryCodes(tradeFlow, 5);
+  const results = await Promise.allSettled([
+    fetchWorldBankEvidence({ countryCodes, signalThreads }),
+    fetchImfDatamapperEvidence({ countryCodes, signalThreads })
+  ]);
+
+  return results
+    .flatMap(result => result.status === "fulfilled" ? result.value : [])
+    .filter(item => item && item.url);
 }
 
 function normalizeTradeFlow(raw = {}, fallbackCountries = [], fallbackCurrencies = []) {
@@ -1019,7 +1230,7 @@ function calculateCountryRelevanceScore(source, countries = []) {
 
 function getSourceAuthorityScore(source) {
   const domain = String(source.domain || source.source || "").toLowerCase();
-  if (/reuters|bloomberg|ft\.com|nikkei|spglobal|fastmarkets|argusmedia|worldsteel|steelbb|steelorbis|official|gov|customs|commerce/.test(domain)) return 5;
+  if (/reuters|bloomberg|ft\.com|nikkei|spglobal|fastmarkets|argusmedia|worldbank|imf|adb|aseanstats|worldsteel|steelbb|steelorbis|official|gov|customs|commerce/.test(domain)) return 5;
   if (/bangkokpost|nationthailand|thaipbs|prachachat|kaohoon|set\.or\.th|bot\.or\.th/.test(domain)) return 4;
   if (/marinelink|hellenicshipping|freightwaves|supplychaindive/.test(domain)) return 3;
   if (/openpr|einnews|globenewswire|prnewswire|manilatimes|kipost/.test(domain)) return 1;
@@ -1027,6 +1238,12 @@ function getSourceAuthorityScore(source) {
 }
 
 function getRecencyScore(source) {
+  const group = String(source.source_group || "").toLowerCase();
+  const kind = String(source.evidence_kind || "").toLowerCase();
+
+  // Official datasets update periodically and should not be penalised like stale news.
+  if (kind === "official_data" || group.startsWith("official_")) return 4;
+
   const published = Date.parse(source.published_at || "");
   if (!Number.isFinite(published)) return 1;
   const days = (Date.now() - published) / (1000 * 60 * 60 * 24);
@@ -1090,7 +1307,7 @@ async function assessSourceRelevance({ env, sources, sector, subsector, industry
   });
 
   const prompt = `
-You are a source selection reviewer for a Thailand-based bank relationship manager.
+You are an evidence selection reviewer for a Thailand-based bank relationship manager.
 
 Customer profile:
 - Sector: ${sector}
@@ -1106,17 +1323,17 @@ ${tradeFlow ? tradeFlowSummary(tradeFlow) : `Client trade role: ${tradeRoles.joi
 - Tavily queries used: ${plannedQueries.map(plan => `${plan.label}: ${plan.query}`).join(" | ")}
 
 Task:
-Review the candidate news sources and classify their usefulness for a Thailand-based bank RM.
+Review the candidate evidence sources and classify their usefulness for a Thailand-based bank RM. Evidence may include recent articles, market/news discovery, or periodic official datasets from sources such as the World Bank or IMF.
 Prioritise sources in this order:
 1. Direct Thailand + selected-market news connected to the industry, Thai company flows, Thai supply chains, Thai import/export activity, or Thai macro/trade policy.
 2. Selected-country news, especially United States / Thailand flows when those are selected, only when it clearly affects Thailand-based sourcing, export demand, buyer/supplier conditions, logistics, pricing, or trade risk.
 3. Regional ASEAN news that has a clear Thailand-client implication.
 4. Broader global industry news only when it is unavoidable context and clearly affects Thai client demand, pricing, supply chain, logistics, trade policy, working capital, payment risk, or counterparty risk.
 
-A useful source must have a clear client implication. It is not enough that the article mentions a selected country, exporter/importer, or broad sector keyword.
+A useful evidence item must have a clear client implication. It is not enough that it mentions a selected country, exporter/importer, broad sector keyword, or macro indicator.
 Industry criticality rule: Prefer articles that involve the core industry terms. Downrank or omit articles that mainly match weak-adjacent/exclusion terms without also matching core terms. For example, a sugar article should not become an animal-feed theme unless it explicitly mentions feed, molasses for feed, feed grain substitution, livestock feed costs, or another core feed linkage.
 Interpret purchase/sales strictly from the Thailand-based client's perspective. Purchase markets are supplier/cost-side exposures; sales markets are buyer/revenue-side exposures. Do not mix the two unless the source supports a crosswind or hedge implication.
-Country-cross results, such as China-Indonesia, US-Indonesia, EU-China, or other non-selected market stories, should be LOW unless they have a clear Thailand or selected-market implication for the client. EU/China/global stories should normally be MEDIUM at most and should not displace Thailand/selected-market sources.
+Country-cross results, such as China-Indonesia, US-Indonesia, EU-China, or other non-selected market stories, should be LOW unless they have a clear Thailand or selected-market implication for the client. EU/China/global stories should normally be MEDIUM at most and should not displace Thailand/selected-market sources. Official datasets are periodic context, not breaking news; they may be HIGH or MEDIUM when they directly support Thailand, selected-market, trade-flow, macro, liquidity, capital, or risk context.
 Do not include sources merely to fill a quota. If relevance is weak or indirect, classify it as LOW and omit it.
 
 Return JSON only in this exact shape:
@@ -1134,7 +1351,7 @@ Return JSON only in this exact shape:
 
 Relevance levels:
 - HIGH: Thailand-related and directly relevant to the client industry, Thai import/export role, or Thai exposure to selected markets.
-- MEDIUM: useful global industry context, or selected-market context with a clear and explainable implication for Thai client flows, demand, pricing, supply chain, or risk.
+- MEDIUM: useful global industry context, selected-market context, or official data context with a clear and explainable implication for Thai client flows, demand, pricing, supply chain, liquidity, capital, or risk.
 - LOW: weak keyword match, unrelated country export/import story, country-pair story without Thai/global industry implication, unrelated company news, old/background content, or no clear client implication.
 
 Rules:
@@ -1147,7 +1364,7 @@ Rules:
 - Set hasRelevantUpdates to false if all sources are LOW or if remaining HIGH/MEDIUM sources are too weak to support a client-ready conversation.
 - The noRelevantUpdateMessage must be one concise sentence suitable for display to the user.
 
-Candidate sources:
+Candidate evidence sources:
 ${JSON.stringify(compactSources, null, 2)}
 `.trim();
 
@@ -1452,7 +1669,7 @@ ${clientProfileSummary(clientProfile)}
 - Search queries used: ${plannedQueries.map(plan => `${plan.label}: ${plan.query}`).join(" | ")}
 
 Task:
-Create source-grounded client conversation cards from the provided sources. The cards should help a junior transaction banker offer useful observations, not recite a market view.
+Create evidence-grounded client conversation cards from the provided sources. The cards should help a junior transaction banker offer useful observations, not recite a market view. Evidence can include recent articles and periodic official datasets.
 ${cardCountInstruction()}
 
 Conversation standard:
@@ -1470,9 +1687,9 @@ Grounding rules:
 - Do NOT imply that an article specifically discusses the client's product, market, currency, or trade flow unless the source explicitly does.
 - You may draw cautious implications, but clearly distinguish direct evidence from inferred relevance.
 - Do not cite a source unless it directly supports the statement being made.
-- Every card must cite at least one source number from the provided sources.
+- Every card must cite at least one source number from the provided sources. Official datasets may be used as context, but do not describe them as recent news unless the date supports it.
 - Every source-grounded statement should include a source reference like [1], [2].
-- If the sources do not contain meaningful, recent developments relevant to this Thailand-based client context, return JSON with "status": "NO_NEWS" and an empty cards array.
+- If the sources do not contain meaningful evidence relevant to this Thailand-based client context, return JSON with "status": "NO_NEWS" and an empty cards array. If only official data is available, make the card clearly about local/regional context rather than breaking news.
 - If there is at least one useful news-based card, return JSON with "status": "OK". Do NOT include the string NO_NEWS anywhere in titles, paragraphs, or bullets.
 
 Relevance discipline:
@@ -1792,7 +2009,7 @@ export async function onRequestPost(context) {
     const searchDepth = "advanced";
     const gdeltQueries = buildGdeltQueries({ industry, tradeFlow, signalThreads });
 
-    const [tavilyBatches, gdeltBatches, rawFxResults] = await Promise.all([
+    const [tavilyBatches, gdeltBatches, officialEvidence, rawFxResults] = await Promise.all([
       Promise.all(plannedQueries.map(plan =>
         tavilySearch({
           apiKey: env.TAVILY_API_KEY,
@@ -1811,16 +2028,23 @@ export async function onRequestPost(context) {
           maxRecords: 8
         }).then(results => normalizeGdeltResults(results, plan.label)).catch(() => [])
       )),
+      fetchNoKeyOfficialEvidence({ tradeFlow, signalThreads }),
       fetchFxRates(currencies, fxTenor)
     ]);
 
     const fxResults = await analyzeFxRates({ env, fxList: rawFxResults, sector, subsector, industry, tradeRoles, countries, tradeFlow, fxTenor });
 
     const primaryCandidateSources = prepareCandidateSources({
-      sources: [...tavilyBatches.flat(), ...gdeltBatches.flat()]
+      sources: [...tavilyBatches.flat(), ...gdeltBatches.flat(), ...officialEvidence]
     });
 
-    let effectiveQueries = [...plannedQueries, ...gdeltQueries];
+    const officialEvidencePlans = officialEvidence.map(item => ({
+      label: item.source_group || "official_no_key_evidence",
+      query: item.title || item.source || "Official no-key evidence",
+      maxResults: 1
+    }));
+
+    let effectiveQueries = [...plannedQueries, ...gdeltQueries, ...officialEvidencePlans];
     let sourceAssessment = await assessSourceRelevance({
       env,
       sources: primaryCandidateSources,
@@ -1868,7 +2092,7 @@ export async function onRequestPost(context) {
 
         effectiveQueries = [...effectiveQueries, ...newRecoveryQueries];
         candidateSources = prepareCandidateSources({
-          sources: [...tavilyBatches.flat(), ...gdeltBatches.flat(), ...fallbackBatches.flat()]
+          sources: [...tavilyBatches.flat(), ...gdeltBatches.flat(), ...officialEvidence, ...fallbackBatches.flat()]
         });
 
         sourceAssessment = await assessSourceRelevance({
