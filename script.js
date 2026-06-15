@@ -602,10 +602,86 @@ function scoreIsicMatch(entry, query) {
 }
 
 
-function getFallbackIsicSuggestions(q, scored) {
+function getLowConfidenceTypedSuggestions(q, scored) {
+  const queryText = normaliseSearchText(q || "");
+  const queryWords = uniqueWords(queryText).filter(term => term.length > 2 && !GENERIC_QUERY_TERMS.has(term));
+  if (!queryText || !queryWords.length) return [];
+
+  return scored
+    .map(entry => {
+      const prepared = getPreparedIsicEntry(entry);
+      const entryWords = prepared.entryWords || [];
+      const fullEntryText = prepared.fullEntryText || prepared.entryText || "";
+      let lowConfidenceTextScore = 0;
+
+      if (fullEntryText.includes(queryText)) lowConfidenceTextScore += 95;
+
+      queryWords.forEach(term => {
+        const best = Math.max(0, ...entryWords.map(word => wordSimilarity(term, word)));
+        if (entryWords.includes(term)) lowConfidenceTextScore += 70;
+        else if (entryWords.some(word => word.startsWith(term) || term.startsWith(word))) lowConfidenceTextScore += 45;
+        else if (term.length >= 5 && best >= 0.82) lowConfidenceTextScore += 34;
+        else if (term.length >= 5 && best >= 0.74) lowConfidenceTextScore += 18;
+      });
+
+      const phraseSimilarity = diceCoefficient(queryText, fullEntryText);
+      if (phraseSimilarity >= 0.18) lowConfidenceTextScore += phraseSimilarity * 40;
+
+      return {
+        ...entry,
+        lowConfidenceTextScore,
+        fallbackRankScore: lowConfidenceTextScore + (entry.queryScore || 0) + (entry.conceptScore || 0) * 0.55 + (entry.contextScore || 0) * 0.35 + (entry.businessScore || 0) * 0.15 - (entry.penaltyScore || 0) * 0.7
+      };
+    })
+    .filter(entry => entry.lowConfidenceTextScore >= 18 && (entry.penaltyScore || 0) < 110)
+    .sort((a, b) => b.fallbackRankScore - a.fallbackRankScore || a.description.localeCompare(b.description))
+    .slice(0, FALLBACK_SUGGESTION_MAX_RESULTS);
+}
+
+function getBroadStartingPointSuggestions(scored) {
+  const sectorOrder = typeof SECTOR_DATA !== "undefined" ? Object.keys(SECTOR_DATA) : [];
+  const representatives = [];
+  const usedCodes = new Set();
+
+  sectorOrder.forEach(sectorName => {
+    const representative = scored.find(entry =>
+      !usedCodes.has(entry.code) &&
+      normaliseSearchText(entry.sector || "") === normaliseSearchText(sectorName) &&
+      (entry.businessScore || 0) >= 12 &&
+      (entry.penaltyScore || 0) < 90
+    ) || scored.find(entry =>
+      !usedCodes.has(entry.code) &&
+      normaliseSearchText(entry.sector || "") === normaliseSearchText(sectorName)
+    );
+
+    if (representative) {
+      representatives.push(representative);
+      usedCodes.add(representative.code);
+    }
+  });
+
+  return representatives.length ? representatives : scored;
+}
+
+function getContextFallbackSuggestions(scored) {
   const selectedSector = normaliseSearchText(sectorBox?.value || "");
   const selectedSubsector = normaliseSearchText(subsectorBox?.value || "");
-  const queryWords = uniqueWords(q).filter(term => term.length > 2 && !GENERIC_QUERY_TERMS.has(term));
+
+  if (selectedSubsector) {
+    const inSubsector = scored.filter(entry => normaliseSearchText(entry.subsector || "") === selectedSubsector);
+    if (inSubsector.length) return { entries: inSubsector, reason: "Suggested from selected subsector" };
+  }
+
+  if (selectedSector) {
+    const inSector = scored.filter(entry => normaliseSearchText(entry.sector || "") === selectedSector);
+    if (inSector.length) return { entries: inSector, reason: "Suggested from selected sector" };
+  }
+
+  return { entries: [], reason: "" };
+}
+
+function getFallbackIsicSuggestions(q, scored) {
+  const hasQuery = Boolean(normaliseSearchText(q || ""));
 
   function mark(entries, reason) {
     const seen = new Set();
@@ -619,35 +695,36 @@ function getFallbackIsicSuggestions(q, scored) {
       }));
   }
 
-  // Best fallback: if the user has already selected sector/subsector, always offer
-  // activities inside that context. This matters because ISIC selection is compulsory.
-  if (selectedSubsector) {
-    const inSubsector = scored.filter(entry => normaliseSearchText(entry.subsector || "") === selectedSubsector);
-    if (inSubsector.length) return mark(inSubsector, "Suggested from selected subsector");
+  // Blank input is different from a failed search: with no typed signal, help the
+  // banker choose from the selected sector/subsector first, then show broad starts.
+  if (!hasQuery) {
+    const contextFallback = getContextFallbackSuggestions(scored);
+    if (contextFallback.entries.length) return mark(contextFallback.entries, contextFallback.reason);
+    return mark(getBroadStartingPointSuggestions(scored), "Suggested starting points");
   }
 
-  if (selectedSector) {
-    const inSector = scored.filter(entry => normaliseSearchText(entry.sector || "") === selectedSector);
-    if (inSector.length) return mark(inSector, "Suggested from selected sector");
-  }
+  // Typed input should remain query-aware even when confidence is low. Show the
+  // nearest lexical suggestions before falling back to sector representatives.
+  const weakTextMatches = getLowConfidenceTypedSuggestions(q, scored);
+  if (weakTextMatches.length) return mark(weakTextMatches, "No close match — nearest text suggestions");
 
-  // If there is a weak but visible role/domain signal, show those rather than nothing.
+  // If the typed words suggest a broad role/domain, use that next. This keeps
+  // inputs such as “electronics distributor” or “hotel operator” helpful even
+  // when no exact ISIC wording exists.
   const weakSignalMatches = scored.filter(entry =>
     (entry.roleScore > 0 || entry.domainScore > 0 || entry.conceptScore > 0) &&
     (entry.penaltyScore || 0) < 90
   );
-  if (weakSignalMatches.length) return mark(weakSignalMatches, "Low-confidence related suggestion");
+  if (weakSignalMatches.length) return mark(weakSignalMatches, "No close match — related role/domain suggestions");
 
-  // Last fallback: show broad starting points across the available sector taxonomy.
-  // This avoids a dead-end compulsory field while making the low-confidence nature clear.
-  const sectorOrder = typeof SECTOR_DATA !== "undefined" ? Object.keys(SECTOR_DATA) : [];
-  const representatives = [];
-  sectorOrder.forEach(sectorName => {
-    const representative = ISIC_DATA.find(entry => entry.sector === sectorName);
-    if (representative) representatives.push(representative);
-  });
+  // Only after using the typed signal should selected sector/subsector drive the
+  // fallback. This avoids typed failed searches looking identical to blank input.
+  const contextFallback = getContextFallbackSuggestions(scored);
+  if (contextFallback.entries.length) return mark(contextFallback.entries, contextFallback.reason);
 
-  return mark(representatives.length ? representatives : scored, q ? "Broad fallback suggestions" : "Suggested starting points");
+  // Final fallback: the field is compulsory, so provide starting points, but label
+  // the low-confidence nature clearly.
+  return mark(getBroadStartingPointSuggestions(scored), "No close match — broad starting points");
 }
 
 function getIsicMatches(query) {
@@ -770,8 +847,11 @@ function renderIsicDropdown() {
 
   const hasFallbackSuggestions = matches.every(entry => entry.fallbackSuggestion);
   const hasStrongQueryMatch = matches.some(entry => entry.queryScore >= 35);
+  const fallbackHeading = hasFallbackSuggestions
+    ? [...new Set(matches.map(entry => entry.fallbackReason).filter(Boolean))][0]
+    : "";
   const heading = hasFallbackSuggestions
-    ? (query ? "Suggested ISIC activities to choose from" : "Suggested ISIC activities")
+    ? (fallbackHeading || (query ? "Suggested ISIC activities to choose from" : "Suggested ISIC activities"))
     : (query ? (hasStrongQueryMatch ? "Closest ISIC matches" : "Related ISIC suggestions") : "Suggested ISIC activities");
 
   isicDropdown.classList.remove("hidden");
