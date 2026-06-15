@@ -181,8 +181,8 @@ const DOMAIN_FAMILIES = [
   {
     id: "wood_paper_printing",
     label: "Wood / paper / printing",
-    terms: ["wood", "timber", "furniture wood", "cork", "paper", "pulp", "packaging paper", "printing", "recorded media"],
-    anchors: ["wood", "cork", "straw", "plaiting", "paper", "printing", "recorded media"]
+    terms: ["wood", "timber", "furniture wood", "cork", "paper", "pulp", "packaging paper", "print", "printer", "printing", "publisher", "publishing", "recorded media"],
+    anchors: ["wood", "cork", "straw", "plaiting", "paper", "print", "printing", "publishing", "recorded media"]
   },
   {
     id: "chemicals_energy_materials",
@@ -276,11 +276,28 @@ function normaliseSearchText(value) {
 function uniqueWords(value) {
   const words = normaliseSearchText(value).split(" ").filter(word => word.length > 1);
   const expanded = [];
+
+  function addToken(token) {
+    const cleaned = normaliseSearchText(token);
+    if (cleaned && cleaned.length > 1) expanded.push(cleaned);
+  }
+
   words.forEach(word => {
-    expanded.push(word);
-    if (word.length > 4 && word.endsWith("ies")) expanded.push(`${word.slice(0, -3)}y`);
-    else if (word.length > 3 && word.endsWith("s") && !word.endsWith("ss")) expanded.push(word.slice(0, -1));
+    addToken(word);
+
+    // Conservative morphology helps business-language search without hardcoding
+    // individual examples. It lets terms such as printer/printing/printed,
+    // exporter/exporting/exported, and manufacturers/manufacturing share a
+    // stable root, while avoiding very short stems that cause noisy matches.
+    if (word.length > 4 && word.endsWith("ies")) addToken(`${word.slice(0, -3)}y`);
+    else if (word.length > 3 && word.endsWith("s") && !word.endsWith("ss")) addToken(word.slice(0, -1));
+
+    if (word.length > 6 && word.endsWith("ing")) addToken(word.slice(0, -3));
+    if (word.length > 5 && word.endsWith("ed")) addToken(word.slice(0, -2));
+    if (word.length > 6 && word.endsWith("er")) addToken(word.slice(0, -2));
+    if (word.length > 6 && word.endsWith("or")) addToken(word.slice(0, -2));
   });
+
   return [...new Set(expanded)];
 }
 
@@ -736,15 +753,10 @@ function getIsicMatches(query) {
     .map(entry => ({ ...entry, ...scoreIsicMatch(entry, q) }))
     .sort((a, b) => b.score - a.score || a.description.localeCompare(b.description));
 
-  // ISIC selection is compulsory, so never leave the user with a dead-end dropdown.
-  // Empty input uses selected sector/subsector context where possible, then broad starting points.
-  if (!q) {
-    const contextMatches = scored
-      .filter(entry => entry.contextScore > 0)
-      .slice(0, FALLBACK_SUGGESTION_MAX_RESULTS);
-    if (contextMatches.length) return contextMatches;
-    return getFallbackIsicSuggestions(q, scored);
-  }
+  // Do not open a dropdown before the banker has typed anything. Industry is
+  // compulsory, but blank-input suggestions felt random and distracted from the
+  // client setup flow. Validation still prevents submission without selection.
+  if (!q) return [];
 
   const queryWords = uniqueWords(q).filter(term => term.length > 2 && !GENERIC_QUERY_TERMS.has(term));
 
@@ -835,6 +847,13 @@ function renderIsicDropdown() {
   if (!isicDropdown || typeof ISIC_DATA === "undefined") return;
 
   const query = industryBox.value.trim();
+
+  if (!query) {
+    isicDropdown.classList.add("hidden");
+    industryBox.setAttribute("aria-expanded", "false");
+    isicDropdown.innerHTML = "";
+    return;
+  }
 
   const matches = getIsicMatches(query);
 
