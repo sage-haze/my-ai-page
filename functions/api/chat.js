@@ -41,6 +41,24 @@ const IMF_DATAMAPPER_INDICATORS = [
   { id: "BCA_NGDPD", label: "IMF current account balance", unit: "% of GDP", thread: "macro_indicators" }
 ];
 
+const FRED_INDICATORS = [
+  { id: "DGS10", label: "US 10-year Treasury yield", unit: "%", thread: "macro_indicators" },
+  { id: "FEDFUNDS", label: "Effective federal funds rate", unit: "%", thread: "macro_indicators" },
+  { id: "CPIAUCSL", label: "US CPI index", unit: "index", thread: "macro_indicators" },
+  { id: "UNRATE", label: "US unemployment rate", unit: "%", thread: "macro_indicators" },
+  { id: "DTWEXBGS", label: "Nominal broad US dollar index", unit: "index", thread: "fx_rates" }
+];
+
+const BOT_CURRENCY_NAME_TO_CODE = {
+  "US DOLLAR": "USD",
+  "EURO": "EUR",
+  "JAPANESE YEN": "JPY",
+  "CHINESE YUAN": "CNY",
+  "YUAN RENMINBI": "CNY"
+};
+
+const BOT_ALLOWED_FX_CURRENCIES = ["USD", "EUR", "JPY", "CNY"];
+
 const OPENAI_FAST_MODEL = "gpt-4.1-mini";
 const OPENAI_ANALYSIS_MODEL = "gpt-4.1";
 
@@ -476,6 +494,310 @@ async function fetchNoKeyOfficialEvidence({ tradeFlow, signalThreads = [] }) {
   const results = await Promise.allSettled([
     fetchWorldBankEvidence({ countryCodes, signalThreads }),
     fetchImfDatamapperEvidence({ countryCodes, signalThreads })
+  ]);
+
+  return results
+    .flatMap(result => result.status === "fulfilled" ? result.value : [])
+    .filter(item => item && item.url);
+}
+
+function getPreviousDateString(daysBack = 7) {
+  return formatDate(new Date(Date.now() - Number(daysBack || 7) * 24 * 60 * 60 * 1000));
+}
+
+function getNestedArray(data, possiblePaths = []) {
+  for (const path of possiblePaths) {
+    let value = data;
+    for (const key of path) {
+      value = value?.[key];
+    }
+    if (Array.isArray(value)) return value;
+  }
+  return [];
+}
+
+function latestByDate(rows = [], dateFields = ["period", "date", "as_of_date", "effective_date", "rate_date"]) {
+  return [...(rows || [])]
+    .filter(row => row && typeof row === "object")
+    .sort((a, b) => {
+      const aDate = Date.parse(dateFields.map(field => a[field]).find(Boolean) || "") || 0;
+      const bDate = Date.parse(dateFields.map(field => b[field]).find(Boolean) || "") || 0;
+      return bDate - aDate;
+    })[0] || null;
+}
+
+function firstFiniteNumber(row = {}, fields = []) {
+  for (const field of fields) {
+    const raw = row?.[field];
+    if (raw === null || raw === undefined || raw === "") continue;
+    const value = Number(String(raw).replace(/,/g, ""));
+    if (Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
+function botHeaders(env) {
+  return {
+    "X-IBM-Client-Id": env.BOT_API_CLIENT_ID,
+    "accept": "application/json",
+    "User-Agent": "conversation-builder/1.0"
+  };
+}
+
+async function botGet(env, endpoint, params = {}) {
+  if (!env.BOT_API_CLIENT_ID) return null;
+  const url = new URL(endpoint);
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== null && value !== undefined && value !== "") url.searchParams.set(key, String(value));
+  });
+
+  const response = await fetch(url.toString(), { headers: botHeaders(env) });
+  const text = await response.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch (_) { data = { raw: text }; }
+  if (!response.ok) {
+    const message = data?.error || data?.message || data?.moreInformation || text || `BOT request failed with HTTP ${response.status}`;
+    throw new Error(String(message).slice(0, 240));
+  }
+  return data;
+}
+
+function makeOfficialEvidence({ title, url, summary, rawContent, publishedAt = "", sourceGroup, score = 0.96 }) {
+  return {
+    title,
+    url,
+    source: "Bank of Thailand API",
+    domain: "bot.or.th",
+    published_at: publishedAt,
+    summary,
+    raw_content: rawContent || `${title}. ${summary}`,
+    score,
+    source_group: sourceGroup,
+    evidence_kind: "official_data"
+  };
+}
+
+function botCurrencyCode(row = {}) {
+  const direct = String(row.currency_id || row.currency_code || row.currency || row.ccy || "").toUpperCase().trim();
+  if (BOT_ALLOWED_FX_CURRENCIES.includes(direct)) return direct;
+
+  const name = String(row.currency_name_eng || row.currency_name || row.currency_name_th || "").toUpperCase();
+  for (const [needle, code] of Object.entries(BOT_CURRENCY_NAME_TO_CODE)) {
+    if (name.includes(needle)) return code;
+  }
+  return "";
+}
+
+async function fetchBotExchangeRateEvidence({ env, currencies = [], signalThreads = [] }) {
+  const enabled = new Set(signalThreads || []);
+  if (enabled.size && !enabled.has("fx_rates") && !enabled.has("macro_indicators")) return [];
+  if (!env.BOT_API_CLIENT_ID) return [];
+
+  const targetCurrencies = uniqueArray((currencies || []).filter(currency => BOT_ALLOWED_FX_CURRENCIES.includes(currency)));
+  if (!targetCurrencies.length) return [];
+
+  const end_period = formatDate(new Date());
+  const start_period = getPreviousDateString(30);
+  const endpoint = "https://apigw1.bot.or.th/bot/public/Stat-ExchangeRate/v2/DAILY_AVG_EXG_RATE/";
+
+  try {
+    const data = await botGet(env, endpoint, { start_period, end_period });
+    const rows = getNestedArray(data, [["result", "data"], ["result", "data", "data"], ["data"]]);
+    if (!rows.length) return [];
+
+    const lines = [];
+    const rawRows = [];
+    for (const currency of targetCurrencies) {
+      const matches = rows.filter(row => botCurrencyCode(row) === currency);
+      const latest = latestByDate(matches);
+      if (!latest) continue;
+      const mid = firstFiniteNumber(latest, ["mid_rate", "rate", "selling", "buying_transfer", "buying_sight"]);
+      if (!Number.isFinite(mid)) continue;
+      const period = latest.period || latest.date || latest.as_of_date || end_period;
+      lines.push(`${currency}/THB: ${mid.toFixed(4)} (${period})`);
+      rawRows.push(latest);
+    }
+
+    if (!lines.length) return [];
+    const summary = `BOT average exchange rate latest observations: ${lines.join("; ")}.`;
+    return [makeOfficialEvidence({
+      title: "Bank of Thailand data: selected THB exchange rates",
+      url: `${endpoint}?start_period=${start_period}&end_period=${end_period}`,
+      summary,
+      rawContent: `${summary} Use as Thailand-local FX evidence for currency mismatch, payment timing, invoice currency, and hedge discipline conversations. Raw rows: ${JSON.stringify(rawRows).slice(0, 1800)}`,
+      publishedAt: end_period,
+      sourceGroup: "official_bot_fx_rates"
+    })];
+  } catch (_) {
+    return [];
+  }
+}
+
+async function fetchBotPolicyRateEvidence({ env, signalThreads = [] }) {
+  const enabled = new Set(signalThreads || []);
+  if (enabled.size && !enabled.has("macro_indicators") && !enabled.has("fx_rates")) return [];
+  if (!env.BOT_API_CLIENT_ID) return [];
+
+  const endpoint = "https://apigw1.bot.or.th/bot/public/PolicyRate/v2/policy_rate/";
+  try {
+    const data = await botGet(env, endpoint);
+    const rows = getNestedArray(data, [["result", "data"], ["data"]]);
+    const latest = Array.isArray(rows) && rows.length ? latestByDate(rows) : data?.result?.data || data?.data || data;
+    const rate = firstFiniteNumber(latest, ["policy_rate", "rate", "value", "interest_rate"]);
+    if (!Number.isFinite(rate)) return [];
+    const date = latest?.period || latest?.date || latest?.as_of_date || latest?.effective_date || formatDate(new Date());
+    const summary = `BOT policy rate latest observation: ${rate.toFixed(2)}%${date ? ` (${date})` : ""}.`;
+    return [makeOfficialEvidence({
+      title: "Bank of Thailand data: policy rate",
+      url: endpoint,
+      summary,
+      rawContent: `${summary} Use as Thailand-local rate context for deposit strategy, borrowing cost, refinancing, working capital discipline, and liquidity conversations.`,
+      publishedAt: date,
+      sourceGroup: "official_bot_interest_rates"
+    })];
+  } catch (_) {
+    return [];
+  }
+}
+
+function botTenorLabel(row = {}) {
+  return String(row.tenor || row.period_type || row.term_type || row.rate_type || row.type || row.name || "rate").trim();
+}
+
+async function fetchBotBiborEvidence({ env, signalThreads = [] }) {
+  const enabled = new Set(signalThreads || []);
+  if (enabled.size && !enabled.has("macro_indicators") && !enabled.has("fx_rates")) return [];
+  if (!env.BOT_API_CLIENT_ID) return [];
+
+  const end_period = formatDate(new Date());
+  const start_period = getPreviousDateString(30);
+  const endpoint = "https://apigw1.bot.or.th/bot/public/BIBOR/v2/bibor_rate/";
+  try {
+    const data = await botGet(env, endpoint, { start_period, end_period });
+    const rows = getNestedArray(data, [["result", "data"], ["data"]]);
+    if (!rows.length) return [];
+
+    const byTenor = new Map();
+    for (const row of rows) {
+      const tenor = botTenorLabel(row);
+      const value = firstFiniteNumber(row, ["rate", "interest_rate", "value", "bid", "offer"]);
+      if (!tenor || !Number.isFinite(value)) continue;
+      const existing = byTenor.get(tenor);
+      const rowDate = Date.parse(row.period || row.date || row.as_of_date || "") || 0;
+      const existingDate = Date.parse(existing?.period || existing?.date || existing?.as_of_date || "") || 0;
+      if (!existing || rowDate >= existingDate) byTenor.set(tenor, row);
+    }
+
+    const lines = [...byTenor.entries()].slice(0, 5).map(([tenor, row]) => {
+      const value = firstFiniteNumber(row, ["rate", "interest_rate", "value", "bid", "offer"]);
+      const period = row.period || row.date || row.as_of_date || end_period;
+      return `${tenor}: ${value.toFixed(2)}% (${period})`;
+    });
+    if (!lines.length) return [];
+
+    const summary = `BOT BIBOR latest observations: ${lines.join("; ")}.`;
+    return [makeOfficialEvidence({
+      title: "Bank of Thailand data: BIBOR rates",
+      url: `${endpoint}?start_period=${start_period}&end_period=${end_period}`,
+      summary,
+      rawContent: `${summary} Use as Thailand-local short-term rate context for funding cost, cash yield, deposits, and working capital conversations.`,
+      publishedAt: end_period,
+      sourceGroup: "official_bot_interest_rates"
+    })];
+  } catch (_) {
+    return [];
+  }
+}
+
+async function fetchBotStatisticsCatalogueEvidence({ env, signalThreads = [] }) {
+  const enabled = new Set(signalThreads || []);
+  if (enabled.size && !enabled.has("macro_indicators") && !enabled.has("trade_supply_chain")) return [];
+  if (!env.BOT_API_CLIENT_ID) return [];
+
+  const endpoint = "https://apigw1.bot.or.th/bot/public/search-series/";
+  const keywords = enabled.has("trade_supply_chain") ? ["exports", "imports"] : ["inflation", "current account"];
+
+  const evidence = [];
+  for (const keyword of keywords.slice(0, 2)) {
+    try {
+      const data = await botGet(env, endpoint, { keyword });
+      const rows = getNestedArray(data, [["result", "series_details"], ["result", "data"], ["data"]]).slice(0, 5);
+      if (!rows.length) continue;
+      const names = rows.map(row => row.series_name_eng || row.series_name || row.name || row.series_code).filter(Boolean).slice(0, 4);
+      if (!names.length) continue;
+      evidence.push(makeOfficialEvidence({
+        title: `Bank of Thailand statistics catalogue: ${keyword}`,
+        url: `${endpoint}?keyword=${encodeURIComponent(keyword)}`,
+        summary: `BOT statistics catalogue has available series for ${keyword}: ${names.join("; ")}.`,
+        rawContent: `BOT statistics catalogue search result for ${keyword}. This is a data-discovery signal only; use it to identify local statistics available for follow-up, not as a direct numeric observation.`,
+        publishedAt: formatDate(new Date()),
+        sourceGroup: "official_bot_statistics_catalogue",
+        score: 0.75
+      }));
+    } catch (_) {
+      // best effort
+    }
+  }
+  return evidence;
+}
+
+async function fetchFredEvidence({ env, signalThreads = [] }) {
+  const enabled = new Set(signalThreads || []);
+  if (enabled.size && !enabled.has("macro_indicators") && !enabled.has("fx_rates")) return [];
+  if (!env.FRED_API_KEY) return [];
+
+  const selected = FRED_INDICATORS.filter(indicator => includeOfficialIndicator(indicator, signalThreads));
+  const evidence = [];
+
+  for (const indicator of selected) {
+    const url = new URL("https://api.stlouisfed.org/fred/series/observations");
+    url.searchParams.set("series_id", indicator.id);
+    url.searchParams.set("api_key", env.FRED_API_KEY);
+    url.searchParams.set("file_type", "json");
+    url.searchParams.set("sort_order", "desc");
+    url.searchParams.set("limit", "3");
+
+    try {
+      const response = await fetch(url.toString(), { headers: { "User-Agent": "conversation-builder/1.0" } });
+      if (!response.ok) continue;
+      const data = await response.json().catch(() => null);
+      const latest = (data?.observations || [])
+        .map(item => ({ date: item.date, value: Number(item.value) }))
+        .find(item => item.date && Number.isFinite(item.value));
+      if (!latest) continue;
+
+      const publicUrl = `https://fred.stlouisfed.org/series/${indicator.id}`;
+      const valueText = formatDataPointValue(latest.value, indicator.unit);
+      const summary = `FRED ${indicator.label}: ${valueText} (${latest.date}).`;
+      evidence.push({
+        title: `FRED data: ${indicator.label}`,
+        url: publicUrl,
+        source: "FRED API",
+        domain: "fred.stlouisfed.org",
+        published_at: latest.date,
+        summary,
+        raw_content: `${summary} Use as global market-driver context for Thailand-based client conversations, especially USD, rates, global demand, and risk sentiment.`,
+        score: 0.9,
+        source_group: `official_fred_${indicator.thread}`,
+        evidence_kind: "official_data"
+      });
+    } catch (_) {
+      // best effort
+    }
+  }
+
+  return evidence;
+}
+
+async function fetchCredentialedOfficialEvidence({ env, tradeFlow, currencies = [], signalThreads = [] }) {
+  if (!shouldFetchOfficialEvidence(signalThreads)) return [];
+
+  const results = await Promise.allSettled([
+    fetchFredEvidence({ env, signalThreads }),
+    fetchBotExchangeRateEvidence({ env, currencies, signalThreads }),
+    fetchBotPolicyRateEvidence({ env, signalThreads }),
+    fetchBotBiborEvidence({ env, signalThreads }),
+    fetchBotStatisticsCatalogueEvidence({ env, signalThreads })
   ]);
 
   return results
@@ -1230,7 +1552,7 @@ function calculateCountryRelevanceScore(source, countries = []) {
 
 function getSourceAuthorityScore(source) {
   const domain = String(source.domain || source.source || "").toLowerCase();
-  if (/reuters|bloomberg|ft\.com|nikkei|spglobal|fastmarkets|argusmedia|worldbank|imf|adb|aseanstats|worldsteel|steelbb|steelorbis|official|gov|customs|commerce/.test(domain)) return 5;
+  if (/reuters|bloomberg|ft\.com|nikkei|spglobal|fastmarkets|argusmedia|worldbank|imf|fred|stlouisfed|adb|aseanstats|worldsteel|steelbb|steelorbis|official|gov|customs|commerce|bot\.or\.th/.test(domain)) return 5;
   if (/bangkokpost|nationthailand|thaipbs|prachachat|kaohoon|set\.or\.th|bot\.or\.th/.test(domain)) return 4;
   if (/marinelink|hellenicshipping|freightwaves|supplychaindive/.test(domain)) return 3;
   if (/openpr|einnews|globenewswire|prnewswire|manilatimes|kipost/.test(domain)) return 1;
@@ -2009,7 +2331,7 @@ export async function onRequestPost(context) {
     const searchDepth = "advanced";
     const gdeltQueries = buildGdeltQueries({ industry, tradeFlow, signalThreads });
 
-    const [tavilyBatches, gdeltBatches, officialEvidence, rawFxResults] = await Promise.all([
+    const [tavilyBatches, gdeltBatches, noKeyOfficialEvidence, credentialedOfficialEvidence, rawFxResults] = await Promise.all([
       Promise.all(plannedQueries.map(plan =>
         tavilySearch({
           apiKey: env.TAVILY_API_KEY,
@@ -2029,8 +2351,11 @@ export async function onRequestPost(context) {
         }).then(results => normalizeGdeltResults(results, plan.label)).catch(() => [])
       )),
       fetchNoKeyOfficialEvidence({ tradeFlow, signalThreads }),
+      fetchCredentialedOfficialEvidence({ env, tradeFlow, currencies, signalThreads }),
       fetchFxRates(currencies, fxTenor)
     ]);
+
+    const officialEvidence = [...noKeyOfficialEvidence, ...credentialedOfficialEvidence];
 
     const fxResults = await analyzeFxRates({ env, fxList: rawFxResults, sector, subsector, industry, tradeRoles, countries, tradeFlow, fxTenor });
 
