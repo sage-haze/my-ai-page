@@ -927,15 +927,3 @@ select.auto-filled {
 .bank-handoff .conversation-label {
   color: #475569;
 }
-
-.isic-option .isic-description {
-  display: block;
-}
-
-.isic-option small {
-  display: block;
-  margin-top: 0.18rem;
-  color: #667085;
-  font-size: 0.78rem;
-  line-height: 1.25;
-}

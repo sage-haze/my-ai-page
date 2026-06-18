@@ -65,219 +65,39 @@ const COMMERCIAL_FALLBACK_SECTORS = [
 ];
 
 const LOW_CONFIDENCE_MAX_RESULTS = 6;
-const FALLBACK_SUGGESTION_MAX_RESULTS = 8;
 
 const GENERIC_QUERY_TERMS = new Set([
   "business", "company", "industry", "activity", "activities", "service", "services",
   "product", "products", "goods", "general", "other", "misc", "miscellaneous"
 ]);
 
-const ROLE_FAMILIES = [
+const BUSINESS_CONCEPT_GROUPS = [
   {
-    id: "agriculture",
-    label: "Agriculture / farming",
-    terms: ["farm", "farming", "farmer", "grower", "plantation", "crop", "livestock", "animal production", "forestry", "logging", "fishing", "aquaculture"],
-    anchors: ["agriculture", "crop", "animal production", "hunting", "forestry", "logging", "fishing", "aquaculture", "growing", "farming"]
+    terms: ["fruit", "fruits", "vegetable", "vegetables", "crop", "crops", "grain", "grains", "bean", "beans", "nut", "nuts", "orchard", "plantation", "fresh produce", "banana", "mango", "durian", "pineapple", "papaya", "coconut"],
+    anchors: ["growing", "crop", "agriculture", "food", "wholesale", "retail"]
   },
   {
-    id: "extraction",
-    label: "Mining / extraction",
-    terms: ["mine", "mining", "miner", "quarry", "quarrying", "extraction", "extract", "oil field", "gas field"],
-    anchors: ["mining", "quarrying", "extraction", "coal", "lignite", "petroleum", "natural gas", "metal ores", "support service"]
+    terms: ["metal", "metals", "mineral", "minerals", "ore", "ores", "steel", "iron", "copper", "aluminium", "aluminum", "zinc", "tin", "nickel", "gold", "silver", "platinum", "precious metal", "gem", "gems", "gemstone", "gemstones", "jewel", "jewels", "jewellery", "jewelry", "precious stone", "precious stones", "semi precious stone", "semi precious stones", "diamond", "ruby", "sapphire", "emerald"],
+    anchors: ["mining", "quarrying", "metal", "ore", "manufacture", "wholesale", "jewellery", "jewelry", "precious", "stone"]
   },
   {
-    id: "manufacturing",
-    label: "Manufacturing / processing",
-    terms: ["manufacture", "manufacturer", "manufacturing", "factory", "producer", "production", "processing", "process", "maker", "assembly", "assembler", "fabrication", "fabricate", "plant"],
-    anchors: ["manufacture", "manufacturing", "processing", "production", "fabricated", "assembly", "repair and installation"]
+    terms: ["machine", "machinery", "equipment", "parts", "component", "components", "electronics", "electrical", "semiconductor", "automotive", "vehicle"],
+    anchors: ["manufacture", "machinery", "equipment", "electrical", "motor", "repair", "wholesale"]
   },
   {
-    id: "utilities",
-    label: "Utilities / environmental services",
-    terms: ["utility", "utilities", "power", "electricity", "gas", "steam", "water supply", "waste", "sewerage", "recycling", "remediation", "renewable"],
-    anchors: ["electricity", "gas", "steam", "air conditioning", "water", "sewerage", "waste", "materials recovery", "remediation"]
+    terms: ["textile", "textiles", "garment", "garments", "apparel", "fabric", "clothing", "fashion", "cotton", "yarn"],
+    anchors: ["manufacture", "textile", "wearing", "apparel", "wholesale", "retail"]
   },
   {
-    id: "construction_real_estate",
-    label: "Construction / real estate",
-    terms: ["construction", "contractor", "building", "civil engineering", "developer", "development", "property", "real estate", "condominium", "apartment", "housing", "office building", "shopping center", "factory construction"],
-    anchors: ["construction", "building", "civil engineering", "specialized construction", "real estate", "development", "residential", "condominium", "apartment", "commercial building", "leased property"]
+    terms: ["food", "beverage", "drink", "processed food", "ingredient", "feed", "animal feed", "seafood", "meat", "dairy"],
+    anchors: ["food", "beverage", "manufacture", "processing", "wholesale", "retail", "fishing", "animal"]
   },
   {
-    id: "trade",
-    label: "Wholesale / retail trade",
-    terms: ["wholesale", "wholesaler", "retail", "retailer", "shop", "store", "dealer", "trader", "trading", "distributor", "distribution", "importer", "exporter", "supplier"],
-    anchors: ["wholesale", "retail", "trade", "repair of motor vehicles", "dealer", "distribution"]
-  },
-  {
-    id: "transport_storage",
-    label: "Transport / logistics",
-    terms: ["transport", "transportation", "logistics", "freight", "shipping", "cargo", "courier", "postal", "warehouse", "warehousing", "storage", "forwarder", "fleet", "air transport", "water transport", "land transport"],
-    anchors: ["transport", "transportation", "storage", "warehousing", "support activities for transportation", "postal", "courier", "cargo", "pipelines", "air transport", "water transport", "land transport"]
-  },
-  {
-    id: "hospitality_food_service",
-    label: "Hospitality / food service",
-    terms: ["hotel", "resort", "accommodation", "restaurant", "cafe", "catering", "food service", "hospitality", "tourism", "travel"],
-    anchors: ["accommodation", "food and beverage service", "hotel", "restaurant", "catering", "travel agency", "tour operator", "reservation service"]
-  },
-  {
-    id: "information_communication",
-    label: "Information / communication",
-    terms: ["software", "it", "technology", "telecom", "telecommunications", "data centre", "data center", "cloud", "hosting", "programming", "broadcasting", "publishing", "media", "film", "video"],
-    anchors: ["information", "communication", "publishing", "motion picture", "television", "broadcasting", "telecommunications", "computer programming", "consultancy", "information service", "data processing", "hosting"]
-  },
-  {
-    id: "financial_insurance",
-    label: "Financial / insurance",
-    terms: ["bank", "banking", "finance", "financial", "insurance", "insurer", "reinsurance", "pension", "securities", "broker", "asset management", "fund", "leasing", "factoring", "money transfer", "exchange"],
-    anchors: ["financial", "insurance", "bank", "credit", "cooperative", "factoring", "swaps", "hedging", "securities", "broker", "asset management", "fund", "money transfer", "bureaux de change"]
-  },
-  {
-    id: "professional_technical",
-    label: "Professional / technical services",
-    terms: ["legal", "law", "accounting", "audit", "consulting", "consultancy", "head office", "management", "engineering", "architectural", "testing", "research", "advertising", "market research", "veterinary"],
-    anchors: ["professional", "scientific", "technical", "legal", "accounting", "head offices", "management consultancy", "architectural", "engineering", "technical testing", "research and development", "advertising", "market research", "veterinary"]
-  },
-  {
-    id: "administrative_support",
-    label: "Administrative / support services",
-    terms: ["rental", "leasing", "employment", "staffing", "security", "investigation", "cleaning", "landscape", "office support", "business support", "facility", "facilities"],
-    anchors: ["administrative", "support service", "rental", "leasing", "employment", "security", "investigation", "services to buildings", "landscape", "office administrative", "office support", "business support"]
-  },
-  {
-    id: "public_education_health",
-    label: "Public / education / health",
-    terms: ["government", "public administration", "defence", "defense", "social security", "school", "education", "university", "training", "hospital", "clinic", "health", "medical", "care", "social work"],
-    anchors: ["public administration", "defence", "social security", "education", "human health", "hospital", "medical", "residential care", "social work"]
-  },
-  {
-    id: "arts_other_services",
-    label: "Arts / recreation / other services",
-    terms: ["art", "arts", "entertainment", "creative", "museum", "library", "archive", "sports", "recreation", "amusement", "gambling", "membership", "association", "personal service", "repair computers", "household goods", "domestic personnel", "embassy", "international organization"],
-    anchors: ["arts", "entertainment", "recreation", "creative", "library", "archives", "museums", "gambling", "sports", "amusement", "membership", "personal service", "repair of computers", "household goods", "households", "extraterritorial"]
+    terms: ["freight", "shipping", "logistics", "warehouse", "warehousing", "transport", "distribution", "cargo", "cold chain"],
+    anchors: ["transport", "storage", "warehousing", "logistics", "support", "cargo"]
   }
 ];
 
-const DOMAIN_FAMILIES = [
-  {
-    id: "fish_seafood",
-    label: "Fishery / seafood",
-    terms: ["seafood", "fish", "fishery", "fishing", "aquaculture", "crustacean", "crustaceans", "mollusc", "molluscs", "shrimp", "prawn"],
-    anchors: ["fish", "fishing", "fishery", "aquaculture", "crustaceans", "molluscs", "shrimp", "prawn"]
-  },
-  {
-    id: "agri_food",
-    label: "Agriculture / food",
-    terms: ["food", "beverage", "agriculture", "crop", "livestock", "forestry", "fishing", "aquaculture", "seafood", "meat", "dairy", "rice", "grain", "sugar", "fruit", "vegetable", "coffee", "feed", "tobacco"],
-    anchors: ["food", "beverage", "tobacco", "agriculture", "crop", "animal", "forestry", "fishing", "aquaculture", "meat", "fish", "fruit", "vegetable", "dairy", "grain", "rice", "sugar", "coffee", "feed"]
-  },
-  {
-    id: "textile_apparel",
-    label: "Textiles / apparel / leather",
-    terms: ["textile", "fabric", "garment", "apparel", "clothing", "fashion", "footwear", "leather", "yarn", "cotton"],
-    anchors: ["textile", "wearing apparel", "apparel", "leather", "footwear", "fabric", "yarn", "clothing"]
-  },
-  {
-    id: "wood_paper_printing",
-    label: "Wood / paper / printing",
-    terms: ["wood", "timber", "furniture wood", "cork", "paper", "pulp", "packaging paper", "print", "printer", "printing", "publisher", "publishing", "recorded media"],
-    anchors: ["wood", "cork", "straw", "plaiting", "paper", "print", "printing", "publishing", "recorded media"]
-  },
-  {
-    id: "chemicals_energy_materials",
-    label: "Chemicals / energy / materials",
-    terms: ["chemical", "chemicals", "pharmaceutical", "pharma", "rubber", "plastic", "resin", "fertilizer", "paint", "petroleum", "oil", "gas", "fuel", "coke", "cement", "ceramic", "glass", "non metallic mineral", "metal", "steel", "aluminium", "aluminum"],
-    anchors: ["chemical", "pharmaceutical", "rubber", "plastics", "coke", "refined petroleum", "petroleum", "natural gas", "non metallic mineral", "cement", "ceramic", "glass", "basic metals", "fabricated metal", "steel", "metal"]
-  },
-  {
-    id: "metals_minerals_jewellery",
-    label: "Metals / minerals / jewellery",
-    terms: [
-      "metal", "metals", "metal ore", "metal ores", "ore", "ores", "mineral", "minerals",
-      "precious metal", "precious metals", "non ferrous", "ferrous", "base metal", "base metals",
-      "gold", "silver", "platinum", "palladium", "copper", "zinc", "tin", "nickel", "aluminium", "aluminum", "steel", "iron",
-      "gem", "gems", "gemstone", "gemstones", "precious stone", "precious stones", "diamond", "diamonds", "ruby", "sapphire", "emerald",
-      "jewellery", "jewelry", "goldsmith", "goldsmiths", "bijouterie", "watch", "watches"
-    ],
-    anchors: [
-      "metal ores", "non-ferrous metal ores", "ferrous", "non-ferrous", "basic precious metals", "basic metals", "fabricated metal",
-      "precious", "semi-precious", "stones", "jewellery", "goldsmiths", "bijouterie", "diamonds", "metal in primary forms", "ores and metals"
-    ]
-  },
-  {
-    id: "automotive_transport_equipment",
-    label: "Automotive / transport equipment",
-    terms: ["auto", "automotive", "vehicle", "motor vehicle", "motorcycle", "trailer", "auto parts", "vehicle parts", "motor vehicle parts", "transport equipment"],
-    anchors: ["motor vehicle", "motorcycle", "trailer", "transport equipment"]
-  },
-  {
-    id: "machinery_electronics",
-    label: "Machinery / electronics",
-    terms: ["machinery", "machine", "equipment", "electronics", "electrical", "computer", "optical", "semiconductor", "component", "electronic parts", "electrical parts"],
-    anchors: ["machinery", "equipment", "electronic", "electrical", "computer", "optical", "component"]
-  },
-  {
-    id: "construction_property",
-    label: "Construction / property",
-    terms: ["construction", "building", "civil engineering", "infrastructure", "contractor", "property", "real estate", "housing", "residential", "condominium", "apartment", "office building", "shopping center", "commercial building", "land development", "factory"],
-    anchors: ["construction", "building", "civil engineering", "real estate", "development", "housing", "residential", "condominium", "apartment", "commercial building", "office building", "shopping center", "land development", "factory"]
-  },
-  {
-    id: "utilities_environment",
-    label: "Utilities / waste / environment",
-    terms: ["electricity", "power", "gas", "steam", "air conditioning", "water", "sewerage", "waste", "recycling", "materials recovery", "remediation", "environment"],
-    anchors: ["electricity", "gas", "steam", "air conditioning", "water", "sewerage", "waste", "materials recovery", "remediation"]
-  },
-  {
-    id: "trade_repair",
-    label: "Trade / repair",
-    terms: ["wholesale", "retail", "trade", "dealer", "distributor", "import", "export", "motor vehicle repair", "motorcycle repair", "repair"],
-    anchors: ["wholesale", "retail", "trade", "repair", "motor vehicles", "motorcycles", "dealer"]
-  },
-  {
-    id: "transport_logistics",
-    label: "Transport / logistics",
-    terms: ["transport", "logistics", "warehouse", "warehousing", "storage", "postal", "courier", "freight", "cargo", "shipping", "pipeline", "air transport", "water transport", "land transport"],
-    anchors: ["transport", "storage", "warehousing", "postal", "courier", "freight", "cargo", "pipeline", "air transport", "water transport", "land transport"]
-  },
-  {
-    id: "hospitality_tourism_foodservice",
-    label: "Accommodation / food service / tourism",
-    terms: ["accommodation", "hotel", "resort", "restaurant", "food service", "cafe", "catering", "tourism", "travel", "tour operator", "reservation"],
-    anchors: ["accommodation", "hotel", "resort", "food and beverage service", "restaurant", "catering", "travel agency", "tour operator", "reservation"]
-  },
-  {
-    id: "digital_media_telecom",
-    label: "Digital / media / telecom",
-    terms: ["publishing", "media", "film", "video", "television", "music", "broadcasting", "telecom", "telecommunications", "software", "computer programming", "it consulting", "information service", "data", "hosting", "cloud"],
-    anchors: ["publishing", "motion picture", "video", "television", "music", "broadcasting", "telecommunications", "computer programming", "consultancy", "information service", "data", "hosting"]
-  },
-  {
-    id: "financial_insurance",
-    label: "Financial / insurance",
-    terms: ["financial", "finance", "bank", "banking", "commercial bank", "cooperative", "credit", "factoring", "hedging", "securities", "broker", "underwriter", "money transfer", "bureaux de change", "asset management", "fund", "insurance", "reinsurance", "pension"],
-    anchors: ["financial", "bank", "cooperative", "credit", "factoring", "hedging", "securities", "broker", "underwriter", "money transfer", "bureaux de change", "asset management", "fund", "insurance", "reinsurance", "pension"]
-  },
-  {
-    id: "professional_business_support",
-    label: "Professional / business support",
-    terms: ["legal", "accounting", "head office", "management consultancy", "architecture", "engineering", "technical testing", "research", "advertising", "market research", "veterinary", "rental", "leasing", "employment", "security", "cleaning", "landscape", "office support", "business support"],
-    anchors: ["legal", "accounting", "head offices", "management consultancy", "architectural", "engineering", "technical testing", "research and development", "advertising", "market research", "veterinary", "rental", "leasing", "employment", "security", "investigation", "services to buildings", "landscape", "office administrative", "business support"]
-  },
-  {
-    id: "public_education_health_social",
-    label: "Public / education / health / social",
-    terms: ["public administration", "government", "defence", "defense", "social security", "education", "school", "university", "training", "health", "healthcare", "hospital", "clinic", "medical", "residential care", "social work", "welfare"],
-    anchors: ["public administration", "defence", "social security", "education", "human health", "health", "hospital", "medical", "residential care", "social work"]
-  },
-  {
-    id: "arts_recreation_other",
-    label: "Arts / recreation / other services",
-    terms: ["creative", "arts", "entertainment", "library", "archive", "museum", "cultural", "gambling", "betting", "sports", "amusement", "recreation", "membership", "association", "personal service", "household", "domestic personnel", "international organization", "extraterritorial"],
-    anchors: ["creative", "arts", "entertainment", "libraries", "archives", "museums", "cultural", "gambling", "betting", "sports", "amusement", "recreation", "membership", "personal service", "household", "domestic", "extraterritorial"]
-  }
-];
 
 function normaliseSearchText(value) {
   return String(value || "")
@@ -289,31 +109,7 @@ function normaliseSearchText(value) {
 }
 
 function uniqueWords(value) {
-  const words = normaliseSearchText(value).split(" ").filter(word => word.length > 1);
-  const expanded = [];
-
-  function addToken(token) {
-    const cleaned = normaliseSearchText(token);
-    if (cleaned && cleaned.length > 1) expanded.push(cleaned);
-  }
-
-  words.forEach(word => {
-    addToken(word);
-
-    // Conservative morphology helps business-language search without hardcoding
-    // individual examples. It lets terms such as printer/printing/printed,
-    // exporter/exporting/exported, and manufacturers/manufacturing share a
-    // stable root, while avoiding very short stems that cause noisy matches.
-    if (word.length > 4 && word.endsWith("ies")) addToken(`${word.slice(0, -3)}y`);
-    else if (word.length > 3 && word.endsWith("s") && !word.endsWith("ss")) addToken(word.slice(0, -1));
-
-    if (word.length > 6 && word.endsWith("ing")) addToken(word.slice(0, -3));
-    if (word.length > 5 && word.endsWith("ed")) addToken(word.slice(0, -2));
-    if (word.length > 6 && word.endsWith("er")) addToken(word.slice(0, -2));
-    if (word.length > 6 && word.endsWith("or")) addToken(word.slice(0, -2));
-  });
-
-  return [...new Set(expanded)];
+  return [...new Set(normaliseSearchText(value).split(" ").filter(word => word.length > 1))];
 }
 
 function bigrams(value) {
@@ -349,9 +145,6 @@ function wordSimilarity(term, word) {
   if (word === term) return 1;
   if (word.startsWith(term) || term.startsWith(word)) return 0.88;
   if (word.includes(term) || term.includes(word)) return 0.72;
-  if (term.length < 5 || word.length < 5) return 0;
-  if (Math.abs(term.length - word.length) > 4) return 0;
-  if (term[0] !== word[0]) return 0;
   return diceCoefficient(term, word);
 }
 
@@ -360,39 +153,19 @@ function hasAnyWord(text, words) {
   return words.some(word => haystack.includes(` ${normaliseSearchText(word)} `));
 }
 
-
-function getPreparedIsicEntry(entry) {
-  if (!entry) return { entryText: "", fullEntryText: "", entryWords: [] };
-  if (!entry.__searchIndex) {
-    const entryText = normaliseSearchText(`${entry.code} ${entry.description}`);
-    const fullEntryText = normaliseSearchText(`${entry.code} ${entry.description} ${entry.sector || ""} ${entry.subsector || ""}`);
-    const detailText = normaliseSearchText(`${entry.description || ""} ${entry.subsector || ""}`);
-    entry.__searchIndex = {
-      entryText,
-      fullEntryText,
-      entryWords: uniqueWords(fullEntryText),
-      detailText,
-      detailWords: uniqueWords(detailText),
-      businessRelevance: null
-    };
-  }
-  return entry.__searchIndex;
-}
-
 function getBusinessRelevance(entry) {
-  const prepared = getPreparedIsicEntry(entry);
-  if (prepared.businessRelevance !== null) return prepared.businessRelevance;
-
+  const combined = `${entry.sector || ""} ${entry.subsector || ""} ${entry.description || ""}`;
+  const words = uniqueWords(combined);
   let relevance = 0;
+
   BUSINESS_RELEVANCE_TERMS.forEach(term => {
-    if (prepared.entryWords.includes(term)) relevance += 1;
+    if (words.includes(term)) relevance += 1;
   });
 
   const sectorText = normaliseSearchText(entry.sector || "");
   if (COMMERCIAL_FALLBACK_SECTORS.includes(sectorText)) relevance += 2;
 
-  prepared.businessRelevance = Math.min(relevance, 6);
-  return prepared.businessRelevance;
+  return Math.min(relevance, 6);
 }
 
 function getServiceContextPenalty(entry, queryWords) {
@@ -410,96 +183,27 @@ function getServiceContextPenalty(entry, queryWords) {
   return 45;
 }
 
-function phraseOrWordMatches(term, queryText, queryWords, threshold = 0.88) {
-  const cleaned = normaliseSearchText(term);
-  if (!cleaned) return false;
-  if (cleaned.includes(" ")) return queryText.includes(cleaned);
-  if (queryWords.includes(cleaned)) return true;
-  // Keep family detection deliberately conservative. Fuzzy matching still exists in the
-  // normal ISIC text score, but role/domain families should not fire from weak overlap.
-  return queryWords.some(word => word.length >= 5 && cleaned.length >= 5 && wordSimilarity(word, cleaned) >= threshold);
-}
+function getConceptScore(entry, queryWords) {
+  if (!queryWords.length) return 0;
 
-function getFamilyMatch(family, queryText, queryWords) {
-  const matchedTerms = family.terms.filter(term => phraseOrWordMatches(term, queryText, queryWords));
-  return {
-    matched: matchedTerms.length > 0,
-    terms: matchedTerms
-  };
-}
+  const combined = normaliseSearchText(`${entry.sector || ""} ${entry.subsector || ""} ${entry.description || ""}`);
+  const entryWords = uniqueWords(combined);
+  let conceptScore = 0;
 
+  BUSINESS_CONCEPT_GROUPS.forEach(group => {
+    const queryMatchesGroup = queryWords.some(term =>
+      group.terms.some(groupTerm => wordSimilarity(term, groupTerm) >= 0.88)
+    );
+    if (!queryMatchesGroup) return;
 
-function queryHasDomainSignal(queryText, queryWords) {
-  return DOMAIN_FAMILIES.some(family => getFamilyMatch(family, queryText, queryWords).matched);
-}
+    const anchorHits = group.anchors.filter(anchor =>
+      entryWords.some(word => wordSimilarity(anchor, word) >= 0.92) || combined.includes(normaliseSearchText(anchor))
+    ).length;
 
-function countAnchorHits(family, entryText, entryWords) {
-  const hits = [];
-  family.anchors.forEach(anchor => {
-    const cleaned = normaliseSearchText(anchor);
-    if (!cleaned) return;
-    let matched = cleaned.includes(" ")
-      ? entryText.includes(cleaned)
-      : entryWords.includes(cleaned);
-    if (matched && (entryText.includes(`except of ${cleaned}`) || entryText.includes(`except ${cleaned}`))) {
-      matched = false;
-    }
-    if (matched) hits.push(anchor);
-  });
-  return [...new Set(hits)];
-}
-
-function getRoleDomainScores(entry, queryText, queryWords, preparedEntry = null) {
-  if (!queryWords.length) {
-    return { roleScore: 0, domainScore: 0, signalScore: 0, matchedRoles: [], matchedDomains: [] };
-  }
-
-  const prepared = preparedEntry || getPreparedIsicEntry(entry);
-  const entryText = prepared.detailText || prepared.fullEntryText;
-  const entryWords = prepared.detailWords || prepared.entryWords;
-  let roleScore = 0;
-  let domainScore = 0;
-  const matchedRoles = [];
-  const matchedDomains = [];
-
-  ROLE_FAMILIES.forEach(family => {
-    const queryMatch = getFamilyMatch(family, queryText, queryWords);
-    if (!queryMatch.matched) return;
-    const anchorHits = countAnchorHits(family, entryText, entryWords);
-    if (!anchorHits.length) return;
-
-    roleScore += Math.min(95, 38 + anchorHits.length * 14 + queryMatch.terms.length * 8);
-    matchedRoles.push(family.label);
+    if (anchorHits > 0) conceptScore += Math.min(90, 35 + anchorHits * 15);
   });
 
-  DOMAIN_FAMILIES.forEach(family => {
-    const queryMatch = getFamilyMatch(family, queryText, queryWords);
-    if (!queryMatch.matched) return;
-    const anchorHits = countAnchorHits(family, entryText, entryWords);
-    if (!anchorHits.length) return;
-
-    const exactQueryAnchorHits = queryMatch.terms.filter(term => {
-      const cleaned = normaliseSearchText(term);
-      return cleaned && entryText.includes(cleaned);
-    }).length;
-    domainScore += Math.min(130, 45 + anchorHits.length * 12 + queryMatch.terms.length * 8 + exactQueryAnchorHits * 45);
-    matchedDomains.push(family.label);
-  });
-
-  return {
-    roleScore,
-    domainScore,
-    signalScore: roleScore + domainScore,
-    matchedRoles: [...new Set(matchedRoles)],
-    matchedDomains: [...new Set(matchedDomains)]
-  };
-}
-
-function getConceptScore(entry, queryWords, queryText = "") {
-  // Backward-compatible wrapper: conceptScore now means general business role/object signal,
-  // not a small hand-tuned keyword list. This keeps matching inclusive across the available
-  // sector/subsector taxonomy while avoiding overfitting to a few stress-test words.
-  return getRoleDomainScores(entry, queryText || queryWords.join(" "), queryWords).signalScore;
+  return conceptScore;
 }
 
 function diversifyCommercialFallback(scored) {
@@ -531,26 +235,11 @@ function diversifyCommercialFallback(scored) {
   return picks.slice(0, LOW_CONFIDENCE_MAX_RESULTS);
 }
 
-
-function queryMatchesRole(roleId, queryText, queryWords) {
-  const family = ROLE_FAMILIES.find(item => item.id === roleId);
-  return family ? getFamilyMatch(family, queryText, queryWords).matched : false;
-}
-
-function descriptionHasAny(entry, terms) {
-  const text = normaliseSearchText(entry?.description || "");
-  return terms.some(term => {
-    const cleaned = normaliseSearchText(term);
-    return cleaned.includes(" ") ? text.includes(cleaned) : uniqueWords(text).includes(cleaned);
-  });
-}
-
 function scoreIsicMatch(entry, query) {
   const q = normaliseSearchText(query);
-  const prepared = getPreparedIsicEntry(entry);
-  const entryText = prepared.entryText;
-  const fullEntryText = prepared.fullEntryText;
-  const entryWords = prepared.entryWords;
+  const entryText = normaliseSearchText(`${entry.code} ${entry.description}`);
+  const fullEntryText = normaliseSearchText(`${entry.code} ${entry.description} ${entry.sector || ""} ${entry.subsector || ""}`);
+  const entryWords = uniqueWords(fullEntryText);
 
   const sector = sectorBox?.value || "";
   const subsector = subsectorBox?.value || "";
@@ -563,10 +252,6 @@ function scoreIsicMatch(entry, query) {
   let contextScore = 0;
   let businessScore = getBusinessRelevance(entry) * 6;
   let conceptScore = 0;
-  let roleScore = 0;
-  let domainScore = 0;
-  let matchedRoles = [];
-  let matchedDomains = [];
   let penaltyScore = 0;
 
   // Sector/subsector helps ranking, but should not fully determine the answer.
@@ -578,7 +263,7 @@ function scoreIsicMatch(entry, query) {
 
   if (!q) {
     score = contextScore + businessScore;
-    return { score, queryScore: 0, conceptScore: 0, roleScore: 0, domainScore: 0, contextScore, businessScore, penaltyScore, matchedRoles: [], matchedDomains: [] };
+    return { score, queryScore: 0, contextScore, businessScore, penaltyScore };
   }
 
   if (entryText === q) queryScore += 1000;
@@ -599,166 +284,15 @@ function scoreIsicMatch(entry, query) {
   const phraseSimilarity = diceCoefficient(q, fullEntryText);
   if (phraseSimilarity >= 0.48) queryScore += phraseSimilarity * 70;
 
-  const roleDomain = getRoleDomainScores(entry, q, queryWords, prepared);
-  roleScore = roleDomain.roleScore;
-  domainScore = roleDomain.domainScore;
-  conceptScore = roleDomain.signalScore;
-  matchedRoles = roleDomain.matchedRoles;
-  matchedDomains = roleDomain.matchedDomains;
+  conceptScore = getConceptScore(entry, queryWords);
   penaltyScore = getServiceContextPenalty(entry, queryWords);
-
-  // If the query clearly contains an object/domain signal, avoid elevating entries
-  // that only match a generic role word such as manufacture, distributor or operator.
-  if (queryHasDomainSignal(q, queryWords) && domainScore === 0 && queryWords.length > 1) {
-    penaltyScore += 85;
-  }
-
-  if (queryMatchesRole("trade", q, queryWords)) {
-    const descriptionLooksTrade = descriptionHasAny(entry, ["wholesale", "retail", "trade", "dealer", "distribution"]);
-    const descriptionLooksRepair = descriptionHasAny(entry, ["maintenance", "repair"]);
-    if (!descriptionLooksTrade && descriptionLooksRepair) penaltyScore += 70;
-  }
-
-  if (queryMatchesRole("manufacturing", q, queryWords)) {
-    const descriptionLooksManufacturing = descriptionHasAny(entry, ["manufacture", "manufacturing", "processing", "production", "assembly"]);
-    const descriptionLooksNonManufacturing = descriptionHasAny(entry, ["wholesale", "retail", "maintenance", "repair", "rental", "leasing"]);
-    if (!descriptionLooksManufacturing && descriptionLooksNonManufacturing) penaltyScore += 55;
-  }
 
   // Business relevance is a tie-breaker and safety signal, not a hardcoded synonym map.
   // It helps broad product/service descriptions favour commercial activities over generic
   // education, accommodation, membership, or public-service categories when confidence is low.
   score = queryScore + conceptScore + contextScore + businessScore - penaltyScore;
 
-  return { score, queryScore, conceptScore, roleScore, domainScore, contextScore, businessScore, penaltyScore, matchedRoles, matchedDomains };
-}
-
-
-function getLowConfidenceTypedSuggestions(q, scored) {
-  const queryText = normaliseSearchText(q || "");
-  const queryWords = uniqueWords(queryText).filter(term => term.length > 2 && !GENERIC_QUERY_TERMS.has(term));
-  if (!queryText || !queryWords.length) return [];
-
-  return scored
-    .map(entry => {
-      const prepared = getPreparedIsicEntry(entry);
-      const entryWords = prepared.entryWords || [];
-      const fullEntryText = prepared.fullEntryText || prepared.entryText || "";
-      let lowConfidenceTextScore = 0;
-
-      if (fullEntryText.includes(queryText)) lowConfidenceTextScore += 95;
-
-      queryWords.forEach(term => {
-        const best = Math.max(0, ...entryWords.map(word => wordSimilarity(term, word)));
-        if (entryWords.includes(term)) lowConfidenceTextScore += 70;
-        else if (entryWords.some(word => word.startsWith(term) || term.startsWith(word))) lowConfidenceTextScore += 45;
-        else if (term.length >= 5 && best >= 0.82) lowConfidenceTextScore += 34;
-        else if (term.length >= 5 && best >= 0.74) lowConfidenceTextScore += 18;
-      });
-
-      const phraseSimilarity = diceCoefficient(queryText, fullEntryText);
-      if (phraseSimilarity >= 0.18) lowConfidenceTextScore += phraseSimilarity * 40;
-
-      return {
-        ...entry,
-        lowConfidenceTextScore,
-        fallbackRankScore: lowConfidenceTextScore + (entry.queryScore || 0) + (entry.conceptScore || 0) * 0.55 + (entry.contextScore || 0) * 0.35 + (entry.businessScore || 0) * 0.15 - (entry.penaltyScore || 0) * 0.7
-      };
-    })
-    .filter(entry => entry.lowConfidenceTextScore >= 18 && (entry.penaltyScore || 0) < 110)
-    .sort((a, b) => b.fallbackRankScore - a.fallbackRankScore || a.description.localeCompare(b.description))
-    .slice(0, FALLBACK_SUGGESTION_MAX_RESULTS);
-}
-
-function getBroadStartingPointSuggestions(scored) {
-  const sectorOrder = typeof SECTOR_DATA !== "undefined" ? Object.keys(SECTOR_DATA) : [];
-  const representatives = [];
-  const usedCodes = new Set();
-
-  sectorOrder.forEach(sectorName => {
-    const representative = scored.find(entry =>
-      !usedCodes.has(entry.code) &&
-      normaliseSearchText(entry.sector || "") === normaliseSearchText(sectorName) &&
-      (entry.businessScore || 0) >= 12 &&
-      (entry.penaltyScore || 0) < 90
-    ) || scored.find(entry =>
-      !usedCodes.has(entry.code) &&
-      normaliseSearchText(entry.sector || "") === normaliseSearchText(sectorName)
-    );
-
-    if (representative) {
-      representatives.push(representative);
-      usedCodes.add(representative.code);
-    }
-  });
-
-  return representatives.length ? representatives : scored;
-}
-
-function getContextFallbackSuggestions(scored) {
-  const selectedSector = normaliseSearchText(sectorBox?.value || "");
-  const selectedSubsector = normaliseSearchText(subsectorBox?.value || "");
-
-  if (selectedSubsector) {
-    const inSubsector = scored.filter(entry => normaliseSearchText(entry.subsector || "") === selectedSubsector);
-    if (inSubsector.length) return { entries: inSubsector, reason: "Suggested from selected subsector" };
-  }
-
-  if (selectedSector) {
-    const inSector = scored.filter(entry => normaliseSearchText(entry.sector || "") === selectedSector);
-    if (inSector.length) return { entries: inSector, reason: "Suggested from selected sector" };
-  }
-
-  return { entries: [], reason: "" };
-}
-
-function getFallbackIsicSuggestions(q, scored) {
-  const hasQuery = Boolean(normaliseSearchText(q || ""));
-
-  function mark(entries, reason) {
-    const seen = new Set();
-    return entries
-      .filter(entry => entry && entry.code && !seen.has(entry.code) && seen.add(entry.code))
-      .slice(0, FALLBACK_SUGGESTION_MAX_RESULTS)
-      .map(entry => ({
-        ...entry,
-        fallbackSuggestion: true,
-        fallbackReason: reason
-      }));
-  }
-
-  // Blank input is different from a failed search: with no typed signal, help the
-  // banker choose from the selected sector/subsector first, then show broad starts.
-  if (!hasQuery) {
-    const contextFallback = getContextFallbackSuggestions(scored);
-    if (contextFallback.entries.length) return mark(contextFallback.entries, contextFallback.reason);
-    return mark(getBroadStartingPointSuggestions(scored), "Suggested starting points");
-  }
-
-  // Typed input should remain query-aware even when confidence is low. Show the
-  // nearest lexical suggestions before falling back to sector representatives.
-  const weakTextMatches = getLowConfidenceTypedSuggestions(q, scored);
-  if (weakTextMatches.length) return mark(weakTextMatches, "No close match — nearest text suggestions");
-
-  // If the typed words suggest a broad role/domain, use that next. This keeps
-  // inputs such as “electronics distributor” or “hotel operator” helpful even
-  // when no exact ISIC wording exists.
-  const weakSignalMatches = scored.filter(entry =>
-    (entry.roleScore > 0 || entry.domainScore > 0 || entry.conceptScore > 0) &&
-    (entry.penaltyScore || 0) < 90
-  );
-  if (weakSignalMatches.length) return mark(weakSignalMatches, "No close match — related role/domain suggestions");
-
-  // Only after using the typed signal should selected sector/subsector drive the
-  // fallback. This avoids typed failed searches looking identical to blank input.
-  const contextFallback = getContextFallbackSuggestions(scored);
-  if (contextFallback.entries.length) return mark(contextFallback.entries, contextFallback.reason);
-
-  // Final fallback: if the typed text gives no usable signal and no sector context
-  // exists, do not show random cross-sector representatives. Keeping the dropdown
-  // closed is less misleading than offering unrelated activities just because the
-  // field is compulsory; validation will still require a proper ISIC selection.
-  return [];
+  return { score, queryScore, conceptScore, contextScore, businessScore, penaltyScore };
 }
 
 function getIsicMatches(query) {
@@ -770,10 +304,14 @@ function getIsicMatches(query) {
     .map(entry => ({ ...entry, ...scoreIsicMatch(entry, q) }))
     .sort((a, b) => b.score - a.score || a.description.localeCompare(b.description));
 
-  // Do not open a dropdown before the banker has typed anything. Industry is
-  // compulsory, but blank-input suggestions felt random and distracted from the
-  // client setup flow. Validation still prevents submission without selection.
-  if (!q) return [];
+  // Empty input should not invent suggestions. Only show context-guided results when
+  // the user has already selected a sector/subsector.
+  if (!q) {
+    if (!hasSelectedSector && !normaliseSearchText(subsectorBox?.value || "")) return [];
+    return scored
+      .filter(entry => entry.contextScore > 0)
+      .slice(0, 10);
+  }
 
   const queryWords = uniqueWords(q).filter(term => term.length > 2 && !GENERIC_QUERY_TERMS.has(term));
 
@@ -810,7 +348,7 @@ function getIsicMatches(query) {
 
   if (closeWordMatches.length > 0) return closeWordMatches;
 
-  return getFallbackIsicSuggestions(q, scored);
+  return [];
 }
 function autoFillSectorFromIsic(entry) {
   if (!entry?.sector || !entry?.subsector || !sectorBox || !subsectorBox) return;
@@ -846,31 +384,10 @@ function selectIsic(entry) {
   isicDropdown.innerHTML = "";
 }
 
-
-function getIsicMatchMeta(entry) {
-  const reasons = [];
-  if (entry.matchedRoles?.length) reasons.push(entry.matchedRoles.slice(0, 1).join(", "));
-  if (entry.matchedDomains?.length) reasons.push(entry.matchedDomains.slice(0, 1).join(", "));
-  if (entry.fallbackSuggestion && entry.fallbackReason) reasons.push(entry.fallbackReason);
-  if (!reasons.length && entry.subsector) reasons.push(entry.subsector);
-  if (!reasons.length && entry.sector) reasons.push(entry.sector);
-
-  const context = [entry.sector, entry.subsector].filter(Boolean).join(" • ");
-  const reasonText = reasons.length ? `${entry.fallbackSuggestion ? "Suggested" : "Matched"}: ${reasons.join(" + ")}` : "";
-  return [reasonText, context].filter(Boolean).join(" | ");
-}
-
 function renderIsicDropdown() {
   if (!isicDropdown || typeof ISIC_DATA === "undefined") return;
 
   const query = industryBox.value.trim();
-
-  if (!query) {
-    isicDropdown.classList.add("hidden");
-    industryBox.setAttribute("aria-expanded", "false");
-    isicDropdown.innerHTML = "";
-    return;
-  }
 
   const matches = getIsicMatches(query);
 
@@ -881,14 +398,10 @@ function renderIsicDropdown() {
     return;
   }
 
-  const hasFallbackSuggestions = matches.every(entry => entry.fallbackSuggestion);
   const hasStrongQueryMatch = matches.some(entry => entry.queryScore >= 35);
-  const fallbackHeading = hasFallbackSuggestions
-    ? [...new Set(matches.map(entry => entry.fallbackReason).filter(Boolean))][0]
-    : "";
-  const heading = hasFallbackSuggestions
-    ? (fallbackHeading || (query ? "Suggested ISIC activities to choose from" : "Suggested ISIC activities"))
-    : (query ? (hasStrongQueryMatch ? "Closest ISIC matches" : "Related ISIC suggestions") : "Suggested ISIC activities");
+  const heading = query
+    ? (hasStrongQueryMatch ? "Closest ISIC matches" : "Related ISIC suggestions")
+    : "Suggested ISIC activities";
 
   isicDropdown.classList.remove("hidden");
   industryBox.setAttribute("aria-expanded", "true");
@@ -897,10 +410,7 @@ function renderIsicDropdown() {
     ${matches.map(entry => `
       <button type="button" class="isic-option" data-code="${entry.code}" role="option">
         <strong>${entry.code}</strong>
-        <span>
-          <span class="isic-description">${entry.description}</span>
-          <small>${getIsicMatchMeta(entry)}</small>
-        </span>
+        <span>${entry.description}</span>
       </button>
     `).join("")}
   `;
@@ -1733,13 +1243,11 @@ async function updateFxOnly() {
   }
 }
 
-let isicSearchTimer = null;
 industryBox.addEventListener("input", function () {
   selectedIsic = null;
   industryBox.classList.remove("valid-selection");
   selectedIsicBox.textContent = "Select one suggested ISIC activity. Free-text entries are not accepted as final input.";
-  window.clearTimeout(isicSearchTimer);
-  isicSearchTimer = window.setTimeout(renderIsicDropdown, 160);
+  renderIsicDropdown();
 });
 
 industryBox.addEventListener("focus", renderIsicDropdown);
