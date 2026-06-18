@@ -6,6 +6,9 @@ const subsectorBox = document.getElementById("subsector");
 const industryBox = document.getElementById("industry");
 const timeframeBox = document.getElementById("timeframe");
 const fxTenorBox = document.getElementById("fxTenor");
+const conversationGoalBox = document.getElementById("conversationGoal");
+const relationshipContextBox = document.getElementById("relationshipContext");
+const cashPositionBox = document.getElementById("cashPosition");
 const purchaseDomesticBox = document.getElementById("purchaseDomestic");
 const purchaseInternationalBox = document.getElementById("purchaseInternational");
 const salesDomesticBox = document.getElementById("salesDomestic");
@@ -953,11 +956,121 @@ function renderSources(sources, noRelevantUpdates = false, fallbackTriggered = f
   sourcesOutput.innerHTML = fallbackNote + sourceCards;
 }
 
+function normaliseConversationLabel(label) {
+  const clean = String(label || "").trim().toLowerCase();
+  const labelMap = {
+    "plain-english context": "Why this may matter",
+    "plain english context": "Why this may matter",
+    "background cue": "Why this may matter",
+    "why this may matter": "Why this may matter",
+    "client relevance lens": "Why this may matter",
+    "transaction banking angle": "Why this may matter",
+    "gentle observation": "Useful observation to offer",
+    "useful observation": "Useful observation to offer",
+    "useful observation to offer": "Useful observation to offer",
+    "soft invitation": "Leave space",
+    "leave space": "Leave space",
+    "if client engages": "If they pick up on it",
+    "if they pick up on it": "If they pick up on it",
+    "bank relevance": "Bank angle / handoff",
+    "bank angle": "Bank angle / handoff",
+    "bank angle / handoff": "Bank angle / handoff",
+    "handoff cue": "Bank angle / handoff"
+  };
+  return labelMap[clean] || label || "Context";
+}
+
+function conversationSectionClass(label) {
+  const normalised = normaliseConversationLabel(label).toLowerCase();
+  if (normalised === "why this may matter") return "conversation-section background-cue";
+  if (normalised === "useful observation to offer") return "conversation-section hero-observation";
+  if (normalised === "leave space") return "conversation-section soft-invitation";
+  if (normalised === "if they pick up on it") return "conversation-section follow-up-path";
+  if (normalised === "bank angle / handoff") return "conversation-section bank-handoff";
+  return "conversation-section";
+}
+
+function mergeAdjacentConversationSections(sections) {
+  const merged = [];
+  sections.forEach(section => {
+    const label = normaliseConversationLabel(section.label);
+    const text = String(section.text || "").trim();
+    if (!text) return;
+    const last = merged[merged.length - 1];
+    if (last && last.label === label) {
+      last.text = `${last.text} ${text}`.trim();
+    } else {
+      merged.push({ label, text });
+    }
+  });
+  return merged;
+}
+
+function parseConversationCardBlock(block) {
+  const lines = String(block || "")
+    .split("\n")
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  const heading = lines.shift() || "Card";
+  const sections = [];
+  const sectionPattern = /^(Why this may matter|Background cue|Plain-English context|Plain English context|Client relevance lens|Transaction banking angle|Useful observation(?: to offer)?|Gentle observation|Leave space|Soft invitation|If they pick up on it|If client engages|Bank angle(?: \/ handoff)?|Bank relevance|Handoff cue)\s*:\s*(.*)$/i;
+  let current = null;
+
+  lines.forEach(line => {
+    const match = line.match(sectionPattern);
+    if (match) {
+      current = {
+        label: normaliseConversationLabel(match[1]),
+        text: match[2] || ""
+      };
+      sections.push(current);
+    } else if (current) {
+      current.text = `${current.text} ${line}`.trim();
+    } else {
+      sections.push({ label: "Why this may matter", text: line });
+    }
+  });
+
+  return { heading, sections: mergeAdjacentConversationSections(sections) };
+}
+
+function renderConversationCards(text) {
+  const cardBlocks = String(text || "")
+    .split(/(?=Card\s+\d+\s*:)/i)
+    .map(block => block.trim())
+    .filter(Boolean);
+
+  if (cardBlocks.length === 0) return false;
+
+  analysisOutput.innerHTML = cardBlocks.map(block => {
+    const { heading, sections } = parseConversationCardBlock(block);
+    const cleanHeading = heading.replace(/^(Card\s+\d+\s*:\s*)/i, "").trim() || heading;
+    const sectionHtml = sections.map(section => `
+      <div class="${conversationSectionClass(section.label)}">
+        <div class="conversation-label">${escapeHtml(section.label)}</div>
+        <div class="conversation-text">${escapeHtml(section.text)}</div>
+      </div>
+    `).join("");
+
+    return `
+      <div class="theme-card conversation-card">
+        <h3>${escapeHtml(cleanHeading)}</h3>
+        ${sectionHtml}
+      </div>
+    `;
+  }).join("");
+
+  return true;
+}
+
 function renderAnalysis(text) {
   if (!text) {
     analysisOutput.textContent = "No analysis returned.";
     return;
   }
+
+  if (renderConversationCards(text)) return;
 
   const themeBlocks = text
     .split(/(?=Theme\s+\d+\s*:)/i)
@@ -996,14 +1109,14 @@ function renderAnalysis(text) {
 
     const bullets = bulletLines.map(line => {
       const clean = line.replace(/^-+\s*/, "");
-      return `<li>${clean}</li>`;
+      return `<li>${escapeHtml(clean)}</li>`;
     }).join("");
 
     return `
       <div class="theme-card">
-        <h3>${heading}</h3>
-        ${meta ? `<div class="theme-meta">${meta}</div>` : ""}
-        ${paragraph ? `<p>${paragraph}</p>` : ""}
+        <h3>${escapeHtml(heading)}</h3>
+        ${meta ? `<div class="theme-meta">${escapeHtml(meta)}</div>` : ""}
+        ${paragraph ? `<p>${escapeHtml(paragraph)}</p>` : ""}
         ${bullets ? `<ul>${bullets}</ul>` : ""}
       </div>
     `;
@@ -1064,6 +1177,17 @@ function renderContext(context) {
       </div>
     `;
   }).join("");
+}
+
+
+function getSignalThreads() {
+  const checked = Array.from(document.querySelectorAll('input[name="signalThread"]:checked'))
+    .map(input => input.value)
+    .filter(Boolean);
+
+  return checked.length
+    ? checked
+    : ["sector_news", "fx_rates", "geopolitics", "trade_supply_chain"];
 }
 
 async function updateFxOnly() {
@@ -1168,6 +1292,13 @@ document.addEventListener("click", function (event) {
   }
 });
 
+function getClientProfile() {
+  return {
+    relationshipContext: relationshipContextBox?.value || "unknown",
+    cashPosition: cashPositionBox?.value || "unknown"
+  };
+}
+
 button.addEventListener("click", async function () {
   const sector = sectorBox.value;
   const subsector = subsectorBox.value;
@@ -1175,6 +1306,9 @@ button.addEventListener("click", async function () {
   const isicCode = selectedIsic?.code || "";
   const timeframe = timeframeBox.value;
   const fxTenor = fxTenorBox?.value || "30";
+  const conversationGoal = conversationGoalBox?.value || "general_check_in";
+  const clientProfile = getClientProfile();
+  const signalThreads = getSignalThreads();
   const tradeFlow = getTradeFlow();
   const currencies = [...new Set([...(tradeFlow.purchase.currencies || []), ...(tradeFlow.sales.currencies || [])])];
   const tradeRoles = getSelectedTradeRolesFromFlow(tradeFlow);
@@ -1228,7 +1362,7 @@ button.addEventListener("click", async function () {
   }
 
   button.disabled = true;
-  analysisOutput.innerHTML = `<span class="loading">Running analysis...</span>`;
+  analysisOutput.innerHTML = `<span class="loading">Researching news...</span>`;
   renderFxContext("");
   sourcesOutput.innerHTML = `<span class="loading">Loading sources...</span>`;
   if (contextOutput) contextOutput.textContent = "";
@@ -1250,7 +1384,10 @@ button.addEventListener("click", async function () {
         fxTenor,
         currencies,
         countries,
-        defaultPrompt
+        defaultPrompt,
+        conversationGoal,
+        clientProfile,
+        signalThreads
       })
     });
 
