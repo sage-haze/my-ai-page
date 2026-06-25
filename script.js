@@ -1428,7 +1428,7 @@ function renderSources(sources, noRelevantUpdates = false, fallbackTriggered = f
   if (panel) panel.classList.add("hidden");
   if (sourcesOutput) {
     sourcesOutput.innerHTML = lastSources.length
-      ? `<div class="source-note">Source links are folded into each selected conversation bridge card.</div>`
+      ? `<div class="source-note">Source links are folded into each selected conversation card.</div>`
       : (noRelevantUpdates ? `<div class="empty-state">No relevant sources were included for this period.</div>` : "");
   }
 }
@@ -1752,7 +1752,7 @@ function renderSignalSelectionCard(card, index) {
 }
 
 function renderBridgeCard(card, index) {
-  const cleanHeading = card.heading.replace(/^(Card\s+\d+\s*:\s*)/i, "").trim() || `Bridge ${index + 1}`;
+  const cleanHeading = card.heading.replace(/^(Card\s+\d+\s*:\s*)/i, "").trim() || `Card ${index + 1}`;
   const orderedLabels = ["Observe", "Relate", "Leave Space", "Lightly Explore", "Offer Support"];
   const sectionHtml = orderedLabels.map((label, stepIndex) => {
     const text = stripSourceMarkers(getConversationSectionText(card, label));
@@ -1772,7 +1772,7 @@ function renderBridgeCard(card, index) {
     <div class="theme-card conversation-card bridge-card">
       <div class="signal-card-topline">
         ${renderSignalTags(card.tags)}
-        <span class="signal-rank">Bridge ${index + 1}</span>
+        <span class="signal-rank">Card ${index + 1}</span>
       </div>
       <h3>${escapeHtml(cleanHeading)}</h3>
       <div class="bridge-step-list">${sectionHtml}</div>
