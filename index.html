@@ -61,18 +61,6 @@
             </div>
           </div>
 
-          <div class="form-grid compact-grid cash-profile-grid">
-            <div class="form-group">
-              <label for="cashPosition">Client cash position</label>
-              <select id="cashPosition">
-                <option value="unknown" selected>Unknown / not discussed</option>
-                <option value="surplus_cash">Likely surplus cash</option>
-                <option value="borrowing_need">Likely borrowing / funding need</option>
-                <option value="mixed_or_seasonal">Mixed or seasonal cash cycle</option>
-                <option value="cash_buffer_focus">Focused on cash buffers / resilience</option>
-              </select>
-            </div>
-          </div>
 
           <div class="trade-flow-grid">
             <section class="trade-side-card" data-side="purchase">
@@ -129,50 +117,20 @@
           </div>
         </section>
 
-        <section class="setup-card conversation-setup-card">
+        <section class="setup-card five-moves-card">
           <div class="section-heading-row">
             <div>
-              <h2>Conversation setup</h2>
+              <h2>The five moves</h2>
+              <p class="section-subtitle">Use these as the conversation ladder after the relevant signals are generated.</p>
             </div>
           </div>
-          <div class="form-grid compact-grid">
-            <div class="form-group">
-              <label for="conversationGoal">Conversation goal</label>
-              <select id="conversationGoal">
-                <option value="general_check_in" selected>General client check-in</option>
-                <option value="working_capital_review">Working capital review</option>
-                <option value="trade_finance_discussion">Trade finance discussion</option>
-                <option value="fx_treasury_discussion">FX / treasury discussion</option>
-                <option value="liquidity_cash_management">Liquidity / cash management discussion</option>
-                <option value="post_news_check_in">Post-news client check-in</option>
-              </select>
-            </div>
-
-            <div class="form-group">
-              <label for="relationshipContext">Relationship context</label>
-              <select id="relationshipContext">
-                <option value="unknown" selected>Not specified</option>
-                <option value="first_meeting">First meeting / prospect</option>
-                <option value="regular_check_in">Regular relationship check-in</option>
-                <option value="annual_review">Annual / periodic review</option>
-                <option value="post_news_follow_up">Follow-up after recent market news</option>
-                <option value="senior_meeting_prep">Preparing for senior client meeting</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="form-group signal-thread-card">
-            <label>External signal threads</label>
-            <div class="checkbox-row stacked thread-grid">
-              <label><input type="checkbox" name="signalThread" value="sector_news" checked> Sector / market news</label>
-              <label><input type="checkbox" name="signalThread" value="fx_rates" checked> FX and rates</label>
-              <label><input type="checkbox" name="signalThread" value="geopolitics" checked> Geopolitics / policy risk</label>
-              <label><input type="checkbox" name="signalThread" value="trade_supply_chain" checked> Trade and supply chain</label>
-              <label><input type="checkbox" name="signalThread" value="commodities"> Commodities / input costs</label>
-              <label><input type="checkbox" name="signalThread" value="macro_indicators"> Macro background</label>
-            </div>
-            <div class="field-hint">The app will scan selected threads, then return only the client-relevant conversation cards.</div>
-          </div>
+          <ol class="five-moves-list">
+            <li><strong>Observe</strong><span>A gentle observation about what the market is showing.</span></li>
+            <li><strong>Relate</strong><span>Connect the signal to the client’s operating flows.</span></li>
+            <li><strong>Leave Space</strong><span>A soft invitation to let the client respond.</span></li>
+            <li><strong>Lightly Explore</strong><span>A non-invasive follow-up only if they engage.</span></li>
+            <li><strong>Offer Support</strong><span>A practical next step or specialist handoff.</span></li>
+          </ol>
         </section>
 
         <section class="setup-card market-setup-card">
@@ -223,8 +181,8 @@
           </div>
 
           <div class="result-card">
-            <h2>Client Conversation Cards</h2>
-            <div id="analysisOutput">Conversation cards will appear here.</div>
+            <h2>Top Relevant Signals</h2>
+            <div id="analysisOutput">Relevant signals and conversation bridges will appear here.</div>
           </div>
 
           <div class="result-card">
