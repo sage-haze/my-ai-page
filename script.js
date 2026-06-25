@@ -832,11 +832,18 @@ function autoFillSectorFromIsic(entry) {
   subsectorBox.classList.add("auto-filled");
 }
 
+function closeIsicDropdown() {
+  if (isicDropdown) {
+    isicDropdown.classList.add("hidden");
+    isicDropdown.innerHTML = "";
+  }
+  industryBox?.setAttribute("aria-expanded", "false");
+}
+
 function selectIsic(entry) {
   selectedIsic = entry;
   industryBox.value = `${entry.code} - ${entry.description}`;
   industryBox.classList.add("valid-selection");
-  industryBox.setAttribute("aria-expanded", "false");
   autoFillSectorFromIsic(entry);
 
   const autoFillText = entry.sector && entry.subsector
@@ -844,8 +851,26 @@ function selectIsic(entry) {
     : "";
 
   selectedIsicBox.textContent = `Selected: ${entry.code} - ${entry.description}.${autoFillText}`;
-  isicDropdown.classList.add("hidden");
-  isicDropdown.innerHTML = "";
+  closeIsicDropdown();
+
+  // Keep the interaction feeling complete after a selection. Without blurring, the
+  // input remains focused and some browsers can leave the suggestion layer visually
+  // present until the user clicks elsewhere.
+  window.setTimeout(() => industryBox?.blur(), 0);
+}
+
+
+function getIsicMatchMeta(entry) {
+  const reasons = [];
+  if (entry.matchedRoles?.length) reasons.push(entry.matchedRoles.slice(0, 1).join(", "));
+  if (entry.matchedDomains?.length) reasons.push(entry.matchedDomains.slice(0, 1).join(", "));
+  if (entry.fallbackSuggestion && entry.fallbackReason) reasons.push(entry.fallbackReason);
+  if (!reasons.length && entry.subsector) reasons.push(entry.subsector);
+  if (!reasons.length && entry.sector) reasons.push(entry.sector);
+
+  const context = [entry.sector, entry.subsector].filter(Boolean).join(" • ");
+  const reasonText = reasons.length ? `${entry.fallbackSuggestion ? "Suggested" : "Matched"}: ${reasons.join(" + ")}` : "";
+  return [reasonText, context].filter(Boolean).join(" | ");
 }
 
 
@@ -908,12 +933,17 @@ function renderIsicDropdown() {
   `;
 
   isicDropdown.querySelectorAll(".isic-option").forEach(option => {
-    option.addEventListener("mousedown", function (event) {
+    const chooseOption = function (event) {
       event.preventDefault();
+      event.stopPropagation();
       const entry = ISIC_DATA.find(item => item.code === option.dataset.code);
       if (!entry) return;
       selectIsic(entry);
-    });
+    };
+
+    option.addEventListener("pointerdown", chooseOption);
+    option.addEventListener("mousedown", chooseOption);
+    option.addEventListener("click", chooseOption);
   });
 }
 
@@ -2060,15 +2090,13 @@ function attachCoreInputListeners() {
   industryBox?.addEventListener("focus", renderIsicDropdown);
   industryBox?.addEventListener("keydown", function (event) {
     if (event.key === "Escape") {
-      isicDropdown?.classList.add("hidden");
-      industryBox?.setAttribute("aria-expanded", "false");
+      closeIsicDropdown();
     }
   });
 
   document.addEventListener("click", function (event) {
     if (!event.target.closest(".isic-picker")) {
-      isicDropdown?.classList.add("hidden");
-      industryBox?.setAttribute("aria-expanded", "false");
+      closeIsicDropdown();
     }
   });
 
