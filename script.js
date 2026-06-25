@@ -36,6 +36,7 @@ const selectedIsicBox = document.getElementById("selectedIsic");
 let selectedPurchaseCountries = [];
 let selectedSalesCountries = [];
 let selectedIsic = null;
+let suppressIsicDropdownUntil = 0;
 let fxCharts = {};
 
 const BUSINESS_RELEVANCE_TERMS = [
@@ -832,15 +833,24 @@ function autoFillSectorFromIsic(entry) {
   subsectorBox.classList.add("auto-filled");
 }
 
+function isCurrentSelectedIsicValue() {
+  if (!selectedIsic || !industryBox) return false;
+  return industryBox.value.trim() === `${selectedIsic.code} - ${selectedIsic.description}`;
+}
+
 function closeIsicDropdown() {
   if (isicDropdown) {
     isicDropdown.classList.add("hidden");
     isicDropdown.innerHTML = "";
+    isicDropdown.hidden = true;
+    isicDropdown.style.display = "none";
   }
   industryBox?.setAttribute("aria-expanded", "false");
 }
 
 function selectIsic(entry) {
+  if (!entry || !industryBox) return;
+  suppressIsicDropdownUntil = Date.now() + 600;
   selectedIsic = entry;
   industryBox.value = `${entry.code} - ${entry.description}`;
   industryBox.classList.add("valid-selection");
@@ -853,10 +863,12 @@ function selectIsic(entry) {
   selectedIsicBox.textContent = `Selected: ${entry.code} - ${entry.description}.${autoFillText}`;
   closeIsicDropdown();
 
-  // Keep the interaction feeling complete after a selection. Without blurring, the
-  // input remains focused and some browsers can leave the suggestion layer visually
-  // present until the user clicks elsewhere.
-  window.setTimeout(() => industryBox?.blur(), 0);
+  // Keep the interaction feeling complete after a selection. Some browsers fire
+  // focus/click events after option selection, so close once immediately and once
+  // again on the next frames to prevent the suggestions from reappearing.
+  industryBox.blur();
+  requestAnimationFrame(closeIsicDropdown);
+  window.setTimeout(closeIsicDropdown, 80);
 }
 
 
@@ -873,10 +885,26 @@ function getIsicMatchMeta(entry) {
   return [reasonText, context].filter(Boolean).join(" | ");
 }
 
+function handleIsicOptionSelection(event) {
+  const option = event.target?.closest?.(".isic-option");
+  if (!option || !isicDropdown?.contains(option)) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  const entry = ISIC_DATA.find(item => item.code === option.dataset.code);
+  if (entry) selectIsic(entry);
+}
+
 function renderIsicDropdown() {
   if (!isicDropdown || typeof ISIC_DATA === "undefined") return;
 
   const query = industryBox.value.trim();
+
+  if (isCurrentSelectedIsicValue() || Date.now() < suppressIsicDropdownUntil) {
+    closeIsicDropdown();
+    return;
+  }
 
   if (!query) {
     isicDropdown.classList.add("hidden");
@@ -903,6 +931,8 @@ function renderIsicDropdown() {
     ? (fallbackHeading || (query ? "Suggested ISIC activities to choose from" : "Suggested ISIC activities"))
     : (query ? (hasStrongQueryMatch ? "Closest ISIC matches" : "Related ISIC suggestions") : "Suggested ISIC activities");
 
+  isicDropdown.hidden = false;
+  isicDropdown.style.display = "";
   isicDropdown.classList.remove("hidden");
   industryBox.setAttribute("aria-expanded", "true");
   isicDropdown.innerHTML = `
@@ -1337,6 +1367,29 @@ function renderFxResearchDiagnostic(fxResearch) {
   `;
 }
 
+function renderFxAnalysis(text) {
+  const cleanText = String(text || "").trim();
+  if (!cleanText) return "";
+
+  const lines = cleanText.split(/\n+/).map(line => line.trim()).filter(Boolean);
+  const html = lines.map(line => {
+    const inlineHeading = line.match(/^(Market Observation|Market observation|Internal Analysis|Internal analysis)\s*:?\s*(.*)$/i);
+    if (inlineHeading) {
+      const normalisedHeading = inlineHeading[1].toLowerCase().startsWith("market")
+        ? "Market Observation"
+        : "Internal Analysis";
+      const remainder = inlineHeading[2]?.trim();
+      return `
+        <div class="fx-analysis-heading">${escapeHtml(normalisedHeading)}</div>
+        ${remainder ? `<p>${escapeHtml(remainder)}</p>` : ""}
+      `;
+    }
+    return `<p>${escapeHtml(line)}</p>`;
+  }).join("");
+
+  return `<div class="fx-analysis">${html}</div>`;
+}
+
 function renderFx(fxList, fxResearch = null) {
   const tenor = fxTenorBox?.value || "30";
   Object.values(fxCharts).forEach(chart => chart?.destroy?.());
@@ -1396,7 +1449,7 @@ function renderFx(fxList, fxResearch = null) {
               ${series.length > 1 ? `<canvas id="${canvasId}" aria-label="${pair} FX trend chart"></canvas>` : `<div class="fx-chart-status">Not enough daily data to plot a chart.</div>`}
             </div>
 
-            ${fx.analysis ? `<div class="fx-analysis">${escapeHtml(fx.analysis)}</div>` : ""}
+            ${renderFxAnalysis(fx.analysis)}
 
             <details class="fx-table-toggle">
               <summary>Show daily FX table</summary>
@@ -2065,6 +2118,7 @@ async function fetchMarketIntelligence({ showLoading = false } = {}) {
 
 function attachCoreInputListeners() {
   industryBox?.addEventListener("input", function () {
+    suppressIsicDropdownUntil = 0;
     selectedIsic = null;
     industryBox.classList.remove("valid-selection");
     if (selectedIsicBox) {
@@ -2073,7 +2127,13 @@ function attachCoreInputListeners() {
     renderIsicDropdown();
   });
 
-  industryBox?.addEventListener("focus", renderIsicDropdown);
+  industryBox?.addEventListener("focus", function () {
+    if (isCurrentSelectedIsicValue()) {
+      closeIsicDropdown();
+      return;
+    }
+    renderIsicDropdown();
+  });
   industryBox?.addEventListener("keydown", function (event) {
     if (event.key === "Escape") {
       closeIsicDropdown();
@@ -2084,6 +2144,10 @@ function attachCoreInputListeners() {
     if (!event.target.closest(".isic-picker")) {
       closeIsicDropdown();
     }
+  });
+
+  ["pointerdown", "mousedown", "click"].forEach(eventName => {
+    isicDropdown?.addEventListener(eventName, handleIsicOptionSelection, true);
   });
 
   [purchaseInternationalBox, salesInternationalBox].forEach(box => {

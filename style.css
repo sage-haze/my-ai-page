@@ -1840,3 +1840,26 @@ select.auto-filled {
     align-items: start;
   }
 }
+
+/* v17: improve FX commentary readability */
+.fx-analysis {
+  white-space: normal;
+}
+
+.fx-analysis-heading {
+  font-weight: 700;
+  color: #1f2937;
+  margin: 9px 0 3px;
+}
+
+.fx-analysis-heading:first-child {
+  margin-top: 0;
+}
+
+.fx-analysis p {
+  margin: 0 0 8px;
+}
+
+.fx-analysis p:last-child {
+  margin-bottom: 0;
+}
