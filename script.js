@@ -1421,40 +1421,14 @@ function renderFx(fxList, fxResearch = null) {
 }
 
 function renderSources(sources, noRelevantUpdates = false, fallbackTriggered = false) {
-  if (!sources || sources.length === 0) {
-    sourcesOutput.innerHTML = noRelevantUpdates
-      ? `<div class="empty-state">No relevant sources were included for this period.</div>`
-      : "No sources found.";
-    return;
+  lastSources = Array.isArray(sources) ? sources : [];
+  const panel = sourcesOutput?.closest(".sources-panel");
+  if (panel) panel.classList.add("hidden");
+  if (sourcesOutput) {
+    sourcesOutput.innerHTML = lastSources.length
+      ? `<div class="source-note">Source links are folded into each selected conversation bridge card.</div>`
+      : (noRelevantUpdates ? `<div class="empty-state">No relevant sources were included for this period.</div>` : "");
   }
-
-  const fallbackNote = fallbackTriggered
-    ? `<div class="source-note">Broader fallback search was used because the first pass found fewer than 3 relevant sources.</div>`
-    : "";
-
-  const sourceCards = sources.map((source, index) => {
-    const number = source.number || index + 1;
-
-    return `
-      <div class="source-item">
-        <a
-          class="source-title"
-          href="${source.url}"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          [${number}] ${source.title || source.url}
-        </a>
-        <div class="source-meta">
-          ${source.domain || source.source || "Unknown source"} • ${source.published_at || "Unknown date"}
-        </div>
-        ${Array.isArray(source.syndicated_via) && source.syndicated_via.length ? `<div class="source-syndication">Similar syndicated coverage hidden from source list: ${source.syndicated_via.join(", ")}</div>` : ""}
-        ${source.justification ? `<div class="source-justification"><strong>Why is it relevant:</strong> ${source.justification}</div>` : ""}
-      </div>
-    `;
-  }).join("");
-
-  sourcesOutput.innerHTML = fallbackNote + sourceCards;
 }
 
 const DEFAULT_VISIBLE_SIGNAL_COUNT = 3;
@@ -1462,6 +1436,7 @@ let lastConversationCards = [];
 let conversationCardsExpanded = false;
 let conversationBridgeBuilt = false;
 let selectedSignalIndexes = new Set();
+let lastSources = [];
 
 const ALLOWED_SIGNAL_TAGS = [
   "FX",
@@ -1609,9 +1584,10 @@ function parseConversationCardBlock(block) {
     .map(line => line.trim())
     .filter(Boolean);
 
-  const heading = lines.shift() || "Card";
+  const heading = stripSourceMarkers(lines.shift() || "Card");
   const sections = [];
   let tags = [];
+  const sourceNumbers = new Set(extractSourceNumbers(block));
   const sectionPattern = /^(Observe|Relate|Leave Space|Lightly Explore|Offer Support|Propose Support Path|Why this may matter|Background cue|Plain-English context|Plain English context|Client relevance lens|Transaction banking angle|Useful observation(?: to offer)?|Gentle observation|Soft invitation|If they pick up on it|If client engages|Bank angle(?: \/ handoff)?|Bank relevance|Handoff cue)\s*:\s*(.*)$/i;
   let current = null;
 
@@ -1623,17 +1599,24 @@ function parseConversationCardBlock(block) {
       return;
     }
 
+    const parsedSourceRefs = parseSourceRefsFromLine(line);
+    if (parsedSourceRefs) {
+      parsedSourceRefs.forEach(number => sourceNumbers.add(number));
+      current = null;
+      return;
+    }
+
     const match = line.match(sectionPattern);
     if (match) {
       current = {
         label: normaliseConversationLabel(match[1]),
-        text: match[2] || ""
+        text: stripSourceMarkers(match[2] || "")
       };
       sections.push(current);
     } else if (current) {
-      current.text = `${current.text} ${line}`.trim();
+      current.text = stripSourceMarkers(`${current.text} ${line}`);
     } else {
-      sections.push({ label: "Relate", text: line });
+      sections.push({ label: "Relate", text: stripSourceMarkers(line) });
     }
   });
 
@@ -1641,7 +1624,7 @@ function parseConversationCardBlock(block) {
   if (!tags.length) {
     tags = deriveSignalTags(`${heading}\n${mergedSections.map(section => section.text).join("\n")}`);
   }
-  return { heading, tags, sections: mergedSections };
+  return { heading, tags, sections: mergedSections, sourceNumbers: [...sourceNumbers].sort((a, b) => a - b) };
 }
 
 function renderSignalTags(tags) {
@@ -1660,14 +1643,66 @@ function getConversationSectionText(card, label) {
   return String(section?.text || "").trim();
 }
 
-function truncateText(text, maxLength = 220) {
-  const clean = String(text || "").replace(/\s+/g, " ").trim();
-  if (clean.length <= maxLength) return clean;
-  return `${clean.slice(0, maxLength).replace(/\s+\S*$/, "").trim()}…`;
+function extractSourceNumbers(text) {
+  const refs = new Set();
+  const regex = /\[(\d+)\]/g;
+  let match;
+  while ((match = regex.exec(String(text || ""))) !== null) {
+    const number = Number(match[1]);
+    if (Number.isFinite(number)) refs.add(number);
+  }
+  return [...refs].sort((a, b) => a - b);
+}
+
+function stripSourceMarkers(text) {
+  return String(text || "")
+    .replace(/\s*\[(?:\d+)(?:\s*,\s*\d+)*\]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseSourceRefsFromLine(line) {
+  const match = String(line || "").match(/^(?:Sources?|Source refs?|Source numbers?)\s*:\s*(.+)$/i);
+  if (!match) return null;
+  return extractSourceNumbers(match[1]);
+}
+
+function getSourceDisplayNumber(source, index) {
+  return Number(source?.number || source?.source_number || index + 1);
+}
+
+function getSourcesForCard(card) {
+  const refs = Array.isArray(card.sourceNumbers) ? card.sourceNumbers : [];
+  if (!refs.length || !Array.isArray(lastSources) || !lastSources.length) return [];
+  const byNumber = new Map(lastSources.map((source, index) => [getSourceDisplayNumber(source, index), source]));
+  return refs
+    .map(number => ({ number, source: byNumber.get(Number(number)) }))
+    .filter(item => item.source);
+}
+
+function renderCardSources(card) {
+  const sources = getSourcesForCard(card);
+  if (!sources.length) return "";
+  const sourceItems = sources.map(({ number, source }) => {
+    const title = source.title || source.url || `Source ${number}`;
+    const meta = [source.domain || source.source || "Source", source.published_at || "Unknown date"].filter(Boolean).join(" • ");
+    return `
+      <li>
+        <a href="${escapeHtml(source.url || "#")}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a>
+        <span>${escapeHtml(meta)}</span>
+      </li>
+    `;
+  }).join("");
+  return `
+    <details class="bridge-source-footer">
+      <summary>Sources</summary>
+      <ol>${sourceItems}</ol>
+    </details>
+  `;
 }
 
 function getSignalPreviewText(card) {
-  return truncateText(
+  return stripSourceMarkers(
     getConversationSectionText(card, "Relate") ||
     getConversationSectionText(card, "Observe") ||
     (card.sections || []).map(section => section.text).find(Boolean) ||
@@ -1700,13 +1735,16 @@ function renderSignalSelectionCard(card, index) {
 function renderBridgeCard(card, index) {
   const cleanHeading = card.heading.replace(/^(Card\s+\d+\s*:\s*)/i, "").trim() || `Bridge ${index + 1}`;
   const orderedLabels = ["Observe", "Relate", "Leave Space", "Lightly Explore", "Offer Support"];
-  const sectionHtml = orderedLabels.map(label => {
-    const text = getConversationSectionText(card, label);
+  const sectionHtml = orderedLabels.map((label, stepIndex) => {
+    const text = stripSourceMarkers(getConversationSectionText(card, label));
     if (!text) return "";
     return `
-      <div class="${conversationSectionClass(label)}">
-        <div class="conversation-label">${escapeHtml(label)}</div>
-        <div class="conversation-text">${escapeHtml(text)}</div>
+      <div class="${conversationSectionClass(label)} bridge-step bridge-step-${stepIndex + 1}">
+        <div class="bridge-step-marker">${stepIndex + 1}</div>
+        <div class="bridge-step-body">
+          <div class="conversation-label">${escapeHtml(label)}</div>
+          <div class="conversation-text">${escapeHtml(text)}</div>
+        </div>
       </div>
     `;
   }).join("");
@@ -1718,7 +1756,8 @@ function renderBridgeCard(card, index) {
         <span class="signal-rank">Bridge ${index + 1}</span>
       </div>
       <h3>${escapeHtml(cleanHeading)}</h3>
-      ${sectionHtml}
+      <div class="bridge-step-list">${sectionHtml}</div>
+      ${renderCardSources(card)}
     </div>
   `;
 }

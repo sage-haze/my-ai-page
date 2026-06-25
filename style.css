@@ -1429,3 +1429,145 @@ select.auto-filled {
     justify-content: flex-start;
   }
 }
+
+
+/* ---------- v10 readability refinements ---------- */
+.signal-preview-label {
+  color: #24506f;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  margin-bottom: 4px;
+}
+
+.signal-preview-text {
+  font-size: 13.5px;
+  line-height: 1.5;
+  display: block;
+  overflow: visible;
+  white-space: normal;
+}
+
+.bridge-card h3 {
+  margin-bottom: 12px;
+}
+
+.bridge-step-list {
+  display: grid;
+  gap: 10px;
+}
+
+.bridge-step {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  border-top: 0;
+  padding: 10px 0;
+}
+
+.bridge-step + .bridge-step {
+  border-top: 1px solid #eef2f7;
+}
+
+.bridge-step-marker {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: #ecfdf5;
+  color: #0f766e;
+  border: 1px solid #b7e4d2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  margin-top: 1px;
+}
+
+.bridge-step-body .conversation-label {
+  color: #24506f;
+  font-size: 12px;
+  font-weight: 800;
+  margin-bottom: 3px;
+}
+
+.bridge-step-body .conversation-text {
+  color: #334155;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.bridge-step.observe-section {
+  border-left: 0;
+  background: #f6fffc;
+  border-radius: 10px;
+  padding: 12px 10px;
+}
+
+.bridge-step.observe-section .bridge-step-marker {
+  background: #0f766e;
+  color: #fff;
+  border-color: #0f766e;
+}
+
+.bridge-step.leave-space-section,
+.bridge-step.explore-section {
+  background: #fbfdff;
+  border-radius: 10px;
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.bridge-step.support-section {
+  background: #fbfcfe;
+  border-radius: 10px;
+  padding: 12px 10px;
+}
+
+.bridge-source-footer {
+  margin-top: 12px;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 10px;
+}
+
+.bridge-source-footer summary {
+  cursor: pointer;
+  color: #24506f;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.bridge-source-footer ol {
+  margin: 8px 0 0 18px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.bridge-source-footer li {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.bridge-source-footer a {
+  color: #0f766e;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.bridge-source-footer a:hover {
+  text-decoration: underline;
+}
+
+.bridge-source-footer span {
+  display: block;
+  margin-top: 2px;
+}
+
+.sources-panel.hidden {
+  display: none !important;
+}

@@ -1813,6 +1813,13 @@ function extractSourceRefs(text) {
   return Array.from(refs).filter(Number.isFinite).sort((a, b) => a - b);
 }
 
+function stripInlineSourceRefs(text) {
+  return String(text || "")
+    .replace(/\s*\[(?:\d+)(?:\s*,\s*\d+)*\]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function normalizeNoNewsText(timeframe) {
   return `No significant or relevant market developments identified for this industry and client context in the selected ${timeframe}-day period.`;
 }
@@ -1899,15 +1906,18 @@ function formatNewsThemesFromJson(parsed) {
     const handoffCue = String(card.handoffCue || card.handoff_cue || "").trim();
     const offerSupport = String(card.offerSupport || card.offer_support || [bankAngle, handoffCue].filter(Boolean).join(" ")).trim();
     const tags = normalizeCardTags(card.tags || card.tag || [], `${title} ${observe} ${relate} ${offerSupport}`);
+    const sourceNumbers = Array.isArray(card.sourceNumbers) ? card.sourceNumbers : extractSourceRefs(`${observe} ${relate} ${leaveSpace} ${lightlyExplore} ${offerSupport}`);
+    const cleanSourceNumbers = [...new Set(sourceNumbers.map(Number).filter(Number.isFinite))].sort((a, b) => a - b);
 
     return [
-      `Card ${index + 1}: ${title}`,
+      `Card ${index + 1}: ${stripInlineSourceRefs(title)}`,
       `Tags: ${tags.join(", ")}`,
-      observe ? `Observe: ${observe}` : "",
-      relate ? `Relate: ${relate}` : "",
-      leaveSpace ? `Leave Space: ${leaveSpace}` : "",
-      lightlyExplore ? `Lightly Explore: ${lightlyExplore}` : "",
-      offerSupport ? `Offer Support: ${offerSupport}` : ""
+      cleanSourceNumbers.length ? `Sources: ${cleanSourceNumbers.map(number => `[${number}]`).join(" ")}` : "",
+      observe ? `Observe: ${stripInlineSourceRefs(observe)}` : "",
+      relate ? `Relate: ${stripInlineSourceRefs(relate)}` : "",
+      leaveSpace ? `Leave Space: ${stripInlineSourceRefs(leaveSpace)}` : "",
+      lightlyExplore ? `Lightly Explore: ${stripInlineSourceRefs(lightlyExplore)}` : "",
+      offerSupport ? `Offer Support: ${stripInlineSourceRefs(offerSupport)}` : ""
     ].filter(Boolean).join("\n");
   }).filter(Boolean).join("\n\n");
 }
@@ -2061,8 +2071,8 @@ Grounding rules:
 - Do NOT imply that an article specifically discusses the client's product, market, currency, or trade flow unless the source explicitly does.
 - You may draw cautious implications, but clearly distinguish direct evidence from inferred relevance.
 - Do not cite a source unless it directly supports the statement being made.
-- Every card must cite at least one source number from the provided sources. Official datasets may be used as context, but do not describe them as recent news unless the date supports it.
-- Every source-grounded statement should include a source reference like [1], [2].
+- Every card must include at least one source number in the sourceNumbers array. Official datasets may be used as context, but do not describe them as recent news unless the date supports it.
+- Do not put [1] or [2] inline inside the observe, relate, leaveSpace, lightlyExplore, or offerSupport text. Put source references only in sourceNumbers.
 - If the sources do not contain meaningful evidence relevant to this Thailand-based client context, return JSON with "status": "NO_NEWS" and an empty cards array. If only official data is available, make the card clearly about local/regional context rather than breaking news.
 - If there is at least one useful news-based card, return JSON with "status": "OK". Do NOT include the string NO_NEWS anywhere in titles, paragraphs, or bullets.
 
