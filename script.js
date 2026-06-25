@@ -25,6 +25,8 @@ const selectedSalesCountriesBox = document.getElementById("selectedSalesCountrie
 const defaultPromptBox = document.getElementById("defaultPrompt");
 
 const analysisOutput = document.getElementById("analysisOutput");
+const bridgePanel = document.getElementById("bridgePanel");
+const bridgeOutput = document.getElementById("bridgeOutput");
 const sourcesOutput = document.getElementById("sourcesOutput");
 const fxOutput = document.getElementById("fxOutput");
 const contextOutput = document.getElementById("contextOutput");
@@ -1701,6 +1703,22 @@ function renderCardSources(card) {
   `;
 }
 
+function renderSignalSourceLine(card) {
+  const sources = getSourcesForCard(card);
+  if (!sources.length) return "";
+  const links = sources.slice(0, 3).map(({ number, source }) => {
+    const label = source.domain || source.source || source.title || `Source ${number}`;
+    return `<a href="${escapeHtml(source.url || "#")}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
+  }).join(" <span aria-hidden=\"true\">•</span> ");
+  return `<div class="signal-source-line">Sources: ${links}</div>`;
+}
+
+function resetConversationBridge() {
+  conversationBridgeBuilt = false;
+  if (bridgeOutput) bridgeOutput.innerHTML = "";
+  if (bridgePanel) bridgePanel.classList.add("hidden");
+}
+
 function getSignalPreviewText(card) {
   return stripSourceMarkers(
     getConversationSectionText(card, "Relate") ||
@@ -1728,6 +1746,7 @@ function renderSignalSelectionCard(card, index) {
       <h3>${escapeHtml(cleanHeading)}</h3>
       <div class="signal-preview-label">Why it may be relevant</div>
       <p class="signal-preview-text">${escapeHtml(preview)}</p>
+      ${renderSignalSourceLine(card)}
     </div>
   `;
 }
@@ -1773,13 +1792,7 @@ function renderSelectedConversationBridge() {
   }
 
   return `
-    <div class="bridge-output" id="bridgeOutput">
-      <div class="bridge-header-row">
-        <div>
-          <h3>Conversation Bridge</h3>
-          <p>Use these five moves only for the signals you selected.</p>
-        </div>
-      </div>
+    <div class="bridge-output">
       ${selectedCards.map((card, index) => renderBridgeCard(card, index)).join("")}
     </div>
   `;
@@ -1807,8 +1820,14 @@ function renderSignalSelectionList() {
         Build Conversation Bridge${selectedCount ? ` (${selectedCount})` : ""}
       </button>
     </div>
-    ${conversationBridgeBuilt ? renderSelectedConversationBridge() : ""}
   `;
+
+  if (conversationBridgeBuilt && bridgeOutput && bridgePanel) {
+    bridgeOutput.innerHTML = renderSelectedConversationBridge();
+    bridgePanel.classList.remove("hidden");
+  } else if (!conversationBridgeBuilt) {
+    resetConversationBridge();
+  }
 
   document.querySelectorAll(".signal-select-checkbox").forEach(input => {
     input.addEventListener("change", event => {
@@ -1833,7 +1852,7 @@ function renderSignalSelectionList() {
     if (!selectedSignalIndexes.size) return;
     conversationBridgeBuilt = true;
     renderSignalSelectionList();
-    document.getElementById("bridgeOutput")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    bridgePanel?.scrollIntoView({ behavior: "smooth", block: "start" });
   });
 }
 
@@ -1847,7 +1866,7 @@ function renderConversationCards(text) {
 
   lastConversationCards = cardBlocks.map(parseConversationCardBlock);
   conversationCardsExpanded = false;
-  conversationBridgeBuilt = false;
+  resetConversationBridge();
   selectedSignalIndexes = new Set(lastConversationCards.slice(0, DEFAULT_VISIBLE_SIGNAL_COUNT).map((_, index) => index));
   renderSignalSelectionList();
   return true;
@@ -1855,6 +1874,7 @@ function renderConversationCards(text) {
 
 function renderAnalysis(text) {
   if (!text) {
+    resetConversationBridge();
     analysisOutput.textContent = "No analysis returned.";
     return;
   }
@@ -1867,6 +1887,7 @@ function renderAnalysis(text) {
     .filter(Boolean);
 
   if (themeBlocks.length === 0) {
+    resetConversationBridge();
     analysisOutput.textContent = text;
     return;
   }
@@ -2158,6 +2179,7 @@ button.addEventListener("click", async function () {
   }
 
   button.disabled = true;
+  resetConversationBridge();
   analysisOutput.innerHTML = `<span class="loading">Researching relevant signals...</span>`;
   renderFxContext("");
   if (sourcesOutput) sourcesOutput.innerHTML = `<span class="loading">Loading sources...</span>`;

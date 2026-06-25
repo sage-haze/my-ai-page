@@ -1685,3 +1685,51 @@ select.auto-filled {
     padding: 16px;
   }
 }
+
+
+/* ---------- v13 bridge and signal source refinements ---------- */
+.bridge-panel {
+  margin-top: 22px;
+  background: #ffffff;
+  border-color: #d8e2ea;
+  border-radius: 12px;
+}
+
+.bridge-panel.hidden {
+  display: none !important;
+}
+
+.bridge-panel .bridge-output {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.bridge-panel .bridge-card {
+  max-width: none;
+}
+
+.signal-source-line {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #edf2f7;
+  color: #94a3b8;
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+
+.signal-source-line a {
+  color: #64748b;
+  text-decoration: none;
+}
+
+.signal-source-line a:hover {
+  color: #0f766e;
+  text-decoration: underline;
+}
+
+@media (max-width: 980px) {
+  .bridge-panel {
+    margin-top: 18px;
+  }
+}

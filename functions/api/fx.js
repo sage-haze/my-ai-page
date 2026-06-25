@@ -258,7 +258,7 @@ async function fetchYahooFxRate(baseCurrency, rangeDays = 30) {
 
     return summarizeFxSeries({
       base: "CNY",
-      pair: "CNYTHB (derived)",
+      pair: "CNYTHB",
       series: derivedSeries,
       source: "Yahoo Finance prototype: USDTHB ÷ USDCNY"
     });
