@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Build Your Bridge</title>
+    <title>Client Conversation Bridge</title>
     <link rel="stylesheet" href="style.css">
   </head>
   <body>
@@ -19,12 +19,10 @@
             <div class="section-heading-row">
               <div>
                 <h2>Client Profile</h2>
-                <p class="section-subtitle">Build a client-aware scan using the company’s industry, trade flows, and currencies.</p>
               </div>
             </div>
 
             <div class="profile-subsection">
-              <div class="subsection-kicker">Business</div>
               <div class="form-grid profile-business-grid">
                 <div class="form-group">
                   <label for="sector">Sector</label>
@@ -55,13 +53,11 @@
                     >
                     <div id="isicDropdown" class="isic-dropdown hidden" role="listbox"></div>
                   </div>
-                  <div id="selectedIsic" class="field-hint">Select one suggested ISIC activity. Free-text entries are not accepted as final input.</div>
                 </div>
               </div>
             </div>
 
             <div class="profile-subsection trade-flows-subsection">
-              <div class="subsection-kicker">Trade flows</div>
               <div class="trade-flow-grid profile-trade-grid">
                 <section class="trade-side-card" data-side="purchase">
                   <h3>Purchase from</h3>
@@ -122,12 +118,11 @@
             <div class="section-heading-row">
               <div>
                 <h2>Market Setup</h2>
-                <p class="section-subtitle">Choose the lookback window for news and FX context.</p>
               </div>
             </div>
             <div class="form-grid market-fields-grid">
               <div class="form-group">
-                <label for="timeframe">News timeframe</label>
+                <label for="timeframe">News lookback timeframe</label>
                 <select id="timeframe">
                   <option value="30">Last 30 days</option>
                   <option value="60">Last 60 days</option>
@@ -161,7 +156,6 @@
           <div class="section-heading-row">
             <div>
               <h2>The Five Moves</h2>
-              <p class="section-subtitle">Use this ladder to turn signals into a natural client conversation.</p>
             </div>
           </div>
           <ol class="five-moves-list">
@@ -186,7 +180,7 @@
           <div class="result-card-header">
             <h2>Market Intelligence</h2>
           </div>
-          <div id="fxOutput">FX rates will appear here.</div>
+          <div id="fxOutput">Market rates will appear here.</div>
         </div>
       </section>
 
