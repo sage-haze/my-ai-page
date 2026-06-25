@@ -1818,6 +1818,116 @@ function renderContext(context) {
 }
 
 
+
+async function fetchMarketIntelligence({ showLoading = false } = {}) {
+  const tradeFlow = getTradeFlow();
+  const currencies = [...new Set([...(tradeFlow.purchase.currencies || []), ...(tradeFlow.sales.currencies || [])])];
+  const sector = sectorBox?.value || "";
+  const subsector = subsectorBox?.value || "";
+  const industry = selectedIsic ? selectedIsic.description : (industryBox?.value || "").trim();
+  const isicCode = selectedIsic?.code || "";
+  const fxTenor = fxTenorBox?.value || "30";
+  const tradeRoles = getSelectedTradeRolesFromFlow(tradeFlow);
+  const countries = getAllTradeFlowCountries(tradeFlow);
+
+  if (!fxOutput) return false;
+
+  if (currencies.length === 0) {
+    fxOutput.textContent = "Please select at least one currency.";
+    return false;
+  }
+
+  if (showLoading) {
+    fxOutput.innerHTML = `<span class="loading">Loading market intelligence...</span>`;
+  }
+
+  try {
+    const response = await fetch("/api/fx", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        currencies,
+        sector,
+        subsector,
+        industry,
+        isicCode,
+        fxTenor,
+        tradeRoles,
+        countries,
+        tradeFlow
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      fxOutput.innerHTML = `<span class="error">${escapeHtml(data.error || "Market intelligence update failed.")}</span>`;
+      return false;
+    }
+
+    renderFx(data.fx || [], data.fxResearch || null);
+    return true;
+  } catch (error) {
+    fxOutput.innerHTML = `<span class="error">Market intelligence network error.</span>`;
+    return false;
+  }
+}
+
+function attachCoreInputListeners() {
+  industryBox?.addEventListener("input", function () {
+    selectedIsic = null;
+    industryBox.classList.remove("valid-selection");
+    if (selectedIsicBox) {
+      selectedIsicBox.textContent = "Select one suggested ISIC activity. Free-text entries are not accepted as final input.";
+    }
+    renderIsicDropdown();
+  });
+
+  industryBox?.addEventListener("focus", renderIsicDropdown);
+  industryBox?.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") {
+      isicDropdown?.classList.add("hidden");
+      industryBox?.setAttribute("aria-expanded", "false");
+    }
+  });
+
+  document.addEventListener("click", function (event) {
+    if (!event.target.closest(".isic-picker")) {
+      isicDropdown?.classList.add("hidden");
+      industryBox?.setAttribute("aria-expanded", "false");
+    }
+  });
+
+  [purchaseInternationalBox, salesInternationalBox].forEach(box => {
+    box?.addEventListener("change", updateTradeFlowVisibility);
+  });
+
+  function attachCountryPicker(side, searchBox, dropdown) {
+    searchBox?.addEventListener("focus", function () {
+      dropdown?.classList.remove("hidden");
+      renderCountryDropdownFor(side);
+    });
+    searchBox?.addEventListener("input", function () {
+      dropdown?.classList.remove("hidden");
+      renderCountryDropdownFor(side);
+    });
+  }
+
+  attachCountryPicker("purchase", purchaseCountrySearch, purchaseCountryDropdown);
+  attachCountryPicker("sales", salesCountrySearch, salesCountryDropdown);
+
+  document.addEventListener("click", function (event) {
+    if (!event.target.closest('.country-picker[data-picker="purchase"]')) {
+      purchaseCountryDropdown?.classList.add("hidden");
+    }
+    if (!event.target.closest('.country-picker[data-picker="sales"]')) {
+      salesCountryDropdown?.classList.add("hidden");
+    }
+  });
+}
+
 function getSignalThreads() {
   const checked = Array.from(document.querySelectorAll('input[name="signalThread"]:checked'))
     .map(input => input.value)
@@ -1897,10 +2007,12 @@ button.addEventListener("click", async function () {
   }
 
   button.disabled = true;
-  analysisOutput.innerHTML = `<span class="loading">Researching news...</span>`;
+  analysisOutput.innerHTML = `<span class="loading">Researching relevant signals...</span>`;
   renderFxContext("");
   sourcesOutput.innerHTML = `<span class="loading">Loading sources...</span>`;
   if (contextOutput) contextOutput.textContent = "";
+
+  const marketIntelligencePromise = fetchMarketIntelligence({ showLoading: true });
 
   try {
     const response = await fetch("/api/chat", {
@@ -1937,6 +2049,12 @@ button.addEventListener("click", async function () {
 
     renderSources(data.sources || [], Boolean(data.no_relevant_updates), Boolean(data.fallback_triggered));
     renderAnalysis(data.news?.content || data.analysis || "No analysis returned.");
+
+    const marketIntelligenceRendered = await marketIntelligencePromise;
+    if (!marketIntelligenceRendered && Array.isArray(data.fx)) {
+      renderFx(data.fx || [], data.fxResearch || null);
+    }
+
     // Industry Context & RM Considerations is currently deactivated in the UI.
     // renderContext(data.context || "");
   } catch (error) {
@@ -1953,15 +2071,15 @@ populateSubsectors();
 renderCountryDropdownFor("purchase");
 renderCountryDropdownFor("sales");
 updateTradeFlowVisibility();
+attachCoreInputListeners();
 
-sectorBox.addEventListener("change", function () {
+sectorBox?.addEventListener("change", function () {
   sectorBox.classList.remove("auto-filled");
   subsectorBox.classList.remove("auto-filled");
   populateSubsectors();
   if (document.activeElement === industryBox) renderIsicDropdown();
 });
-subsectorBox.addEventListener("change", function () {
+subsectorBox?.addEventListener("change", function () {
   subsectorBox.classList.remove("auto-filled");
   if (document.activeElement === industryBox) renderIsicDropdown();
 });
-if (updateFxButton) updateFxButton.addEventListener("click", updateFxOnly);
