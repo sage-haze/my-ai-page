@@ -904,7 +904,7 @@ function clientProfileSummary(profile = {}) {
 }
 
 function cardCountInstruction() {
-  return "Generate up to 4 cards. Prefer fewer high-quality cards over filling space. If only one or two issues are genuinely relevant, return only one or two cards.";
+  return "Generate up to 6 cards, ranked from most useful to least useful for the RM. The UI will show the strongest three by default and keep the rest behind Show more. Prefer fewer high-quality cards over filling space.";
 }
 
 function buildFallbackQueries({ sector, subsector, industry, isicCode, tradeFlow, signalThreads = [] }) {
@@ -1366,7 +1366,7 @@ async function fetchYahooFxRate(baseCurrency, rangeDays = 30) {
 
     return summarizeFxSeries({
       base: "CNY",
-      pair: "CNYTHB (derived)",
+      pair: "CNYTHB",
       series: derivedSeries,
       source: "Yahoo Finance prototype: USDTHB ÷ USDCNY"
     });
@@ -1813,8 +1813,69 @@ function extractSourceRefs(text) {
   return Array.from(refs).filter(Number.isFinite).sort((a, b) => a - b);
 }
 
+function stripInlineSourceRefs(text) {
+  return String(text || "")
+    .replace(/\s*\[(?:\d+)(?:\s*,\s*\d+)*\]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function normalizeNoNewsText(timeframe) {
   return `No significant or relevant market developments identified for this industry and client context in the selected ${timeframe}-day period.`;
+}
+
+function normalizeCardTags(tags = [], fallbackText = "") {
+  const allowed = new Set(["FX", "Trade", "Working capital", "Payments", "Supply chain", "Liquidity", "Geopolitics", "Rates", "Commodities", "Sector"]);
+  const map = {
+    fx: "FX",
+    currency: "FX",
+    currencies: "FX",
+    rates: "Rates",
+    rate: "Rates",
+    interest: "Rates",
+    trade: "Trade",
+    "trade finance": "Trade",
+    workingcapital: "Working capital",
+    "working capital": "Working capital",
+    payments: "Payments",
+    payment: "Payments",
+    collections: "Payments",
+    collection: "Payments",
+    "supply chain": "Supply chain",
+    supplychain: "Supply chain",
+    logistics: "Supply chain",
+    shipping: "Supply chain",
+    liquidity: "Liquidity",
+    cash: "Liquidity",
+    geopolitical: "Geopolitics",
+    geopolitics: "Geopolitics",
+    policy: "Geopolitics",
+    commodities: "Commodities",
+    commodity: "Commodities",
+    sector: "Sector",
+    industry: "Sector",
+    market: "Sector"
+  };
+
+  const cleanTags = (Array.isArray(tags) ? tags : String(tags || "").split(/[,|/]+/))
+    .map(tag => map[String(tag || "").trim().toLowerCase()] || String(tag || "").trim())
+    .filter(tag => allowed.has(tag));
+
+  if (!cleanTags.length && fallbackText) {
+    const text = String(fallbackText).toLowerCase();
+    if (/\b(fx|currency|currencies|usd|eur|cny|jpy|thb|hedg)/i.test(text)) cleanTags.push("FX");
+    if (/\b(rate|rates|interest|borrowing|funding cost|yield)\b/i.test(text)) cleanTags.push("Rates");
+    if (/\b(trade|letter of credit|lc\b|guarantee|documentary|supplier payment|buyer risk)\b/i.test(text)) cleanTags.push("Trade");
+    if (/\b(working capital|cash conversion|receivable|receivables|payable|payables|inventory|cash cycle)\b/i.test(text)) cleanTags.push("Working capital");
+    if (/\b(payment|payments|collection|collections|settlement|reconciliation|fraud|routing)\b/i.test(text)) cleanTags.push("Payments");
+    if (/\b(supply chain|supplier|shipping|logistics|port|freight|route|inventory buffer)\b/i.test(text)) cleanTags.push("Supply chain");
+    if (/\b(liquidity|cash visibility|cash buffer|cash forecasting|deposit|surplus cash|trapped cash)\b/i.test(text)) cleanTags.push("Liquidity");
+    if (/\b(geopolitic|sanction|tariff|policy|election|border|conflict|war|compliance)\b/i.test(text)) cleanTags.push("Geopolitics");
+    if (/\b(commodity|commodities|oil|gas|energy|metal|food prices|input cost)\b/i.test(text)) cleanTags.push("Commodities");
+  }
+
+  const unique = [...new Set(cleanTags)];
+  return (unique.length ? unique : ["Sector"]).slice(0, 3);
 }
 
 function formatNewsThemesFromJson(parsed) {
@@ -1836,22 +1897,27 @@ function formatNewsThemesFromJson(parsed) {
       card.explanation ||
       ""
     ).trim();
-    const transactionBankingAngle = String(card.transactionBankingAngle || card.transaction_banking_angle || "").trim();
-    const usefulObservation = String(card.usefulObservation || card.useful_observation || card.gentleObservation || card.gentle_observation || "").trim();
+    const transactionBankingAngle = String(card.transactionBankingAngle || card.transaction_banking_angle || card.relate || "").trim();
+    const observe = String(card.observe || card.usefulObservation || card.useful_observation || card.gentleObservation || card.gentle_observation || "").trim();
+    const relate = [transactionBankingAngle, backgroundCue].filter(Boolean).join(" ").trim();
     const leaveSpace = String(card.leaveSpace || card.leave_space || card.softInvitation || card.soft_invitation || "").trim();
-    const ifTheyPickUp = String(card.ifTheyPickUp || card.if_they_pick_up || card.ifClientEngages || card.if_client_engages || "").trim();
+    const lightlyExplore = String(card.lightlyExplore || card.lightly_explore || card.ifTheyPickUp || card.if_they_pick_up || card.ifClientEngages || card.if_client_engages || "").trim();
     const bankAngle = String(card.bankAngle || card.bank_angle || card.bankRelevance || card.bank_relevance || "").trim();
     const handoffCue = String(card.handoffCue || card.handoff_cue || "").trim();
-    const bankAngleHandoff = [bankAngle, handoffCue].filter(Boolean).join(" ").trim();
-    const background = [backgroundCue, transactionBankingAngle].filter(Boolean).join(" ").trim();
+    const offerSupport = String(card.offerSupport || card.offer_support || [bankAngle, handoffCue].filter(Boolean).join(" ")).trim();
+    const tags = normalizeCardTags(card.tags || card.tag || [], `${title} ${observe} ${relate} ${offerSupport}`);
+    const sourceNumbers = Array.isArray(card.sourceNumbers) ? card.sourceNumbers : extractSourceRefs(`${observe} ${relate} ${leaveSpace} ${lightlyExplore} ${offerSupport}`);
+    const cleanSourceNumbers = [...new Set(sourceNumbers.map(Number).filter(Number.isFinite))].sort((a, b) => a - b);
 
     return [
-      `Card ${index + 1}: ${title}`,
-      background ? `Why this may matter: ${background}` : "",
-      usefulObservation ? `Useful observation to offer: ${usefulObservation}` : "",
-      leaveSpace ? `Leave space: ${leaveSpace}` : "",
-      ifTheyPickUp ? `If they pick up on it: ${ifTheyPickUp}` : "",
-      bankAngleHandoff ? `Bank angle / handoff: ${bankAngleHandoff}` : ""
+      `Card ${index + 1}: ${stripInlineSourceRefs(title)}`,
+      `Tags: ${tags.join(", ")}`,
+      cleanSourceNumbers.length ? `Sources: ${cleanSourceNumbers.map(number => `[${number}]`).join(" ")}` : "",
+      observe ? `Observe: ${stripInlineSourceRefs(observe)}` : "",
+      relate ? `Relate: ${stripInlineSourceRefs(relate)}` : "",
+      leaveSpace ? `Leave Space: ${stripInlineSourceRefs(leaveSpace)}` : "",
+      lightlyExplore ? `Lightly Explore: ${stripInlineSourceRefs(lightlyExplore)}` : "",
+      offerSupport ? `Offer Support: ${stripInlineSourceRefs(offerSupport)}` : ""
     ].filter(Boolean).join("\n");
   }).filter(Boolean).join("\n\n");
 }
@@ -1862,19 +1928,18 @@ function formatStructuralNoNewsCard({ timeframe, industry, tradeFlow, conversati
   const purchaseMarkets = listCountries(tradeFlow?.purchase?.countries, 3) || "domestic suppliers";
   const salesMarkets = listCountries(tradeFlow?.sales?.countries, 3) || "domestic customers";
   const currencyText = currencies.length ? currencies.join("/") : "selected currencies";
-  const profileText = clientProfileSummary(clientProfile).replace(/\n/g, "; ");
 
   return [
     `Card 1: Structural conversation angle when no strong recent news is found`,
-    `Why this may matter: No significant or clearly relevant market development was identified in the selected ${timeframe}-day period for this client profile. This card is therefore structural context, not a news-based signal.`,
-    `Why this may matter: For a Thailand-based ${industry} client, the practical discussion can still be anchored on cash visibility, supplier and buyer payment timing, working capital discipline, and recurring ${currencyText} flows. Additional setup: ${profileText}.`,
-    `Useful observation to offer: We are not seeing a strong recent headline for this profile, but for companies with purchases from ${purchaseMarkets} and sales to ${salesMarkets}, the practical treasury conversation often starts with payment timing, cash buffers, and whether working capital still fits the operating cycle.`,
-    `Leave space: I am not sure whether that is relevant for your business right now, but it is a useful area to keep in view when external news is quiet.`,
-    `If they pick up on it: If the client opens up, explore whether the issue is mainly supplier terms, receivables timing, inventory buffers, or currency mismatch.`,
-    `Bank angle / handoff: Possible relevance to cash forecasting, liquidity structure, trade lines, receivables/payables flows, and FX process discipline.`,
-    `Bank angle / handoff: Bring in FX, trade, cash management, or credit specialists if the client asks for specific hedge levels, facility sizing, structure, legal, sanctions, or credit advice.`
+    `Tags: Working capital, Payments, Trade`,
+    `Observe: We are not seeing a strong recent headline for this profile, but for companies with purchases from ${purchaseMarkets} and sales to ${salesMarkets}, the practical treasury conversation often starts with payment timing, cash buffers, and whether working capital still fits the operating cycle.`,
+    `Relate: For a Thailand-based ${industry} client, the discussion can still connect to supplier and buyer payment timing, cash visibility, and recurring ${currencyText} flows. This is structural context, not a news-based signal.`,
+    `Leave Space: I am not sure whether that is relevant for your business right now, but it is a useful area to keep in view when external news is quiet.`,
+    `Lightly Explore: If the client opens up, explore whether the issue is mainly supplier terms, receivables timing, inventory buffers, or currency mismatch.`,
+    `Offer Support: Possible relevance to cash forecasting, liquidity structure, trade lines, receivables/payables flows, and FX process discipline. Bring in FX, trade, cash management, or credit specialists if the client asks for specific hedge levels, facility sizing, structure, legal, sanctions, or credit advice.`
   ].join("\n");
 }
+
 
 function remapSourceNumbersInText(text, numberMap) {
   return String(text || "").replace(/\[(\d+)\]/g, (full, rawNumber) => {
@@ -1983,24 +2048,21 @@ Customer profile:
 ${tradeFlow ? tradeFlowSummary(tradeFlow) : `Client trade role: ${tradeRoles.join(", ")}
 Countries / markets relevant to the client: ${countryText}`}
 - Timeframe for news search: last ${timeframe} days
-- Conversation goal: ${conversationGoal}
-- Additional client / conversation setup:
-${clientProfileSummary(clientProfile)}
 - Enabled signal threads: ${signalThreads.join(", ") || "sector_news, fx_rates, geopolitics, trade_supply_chain"}
 - Search mode: Conversation-card signal scan
 - Search queries used: ${plannedQueries.map(plan => `${plan.label}: ${plan.query}`).join(" | ")}
 
 Task:
-Create evidence-grounded client conversation cards from the provided sources. The cards should help a junior transaction banker offer useful observations, not recite a market view. Evidence can include recent articles and periodic official datasets.
+Create evidence-grounded relevant signal cards from the provided sources. Rank the cards from most useful to least useful for a junior transaction banker. Each card should help the banker build a conversation bridge, not recite a market view. Evidence can include recent articles and periodic official datasets.
 ${cardCountInstruction()}
 
 Conversation standard:
 - The output should help the RM think and speak better; do not give a polished monologue to recite.
-- Translate external developments into cash, trade, payments, FX flows, working capital, liquidity, operational resilience, and specialist handoff. Use the client cash position, purchase/sales markets, purchase/sales currencies, and relationship context when they are specified. Do not overfit to fields marked unknown.
+- Translate external developments into cash, trade, payments, FX flows, working capital, liquidity, operational resilience, and specialist handoff. Use purchase/sales markets and purchase/sales currencies as the main client-specific anchors.
 - Separate purchase-side cost/supplier implications from sales-side revenue/demand implications when the sources support that distinction.
 - Treat purchase countries as supplier/source markets and sales countries as buyer/revenue markets. Do not cross-combine countries randomly.
 - Prefer direct Thailand, selected purchase-market, selected sales-market, or selected-currency relevance.
-- Make the card conversation-first: keep background short, make the useful observation the main field, then provide a soft invitation and a follow-up only if the client engages. Do not interrogate the client with blunt questions unless it is in the "ifTheyPickUp" field.
+- Make each card follow the five moves: Observe, Relate, Leave Space, Lightly Explore, Offer Support. The observation should be the main banker-ready line. Do not interrogate the client with blunt questions.
 - Broader sector news may be used only when the bridge to this client profile is clear. If the article is not specific to the selected ISIC activity, say so plainly.
 
 Grounding rules:
@@ -2009,8 +2071,8 @@ Grounding rules:
 - Do NOT imply that an article specifically discusses the client's product, market, currency, or trade flow unless the source explicitly does.
 - You may draw cautious implications, but clearly distinguish direct evidence from inferred relevance.
 - Do not cite a source unless it directly supports the statement being made.
-- Every card must cite at least one source number from the provided sources. Official datasets may be used as context, but do not describe them as recent news unless the date supports it.
-- Every source-grounded statement should include a source reference like [1], [2].
+- Every card must include at least one source number in the sourceNumbers array. Official datasets may be used as context, but do not describe them as recent news unless the date supports it.
+- Do not put [1] or [2] inline inside the observe, relate, leaveSpace, lightlyExplore, or offerSupport text. Put source references only in sourceNumbers.
 - If the sources do not contain meaningful evidence relevant to this Thailand-based client context, return JSON with "status": "NO_NEWS" and an empty cards array. If only official data is available, make the card clearly about local/regional context rather than breaking news.
 - If there is at least one useful news-based card, return JSON with "status": "OK". Do NOT include the string NO_NEWS anywhere in titles, paragraphs, or bullets.
 
@@ -2037,16 +2099,18 @@ Return JSON only in this exact shape:
   "cards": [
     {
       "title": "Specific practical title without scoring or signal prefixes",
-      "backgroundCue": "One short background sentence explaining why this may matter for the client profile [1]. Keep this softer than the banker observation.",
-      "usefulObservation": "The main banker-ready observation to offer. It should be natural, commercially useful, and non-invasive [1].",
+      "tags": ["FX", "Trade"],
+      "observe": "A gentle, evidence-grounded observation the banker can offer without assuming the client has a problem [1].",
+      "relate": "Connect the signal to the client’s likely operating flows: cash, trade, payments, FX, working capital, liquidity, or resilience [1].",
       "leaveSpace": "A low-pressure phrase that lets the client respond without forcing disclosure.",
-      "ifTheyPickUp": "One natural follow-up path only if the client shows interest.",
-      "bankAngle": "Possible relevance to cash management, trade finance, FX flows, liquidity, payments, working capital, or operating resilience.",
-      "handoffCue": "When to bring in FX, markets, trade, cash, compliance, sanctions, legal, tax, credit, or sector specialists.",
+      "lightlyExplore": "One non-invasive follow-up path only if the client shows interest.",
+      "offerSupport": "A practical support angle and any specialist handoff cue. Include where to bring in FX, markets, trade, cash, compliance, sanctions, legal, tax, credit, or sector specialists.",
       "sourceNumbers": [1, 2]
     }
   ]
 }
+
+Allowed tags: FX, Trade, Working capital, Payments, Supply chain, Liquidity, Geopolitics, Rates, Commodities, Sector. Use one to three tags per card. Prefer transaction-banking relevance tags over generic macro labels.
 
 If not relevant, return exactly this JSON:
 {

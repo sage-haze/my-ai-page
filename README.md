@@ -88,3 +88,12 @@ This endpoint checks whether the credentials are present and tests lightweight F
 ## Notes
 
 Official datasets are treated as periodic context rather than breaking news. They are used to anchor conversation cards in credible evidence, while Tavily and GDELT provide faster-moving news and event discovery.
+
+
+## v9 updates
+
+- Market Intelligence now shows only compact FX summary metrics by default: latest, tenor change, tenor high, and tenor low.
+- FX charts, AI commentary, and the daily FX table are hidden under a details dropdown. The daily FX table is nested one level deeper.
+- Top Relevant Signals now starts as a short selectable signal list instead of showing the full Five Moves text immediately.
+- The strongest three signals are selected by default; users can show more signals and choose what to include.
+- Clicking Build Conversation Bridge expands only the selected signals into Observe, Relate, Leave Space, Lightly Explore, and Offer Support.

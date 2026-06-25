@@ -25,6 +25,8 @@ const selectedSalesCountriesBox = document.getElementById("selectedSalesCountrie
 const defaultPromptBox = document.getElementById("defaultPrompt");
 
 const analysisOutput = document.getElementById("analysisOutput");
+const bridgePanel = document.getElementById("bridgePanel");
+const bridgeOutput = document.getElementById("bridgeOutput");
 const sourcesOutput = document.getElementById("sourcesOutput");
 const fxOutput = document.getElementById("fxOutput");
 const contextOutput = document.getElementById("contextOutput");
@@ -1356,37 +1358,38 @@ function renderFx(fxList, fxResearch = null) {
     const tableHeaders = Array.from({ length: 3 }, () => `<th>Date</th><th>Rate</th>`).join("");
 
     return `
-      <section class="fx-card-row">
+      <section class="fx-card-row fx-compact-card">
         <div class="fx-card-topline">
           <div>
             <div class="fx-title">${pair}</div>
             <div class="fx-subtitle">${tenor}-day trend against THB</div>
           </div>
-          <div class="fx-latest">
-            <span>Latest</span>
-            <strong>${formatDisplayRate(latest)}</strong>
-          </div>
         </div>
 
-        <div class="fx-stat-grid">
+        <div class="fx-stat-grid fx-compact-stat-grid">
+          <div class="fx-stat"><span>Latest</span><strong>${formatDisplayRate(latest)}</strong></div>
           <div class="fx-stat"><span>${tenor}D change</span><strong>${formatPercent(change)}</strong></div>
           <div class="fx-stat"><span>${tenor}D high</span><strong>${formatDisplayRate(fx.highest_rate)}</strong><em>${highDate}</em></div>
           <div class="fx-stat"><span>${tenor}D low</span><strong>${formatDisplayRate(fx.lowest_rate)}</strong><em>${lowDate}</em></div>
-          <div class="fx-stat"><span>Data points</span><strong>${series.length || "—"}</strong></div>
         </div>
 
-        <div class="fx-chart-wrap">
-          ${series.length > 1 ? `<canvas id="${canvasId}" aria-label="${pair} FX trend chart"></canvas>` : `<div class="fx-chart-status">Not enough daily data to plot a chart.</div>`}
-        </div>
+        <details class="fx-detail-toggle" data-canvas-id="${canvasId}">
+          <summary>Show trend and commentary</summary>
+          <div class="fx-detail-body">
+            <div class="fx-chart-wrap">
+              ${series.length > 1 ? `<canvas id="${canvasId}" aria-label="${pair} FX trend chart"></canvas>` : `<div class="fx-chart-status">Not enough daily data to plot a chart.</div>`}
+            </div>
 
-        ${fx.analysis ? `<div class="fx-analysis">${escapeHtml(fx.analysis)}</div>` : ""}
+            ${fx.analysis ? `<div class="fx-analysis">${escapeHtml(fx.analysis)}</div>` : ""}
 
-        <details class="fx-table-toggle">
-          <summary>Show daily FX table</summary>
-          <table class="fx-detail-table fx-bloomberg-table">
-            <thead><tr>${tableHeaders}</tr></thead>
-            <tbody>${buildFxTableRows(series, 3)}</tbody>
-          </table>
+            <details class="fx-table-toggle">
+              <summary>Show daily FX table</summary>
+              <table class="fx-detail-table fx-bloomberg-table">
+                <thead><tr>${tableHeaders}</tr></thead>
+                <tbody>${buildFxTableRows(series, 3)}</tbody>
+              </table>
+            </details>
+          </div>
         </details>
       </section>
     `;
@@ -1406,92 +1409,173 @@ function renderFx(fxList, fxResearch = null) {
     </div>
   `;
 
-  requestAnimationFrame(() => renderFxCharts(chartConfigs));
+  const configByCanvasId = new Map(chartConfigs.map(config => [config.canvasId, config]));
+  document.querySelectorAll(".fx-detail-toggle[data-canvas-id]").forEach(detail => {
+    detail.addEventListener("toggle", () => {
+      if (!detail.open) return;
+      const canvasId = detail.getAttribute("data-canvas-id");
+      if (!canvasId || fxCharts[canvasId]) return;
+      const config = configByCanvasId.get(canvasId);
+      if (!config) return;
+      requestAnimationFrame(() => renderFxCharts([config]));
+    });
+  });
 }
 
 function renderSources(sources, noRelevantUpdates = false, fallbackTriggered = false) {
-  if (!sources || sources.length === 0) {
-    sourcesOutput.innerHTML = noRelevantUpdates
-      ? `<div class="empty-state">No relevant sources were included for this period.</div>`
-      : "No sources found.";
-    return;
+  lastSources = Array.isArray(sources) ? sources : [];
+  const panel = sourcesOutput?.closest(".sources-panel");
+  if (panel) panel.classList.add("hidden");
+  if (sourcesOutput) {
+    sourcesOutput.innerHTML = lastSources.length
+      ? `<div class="source-note">Source links are folded into each selected conversation card.</div>`
+      : (noRelevantUpdates ? `<div class="empty-state">No relevant sources were included for this period.</div>` : "");
   }
+}
 
-  const fallbackNote = fallbackTriggered
-    ? `<div class="source-note">Broader fallback search was used because the first pass found fewer than 3 relevant sources.</div>`
-    : "";
+const DEFAULT_VISIBLE_SIGNAL_COUNT = 3;
+let lastConversationCards = [];
+let conversationCardsExpanded = false;
+let conversationBridgeBuilt = false;
+let selectedSignalIndexes = new Set();
+let lastSources = [];
 
-  const sourceCards = sources.map((source, index) => {
-    const number = source.number || index + 1;
+const ALLOWED_SIGNAL_TAGS = [
+  "FX",
+  "Trade",
+  "Working capital",
+  "Payments",
+  "Supply chain",
+  "Liquidity",
+  "Geopolitics",
+  "Rates",
+  "Commodities",
+  "Sector"
+];
 
-    return `
-      <div class="source-item">
-        <a
-          class="source-title"
-          href="${source.url}"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          [${number}] ${source.title || source.url}
-        </a>
-        <div class="source-meta">
-          ${source.domain || source.source || "Unknown source"} • ${source.published_at || "Unknown date"}
-        </div>
-        ${Array.isArray(source.syndicated_via) && source.syndicated_via.length ? `<div class="source-syndication">Similar syndicated coverage hidden from source list: ${source.syndicated_via.join(", ")}</div>` : ""}
-        ${source.justification ? `<div class="source-justification"><strong>Why is it relevant:</strong> ${source.justification}</div>` : ""}
-      </div>
-    `;
-  }).join("");
+function normaliseSignalTag(tag) {
+  const clean = String(tag || "").trim().toLowerCase();
+  const map = {
+    fx: "FX",
+    currency: "FX",
+    currencies: "FX",
+    rates: "Rates",
+    rate: "Rates",
+    interest: "Rates",
+    trade: "Trade",
+    "trade finance": "Trade",
+    workingcapital: "Working capital",
+    "working capital": "Working capital",
+    payments: "Payments",
+    payment: "Payments",
+    collections: "Payments",
+    collection: "Payments",
+    "supply chain": "Supply chain",
+    supplychain: "Supply chain",
+    logistics: "Supply chain",
+    shipping: "Supply chain",
+    liquidity: "Liquidity",
+    cash: "Liquidity",
+    geopolitical: "Geopolitics",
+    geopolitics: "Geopolitics",
+    policy: "Geopolitics",
+    commodities: "Commodities",
+    commodity: "Commodities",
+    input: "Commodities",
+    sector: "Sector",
+    industry: "Sector",
+    market: "Sector"
+  };
+  return map[clean] || null;
+}
 
-  sourcesOutput.innerHTML = fallbackNote + sourceCards;
+function deriveSignalTags(text) {
+  const source = String(text || "").toLowerCase();
+  const tags = [];
+  const add = (tag) => { if (!tags.includes(tag)) tags.push(tag); };
+
+  if (/\b(fx|currency|currencies|usd|eur|cny|jpy|thb|hedg)/i.test(source)) add("FX");
+  if (/\b(rate|rates|interest|borrowing|funding cost|yield)\b/i.test(source)) add("Rates");
+  if (/\b(trade|letter of credit|lc\b|guarantee|documentary|supplier payment|buyer risk)\b/i.test(source)) add("Trade");
+  if (/\b(working capital|cash conversion|receivable|receivables|payable|payables|inventory|cash cycle)\b/i.test(source)) add("Working capital");
+  if (/\b(payment|payments|collection|collections|settlement|reconciliation|fraud|routing)\b/i.test(source)) add("Payments");
+  if (/\b(supply chain|supplier|shipping|logistics|port|freight|route|inventory buffer)\b/i.test(source)) add("Supply chain");
+  if (/\b(liquidity|cash visibility|cash buffer|cash forecasting|deposit|surplus cash|trapped cash)\b/i.test(source)) add("Liquidity");
+  if (/\b(geopolitic|sanction|tariff|policy|election|border|conflict|war|compliance)\b/i.test(source)) add("Geopolitics");
+  if (/\b(commodity|commodities|oil|gas|energy|metal|food prices|input cost)\b/i.test(source)) add("Commodities");
+
+  if (!tags.length) add("Sector");
+  return tags.slice(0, 3);
+}
+
+function parseTagsFromLine(line) {
+  const match = String(line || "").match(/^Tags?\s*:\s*(.+)$/i);
+  if (!match) return null;
+  const rawTags = match[1]
+    .split(/[,|/]+/)
+    .map(item => normaliseSignalTag(item))
+    .filter(Boolean);
+  return [...new Set(rawTags)].slice(0, 3);
 }
 
 function normaliseConversationLabel(label) {
   const clean = String(label || "").trim().toLowerCase();
   const labelMap = {
-    "plain-english context": "Why this may matter",
-    "plain english context": "Why this may matter",
-    "background cue": "Why this may matter",
-    "why this may matter": "Why this may matter",
-    "client relevance lens": "Why this may matter",
-    "transaction banking angle": "Why this may matter",
-    "gentle observation": "Useful observation to offer",
-    "useful observation": "Useful observation to offer",
-    "useful observation to offer": "Useful observation to offer",
-    "soft invitation": "Leave space",
-    "leave space": "Leave space",
-    "if client engages": "If they pick up on it",
-    "if they pick up on it": "If they pick up on it",
-    "bank relevance": "Bank angle / handoff",
-    "bank angle": "Bank angle / handoff",
-    "bank angle / handoff": "Bank angle / handoff",
-    "handoff cue": "Bank angle / handoff"
+    "plain-english context": "Relate",
+    "plain english context": "Relate",
+    "background cue": "Relate",
+    "why this may matter": "Relate",
+    "client relevance lens": "Relate",
+    "transaction banking angle": "Relate",
+    "relate": "Relate",
+    "useful observation": "Observe",
+    "useful observation to offer": "Observe",
+    "gentle observation": "Observe",
+    "observe": "Observe",
+    "soft invitation": "Leave Space",
+    "leave space": "Leave Space",
+    "if client engages": "Lightly Explore",
+    "if they pick up on it": "Lightly Explore",
+    "lightly explore": "Lightly Explore",
+    "bank relevance": "Offer Support",
+    "bank angle": "Offer Support",
+    "bank angle / handoff": "Offer Support",
+    "handoff cue": "Offer Support",
+    "offer support": "Offer Support",
+    "propose support": "Offer Support",
+    "propose support path": "Offer Support"
   };
-  return labelMap[clean] || label || "Context";
+  return labelMap[clean] || label || "Relate";
 }
 
 function conversationSectionClass(label) {
   const normalised = normaliseConversationLabel(label).toLowerCase();
-  if (normalised === "why this may matter") return "conversation-section background-cue";
-  if (normalised === "useful observation to offer") return "conversation-section hero-observation";
-  if (normalised === "leave space") return "conversation-section soft-invitation";
-  if (normalised === "if they pick up on it") return "conversation-section follow-up-path";
-  if (normalised === "bank angle / handoff") return "conversation-section bank-handoff";
+  if (normalised === "observe") return "conversation-section hero-observation observe-section";
+  if (normalised === "relate") return "conversation-section background-cue relate-section";
+  if (normalised === "leave space") return "conversation-section soft-invitation leave-space-section";
+  if (normalised === "lightly explore") return "conversation-section follow-up-path explore-section";
+  if (normalised === "offer support") return "conversation-section bank-handoff support-section";
   return "conversation-section";
 }
 
 function mergeAdjacentConversationSections(sections) {
-  const merged = [];
+  const order = ["Observe", "Relate", "Leave Space", "Lightly Explore", "Offer Support"];
+  const byLabel = new Map();
+
   sections.forEach(section => {
     const label = normaliseConversationLabel(section.label);
     const text = String(section.text || "").trim();
     if (!text) return;
-    const last = merged[merged.length - 1];
-    if (last && last.label === label) {
-      last.text = `${last.text} ${text}`.trim();
-    } else {
-      merged.push({ label, text });
-    }
+    const existing = byLabel.get(label);
+    byLabel.set(label, existing ? `${existing} ${text}`.trim() : text);
+  });
+
+  const merged = [];
+  order.forEach(label => {
+    if (byLabel.has(label)) merged.push({ label, text: byLabel.get(label) });
+  });
+  byLabel.forEach((text, label) => {
+    if (!order.includes(label)) merged.push({ label, text });
   });
   return merged;
 }
@@ -1502,27 +1586,274 @@ function parseConversationCardBlock(block) {
     .map(line => line.trim())
     .filter(Boolean);
 
-  const heading = lines.shift() || "Card";
+  const heading = stripSourceMarkers(lines.shift() || "Card");
   const sections = [];
-  const sectionPattern = /^(Why this may matter|Background cue|Plain-English context|Plain English context|Client relevance lens|Transaction banking angle|Useful observation(?: to offer)?|Gentle observation|Leave space|Soft invitation|If they pick up on it|If client engages|Bank angle(?: \/ handoff)?|Bank relevance|Handoff cue)\s*:\s*(.*)$/i;
+  let tags = [];
+  const sourceNumbers = new Set(extractSourceNumbers(block));
+  const sectionPattern = /^(Observe|Relate|Leave Space|Lightly Explore|Offer Support|Propose Support Path|Why this may matter|Background cue|Plain-English context|Plain English context|Client relevance lens|Transaction banking angle|Useful observation(?: to offer)?|Gentle observation|Soft invitation|If they pick up on it|If client engages|Bank angle(?: \/ handoff)?|Bank relevance|Handoff cue)\s*:\s*(.*)$/i;
   let current = null;
 
   lines.forEach(line => {
+    const parsedTags = parseTagsFromLine(line);
+    if (parsedTags) {
+      tags = parsedTags;
+      current = null;
+      return;
+    }
+
+    const parsedSourceRefs = parseSourceRefsFromLine(line);
+    if (parsedSourceRefs) {
+      parsedSourceRefs.forEach(number => sourceNumbers.add(number));
+      current = null;
+      return;
+    }
+
     const match = line.match(sectionPattern);
     if (match) {
       current = {
         label: normaliseConversationLabel(match[1]),
-        text: match[2] || ""
+        text: stripSourceMarkers(match[2] || "")
       };
       sections.push(current);
     } else if (current) {
-      current.text = `${current.text} ${line}`.trim();
+      current.text = stripSourceMarkers(`${current.text} ${line}`);
     } else {
-      sections.push({ label: "Why this may matter", text: line });
+      sections.push({ label: "Relate", text: stripSourceMarkers(line) });
     }
   });
 
-  return { heading, sections: mergeAdjacentConversationSections(sections) };
+  const mergedSections = mergeAdjacentConversationSections(sections);
+  if (!tags.length) {
+    tags = deriveSignalTags(`${heading}\n${mergedSections.map(section => section.text).join("\n")}`);
+  }
+  return { heading, tags, sections: mergedSections, sourceNumbers: [...sourceNumbers].sort((a, b) => a - b) };
+}
+
+function renderSignalTags(tags) {
+  const cleanTags = (Array.isArray(tags) ? tags : [])
+    .map(normaliseSignalTag)
+    .filter(Boolean)
+    .filter((tag, index, array) => array.indexOf(tag) === index)
+    .slice(0, 3);
+  if (!cleanTags.length) return "";
+  return `<div class="signal-tag-row">${cleanTags.map(tag => `<span class="signal-tag">${escapeHtml(tag)}</span>`).join("")}</div>`;
+}
+
+function getConversationSectionText(card, label) {
+  const wanted = normaliseConversationLabel(label);
+  const section = (card.sections || []).find(item => normaliseConversationLabel(item.label) === wanted);
+  return String(section?.text || "").trim();
+}
+
+function extractSourceNumbers(text) {
+  const refs = new Set();
+  const regex = /\[(\d+)\]/g;
+  let match;
+  while ((match = regex.exec(String(text || ""))) !== null) {
+    const number = Number(match[1]);
+    if (Number.isFinite(number)) refs.add(number);
+  }
+  return [...refs].sort((a, b) => a - b);
+}
+
+function stripSourceMarkers(text) {
+  return String(text || "")
+    .replace(/\s*\[(?:\d+)(?:\s*,\s*\d+)*\]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseSourceRefsFromLine(line) {
+  const match = String(line || "").match(/^(?:Sources?|Source refs?|Source numbers?)\s*:\s*(.+)$/i);
+  if (!match) return null;
+  return extractSourceNumbers(match[1]);
+}
+
+function getSourceDisplayNumber(source, index) {
+  return Number(source?.number || source?.source_number || index + 1);
+}
+
+function getSourcesForCard(card) {
+  const refs = Array.isArray(card.sourceNumbers) ? card.sourceNumbers : [];
+  if (!refs.length || !Array.isArray(lastSources) || !lastSources.length) return [];
+  const byNumber = new Map(lastSources.map((source, index) => [getSourceDisplayNumber(source, index), source]));
+  return refs
+    .map(number => ({ number, source: byNumber.get(Number(number)) }))
+    .filter(item => item.source);
+}
+
+function renderCardSources(card) {
+  const sources = getSourcesForCard(card);
+  if (!sources.length) return "";
+  const sourceItems = sources.map(({ number, source }) => {
+    const title = source.title || source.url || `Source ${number}`;
+    const meta = [source.domain || source.source || "Source", source.published_at || "Unknown date"].filter(Boolean).join(" • ");
+    return `
+      <li>
+        <a href="${escapeHtml(source.url || "#")}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a>
+        <span>${escapeHtml(meta)}</span>
+      </li>
+    `;
+  }).join("");
+  return `
+    <details class="bridge-source-footer">
+      <summary>Sources</summary>
+      <ol>${sourceItems}</ol>
+    </details>
+  `;
+}
+
+function renderSignalSourceLine(card) {
+  const sources = getSourcesForCard(card);
+  if (!sources.length) return "";
+  const links = sources.slice(0, 3).map(({ number, source }) => {
+    const label = source.domain || source.source || source.title || `Source ${number}`;
+    return `<a href="${escapeHtml(source.url || "#")}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
+  }).join(" <span aria-hidden=\"true\">•</span> ");
+  return `<div class="signal-source-line">Sources: ${links}</div>`;
+}
+
+function resetConversationBridge() {
+  conversationBridgeBuilt = false;
+  if (bridgeOutput) bridgeOutput.innerHTML = "";
+  if (bridgePanel) bridgePanel.classList.add("hidden");
+}
+
+function getSignalPreviewText(card) {
+  return stripSourceMarkers(
+    getConversationSectionText(card, "Relate") ||
+    getConversationSectionText(card, "Observe") ||
+    (card.sections || []).map(section => section.text).find(Boolean) ||
+    "This signal may be relevant to the selected client profile."
+  );
+}
+
+function renderSignalSelectionCard(card, index) {
+  const cleanHeading = card.heading.replace(/^(Card\s+\d+\s*:\s*)/i, "").trim() || `Signal ${index + 1}`;
+  const preview = getSignalPreviewText(card);
+  const checked = selectedSignalIndexes.has(index) ? "checked" : "";
+
+  return `
+    <div class="signal-selection-card" data-signal-index="${index}">
+      <label class="signal-select-row">
+        <input type="checkbox" class="signal-select-checkbox" data-signal-index="${index}" ${checked}>
+        <span>Use in client conversation</span>
+      </label>
+      <div class="signal-card-topline">
+        ${renderSignalTags(card.tags)}
+        <span class="signal-rank">#${index + 1}</span>
+      </div>
+      <h3>${escapeHtml(cleanHeading)}</h3>
+      <div class="signal-preview-label">Why it may be relevant</div>
+      <p class="signal-preview-text">${escapeHtml(preview)}</p>
+      ${renderSignalSourceLine(card)}
+    </div>
+  `;
+}
+
+function renderBridgeCard(card, index) {
+  const cleanHeading = card.heading.replace(/^(Card\s+\d+\s*:\s*)/i, "").trim() || `Card ${index + 1}`;
+  const orderedLabels = ["Observe", "Relate", "Leave Space", "Lightly Explore", "Offer Support"];
+  const sectionHtml = orderedLabels.map((label, stepIndex) => {
+    const text = stripSourceMarkers(getConversationSectionText(card, label));
+    if (!text) return "";
+    return `
+      <div class="${conversationSectionClass(label)} bridge-step bridge-step-${stepIndex + 1}">
+        <div class="bridge-step-marker">${stepIndex + 1}</div>
+        <div class="bridge-step-body">
+          <div class="conversation-label">${escapeHtml(label)}</div>
+          <div class="conversation-text">${escapeHtml(text)}</div>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  return `
+    <div class="theme-card conversation-card bridge-card">
+      <div class="signal-card-topline">
+        ${renderSignalTags(card.tags)}
+        <span class="signal-rank">Card ${index + 1}</span>
+      </div>
+      <h3>${escapeHtml(cleanHeading)}</h3>
+      <div class="bridge-step-list">${sectionHtml}</div>
+      ${renderCardSources(card)}
+    </div>
+  `;
+}
+
+function renderSelectedConversationBridge() {
+  const selectedCards = [...selectedSignalIndexes]
+    .sort((a, b) => a - b)
+    .map(index => lastConversationCards[index])
+    .filter(Boolean);
+
+  if (!selectedCards.length) {
+    return `<div class="empty-state bridge-empty">Select at least one signal to plan your client conversation.</div>`;
+  }
+
+  return `
+    <div class="bridge-output">
+      ${selectedCards.map((card, index) => renderBridgeCard(card, index)).join("")}
+    </div>
+  `;
+}
+
+function renderSignalSelectionList() {
+  const visibleLimit = conversationCardsExpanded ? lastConversationCards.length : DEFAULT_VISIBLE_SIGNAL_COUNT;
+  const visibleCards = lastConversationCards.slice(0, visibleLimit);
+  const hiddenCount = Math.max(0, lastConversationCards.length - DEFAULT_VISIBLE_SIGNAL_COUNT);
+  const selectedCount = selectedSignalIndexes.size;
+
+  const cardsHtml = visibleCards.map((card, index) => renderSignalSelectionCard(card, index)).join("");
+  const toggleHtml = hiddenCount > 0 ? `
+    <button type="button" class="secondary-action" id="toggleSignals">
+      ${conversationCardsExpanded ? "Show fewer signals" : `Show ${hiddenCount} more signal${hiddenCount === 1 ? "" : "s"}`}
+    </button>
+  ` : "";
+
+  analysisOutput.innerHTML = `
+    <div class="signals-summary">Showing ${visibleCards.length} of ${lastConversationCards.length} relevant signal${lastConversationCards.length === 1 ? "" : "s"}. Select the signals you might use in a client conversation.</div>
+    <div class="signal-selection-list">${cardsHtml}</div>
+    <div class="signal-action-row">
+      ${toggleHtml}
+      <button type="button" class="secondary-action primary-bridge-action" id="buildBridgeButton" ${selectedCount ? "" : "disabled"}>
+        Plan my client conversation${selectedCount ? ` (${selectedCount})` : ""}
+      </button>
+    </div>
+  `;
+
+  if (conversationBridgeBuilt && bridgeOutput && bridgePanel) {
+    bridgeOutput.innerHTML = renderSelectedConversationBridge();
+    bridgePanel.classList.remove("hidden");
+  } else if (!conversationBridgeBuilt) {
+    resetConversationBridge();
+  }
+
+  document.querySelectorAll(".signal-select-checkbox").forEach(input => {
+    input.addEventListener("change", event => {
+      const index = Number(event.currentTarget.getAttribute("data-signal-index"));
+      if (!Number.isFinite(index)) return;
+      if (event.currentTarget.checked) {
+        selectedSignalIndexes.add(index);
+      } else {
+        selectedSignalIndexes.delete(index);
+      }
+      conversationBridgeBuilt = false;
+      renderSignalSelectionList();
+    });
+  });
+
+  document.getElementById("toggleSignals")?.addEventListener("click", () => {
+    conversationCardsExpanded = !conversationCardsExpanded;
+    renderSignalSelectionList();
+  });
+
+  document.getElementById("buildBridgeButton")?.addEventListener("click", () => {
+    if (!selectedSignalIndexes.size) return;
+    conversationBridgeBuilt = true;
+    renderSignalSelectionList();
+    bridgePanel?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
 }
 
 function renderConversationCards(text) {
@@ -1533,29 +1864,17 @@ function renderConversationCards(text) {
 
   if (cardBlocks.length === 0) return false;
 
-  analysisOutput.innerHTML = cardBlocks.map(block => {
-    const { heading, sections } = parseConversationCardBlock(block);
-    const cleanHeading = heading.replace(/^(Card\s+\d+\s*:\s*)/i, "").trim() || heading;
-    const sectionHtml = sections.map(section => `
-      <div class="${conversationSectionClass(section.label)}">
-        <div class="conversation-label">${escapeHtml(section.label)}</div>
-        <div class="conversation-text">${escapeHtml(section.text)}</div>
-      </div>
-    `).join("");
-
-    return `
-      <div class="theme-card conversation-card">
-        <h3>${escapeHtml(cleanHeading)}</h3>
-        ${sectionHtml}
-      </div>
-    `;
-  }).join("");
-
+  lastConversationCards = cardBlocks.map(parseConversationCardBlock);
+  conversationCardsExpanded = false;
+  resetConversationBridge();
+  selectedSignalIndexes = new Set(lastConversationCards.slice(0, DEFAULT_VISIBLE_SIGNAL_COUNT).map((_, index) => index));
+  renderSignalSelectionList();
   return true;
 }
 
 function renderAnalysis(text) {
   if (!text) {
+    resetConversationBridge();
     analysisOutput.textContent = "No analysis returned.";
     return;
   }
@@ -1568,6 +1887,7 @@ function renderAnalysis(text) {
     .filter(Boolean);
 
   if (themeBlocks.length === 0) {
+    resetConversationBridge();
     analysisOutput.textContent = text;
     return;
   }
@@ -1670,34 +1990,28 @@ function renderContext(context) {
 }
 
 
-function getSignalThreads() {
-  const checked = Array.from(document.querySelectorAll('input[name="signalThread"]:checked'))
-    .map(input => input.value)
-    .filter(Boolean);
 
-  return checked.length
-    ? checked
-    : ["sector_news", "fx_rates", "geopolitics", "trade_supply_chain"];
-}
-
-async function updateFxOnly() {
+async function fetchMarketIntelligence({ showLoading = false } = {}) {
   const tradeFlow = getTradeFlow();
   const currencies = [...new Set([...(tradeFlow.purchase.currencies || []), ...(tradeFlow.sales.currencies || [])])];
-  const sector = sectorBox.value;
-  const subsector = subsectorBox.value;
-  const industry = selectedIsic ? selectedIsic.description : industryBox.value.trim();
+  const sector = sectorBox?.value || "";
+  const subsector = subsectorBox?.value || "";
+  const industry = selectedIsic ? selectedIsic.description : (industryBox?.value || "").trim();
   const isicCode = selectedIsic?.code || "";
   const fxTenor = fxTenorBox?.value || "30";
   const tradeRoles = getSelectedTradeRolesFromFlow(tradeFlow);
   const countries = getAllTradeFlowCountries(tradeFlow);
 
+  if (!fxOutput) return false;
+
   if (currencies.length === 0) {
     fxOutput.textContent = "Please select at least one currency.";
-    return;
+    return false;
   }
 
-  updateFxButton.disabled = true;
-  fxOutput.innerHTML = `<span class="loading">Updating FX...</span>`;
+  if (showLoading) {
+    fxOutput.innerHTML = `<span class="loading">Loading market intelligence...</span>`;
+  }
 
   try {
     const response = await fetch("/api/fx", {
@@ -1721,75 +2035,86 @@ async function updateFxOnly() {
     const data = await response.json();
 
     if (!response.ok) {
-      fxOutput.innerHTML = `<span class="error">${data.error || "FX update failed."}</span>`;
-      return;
+      fxOutput.innerHTML = `<span class="error">${escapeHtml(data.error || "Market intelligence update failed.")}</span>`;
+      return false;
     }
 
     renderFx(data.fx || [], data.fxResearch || null);
+    return true;
   } catch (error) {
-    fxOutput.innerHTML = `<span class="error">FX network error.</span>`;
-  } finally {
-    updateFxButton.disabled = false;
+    fxOutput.innerHTML = `<span class="error">Market intelligence network error.</span>`;
+    return false;
   }
 }
 
-let isicSearchTimer = null;
-industryBox.addEventListener("input", function () {
-  selectedIsic = null;
-  industryBox.classList.remove("valid-selection");
-  selectedIsicBox.textContent = "Select one suggested ISIC activity. Free-text entries are not accepted as final input.";
-  window.clearTimeout(isicSearchTimer);
-  isicSearchTimer = window.setTimeout(renderIsicDropdown, 160);
-});
-
-industryBox.addEventListener("focus", renderIsicDropdown);
-industryBox.addEventListener("keydown", function (event) {
-  if (event.key === "Escape") {
-    isicDropdown.classList.add("hidden");
-    industryBox.setAttribute("aria-expanded", "false");
-  }
-});
-
-document.addEventListener("click", function (event) {
-  if (!event.target.closest(".isic-picker")) {
-    isicDropdown?.classList.add("hidden");
-    industryBox?.setAttribute("aria-expanded", "false");
-  }
-});
-
-[purchaseInternationalBox, salesInternationalBox].forEach(box => {
-  box?.addEventListener("change", updateTradeFlowVisibility);
-});
-
-function attachCountryPicker(side, searchBox, dropdown) {
-  searchBox?.addEventListener("focus", function () {
-    dropdown.classList.remove("hidden");
-    renderCountryDropdownFor(side);
+function attachCoreInputListeners() {
+  industryBox?.addEventListener("input", function () {
+    selectedIsic = null;
+    industryBox.classList.remove("valid-selection");
+    if (selectedIsicBox) {
+      selectedIsicBox.textContent = "Select one suggested ISIC activity. Free-text entries are not accepted as final input.";
+    }
+    renderIsicDropdown();
   });
-  searchBox?.addEventListener("input", function () {
-    dropdown.classList.remove("hidden");
-    renderCountryDropdownFor(side);
+
+  industryBox?.addEventListener("focus", renderIsicDropdown);
+  industryBox?.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") {
+      isicDropdown?.classList.add("hidden");
+      industryBox?.setAttribute("aria-expanded", "false");
+    }
+  });
+
+  document.addEventListener("click", function (event) {
+    if (!event.target.closest(".isic-picker")) {
+      isicDropdown?.classList.add("hidden");
+      industryBox?.setAttribute("aria-expanded", "false");
+    }
+  });
+
+  [purchaseInternationalBox, salesInternationalBox].forEach(box => {
+    box?.addEventListener("change", updateTradeFlowVisibility);
+  });
+
+  function attachCountryPicker(side, searchBox, dropdown) {
+    searchBox?.addEventListener("focus", function () {
+      dropdown?.classList.remove("hidden");
+      renderCountryDropdownFor(side);
+    });
+    searchBox?.addEventListener("input", function () {
+      dropdown?.classList.remove("hidden");
+      renderCountryDropdownFor(side);
+    });
+  }
+
+  attachCountryPicker("purchase", purchaseCountrySearch, purchaseCountryDropdown);
+  attachCountryPicker("sales", salesCountrySearch, salesCountryDropdown);
+
+  document.addEventListener("click", function (event) {
+    if (!event.target.closest('.country-picker[data-picker="purchase"]')) {
+      purchaseCountryDropdown?.classList.add("hidden");
+    }
+    if (!event.target.closest('.country-picker[data-picker="sales"]')) {
+      salesCountryDropdown?.classList.add("hidden");
+    }
   });
 }
 
-attachCountryPicker("purchase", purchaseCountrySearch, purchaseCountryDropdown);
-attachCountryPicker("sales", salesCountrySearch, salesCountryDropdown);
+function getSignalThreads() {
+  const checked = Array.from(document.querySelectorAll('input[name="signalThread"]:checked'))
+    .map(input => input.value)
+    .filter(Boolean);
 
-document.addEventListener("click", function (event) {
-  if (!event.target.closest('.country-picker[data-picker="purchase"]')) {
-    purchaseCountryDropdown?.classList.add("hidden");
-  }
-  if (!event.target.closest('.country-picker[data-picker="sales"]')) {
-    salesCountryDropdown?.classList.add("hidden");
-  }
-});
+  return checked.length
+    ? checked
+    : ["sector_news", "fx_rates", "geopolitics", "trade_supply_chain"];
+}
+
 
 function getClientProfile() {
-  return {
-    relationshipContext: relationshipContextBox?.value || "unknown",
-    cashPosition: cashPositionBox?.value || "unknown"
-  };
+  return {};
 }
+
 
 button.addEventListener("click", async function () {
   const sector = sectorBox.value;
@@ -1798,7 +2123,7 @@ button.addEventListener("click", async function () {
   const isicCode = selectedIsic?.code || "";
   const timeframe = timeframeBox.value;
   const fxTenor = fxTenorBox?.value || "30";
-  const conversationGoal = conversationGoalBox?.value || "general_check_in";
+  const conversationGoal = "general_check_in";
   const clientProfile = getClientProfile();
   const signalThreads = getSignalThreads();
   const tradeFlow = getTradeFlow();
@@ -1854,10 +2179,13 @@ button.addEventListener("click", async function () {
   }
 
   button.disabled = true;
-  analysisOutput.innerHTML = `<span class="loading">Researching news...</span>`;
+  resetConversationBridge();
+  analysisOutput.innerHTML = `<span class="loading">Researching relevant signals...</span>`;
   renderFxContext("");
-  sourcesOutput.innerHTML = `<span class="loading">Loading sources...</span>`;
+  if (sourcesOutput) sourcesOutput.innerHTML = `<span class="loading">Loading sources...</span>`;
   if (contextOutput) contextOutput.textContent = "";
+
+  const marketIntelligencePromise = fetchMarketIntelligence({ showLoading: true });
 
   try {
     const response = await fetch("/api/chat", {
@@ -1887,18 +2215,24 @@ button.addEventListener("click", async function () {
 
     if (!response.ok) {
       analysisOutput.innerHTML = `<span class="error">${data.error || "Request failed."}</span>`;
-      sourcesOutput.textContent = "";
+      if (sourcesOutput) sourcesOutput.textContent = "";
       if (contextOutput) contextOutput.textContent = "";
       return;
     }
 
     renderSources(data.sources || [], Boolean(data.no_relevant_updates), Boolean(data.fallback_triggered));
     renderAnalysis(data.news?.content || data.analysis || "No analysis returned.");
+
+    const marketIntelligenceRendered = await marketIntelligencePromise;
+    if (!marketIntelligenceRendered && Array.isArray(data.fx)) {
+      renderFx(data.fx || [], data.fxResearch || null);
+    }
+
     // Industry Context & RM Considerations is currently deactivated in the UI.
     // renderContext(data.context || "");
   } catch (error) {
     analysisOutput.innerHTML = `<span class="error">Network error.</span>`;
-    sourcesOutput.textContent = "";
+    if (sourcesOutput) sourcesOutput.textContent = "";
     if (contextOutput) contextOutput.textContent = "";
   } finally {
     button.disabled = false;
@@ -1910,15 +2244,15 @@ populateSubsectors();
 renderCountryDropdownFor("purchase");
 renderCountryDropdownFor("sales");
 updateTradeFlowVisibility();
+attachCoreInputListeners();
 
-sectorBox.addEventListener("change", function () {
+sectorBox?.addEventListener("change", function () {
   sectorBox.classList.remove("auto-filled");
   subsectorBox.classList.remove("auto-filled");
   populateSubsectors();
   if (document.activeElement === industryBox) renderIsicDropdown();
 });
-subsectorBox.addEventListener("change", function () {
+subsectorBox?.addEventListener("change", function () {
   subsectorBox.classList.remove("auto-filled");
   if (document.activeElement === industryBox) renderIsicDropdown();
 });
-updateFxButton.addEventListener("click", updateFxOnly);
