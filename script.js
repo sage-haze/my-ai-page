@@ -873,20 +873,6 @@ function getIsicMatchMeta(entry) {
   return [reasonText, context].filter(Boolean).join(" | ");
 }
 
-
-function getIsicMatchMeta(entry) {
-  const reasons = [];
-  if (entry.matchedRoles?.length) reasons.push(entry.matchedRoles.slice(0, 1).join(", "));
-  if (entry.matchedDomains?.length) reasons.push(entry.matchedDomains.slice(0, 1).join(", "));
-  if (entry.fallbackSuggestion && entry.fallbackReason) reasons.push(entry.fallbackReason);
-  if (!reasons.length && entry.subsector) reasons.push(entry.subsector);
-  if (!reasons.length && entry.sector) reasons.push(entry.sector);
-
-  const context = [entry.sector, entry.subsector].filter(Boolean).join(" • ");
-  const reasonText = reasons.length ? `${entry.fallbackSuggestion ? "Suggested" : "Matched"}: ${reasons.join(" + ")}` : "";
-  return [reasonText, context].filter(Boolean).join(" | ");
-}
-
 function renderIsicDropdown() {
   if (!isicDropdown || typeof ISIC_DATA === "undefined") return;
 
