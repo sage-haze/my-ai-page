@@ -15,119 +15,117 @@
 
       <div class="preparation-layout">
         <main class="preparation-main">
-          <section class="setup-card client-industry-card">
+          <section class="setup-card client-profile-card">
             <div class="section-heading-row">
               <div>
-                <h2>Client profile</h2>
-                <p class="section-subtitle">Start with what the client does, then choose one ISIC activity to anchor the search.</p>
+                <h2>Client Profile</h2>
+                <p class="section-subtitle">Build a client-aware scan using the company’s industry, trade flows, and currencies.</p>
               </div>
             </div>
-            <div class="form-grid">
-              <div class="form-group">
-                <label for="sector">Sector</label>
-                <select id="sector">
-                  <option value="">Select a sector</option>
-                </select>
-              </div>
 
-              <div class="form-group">
-                <label for="subsector">Subsector</label>
-                <select id="subsector" disabled>
-                  <option value="">Select a sector first</option>
-                </select>
-              </div>
-
-              <div class="form-group isic-picker">
-                <label for="industry">ISIC activity / industry</label>
-                <div class="isic-input-wrap">
-                  <input
-                    id="industry"
-                    type="text"
-                    placeholder="e.g., Manufacture of motor vehicles, seafood processing"
-                    autocomplete="off"
-                    role="combobox"
-                    aria-autocomplete="list"
-                    aria-expanded="false"
-                    aria-controls="isicDropdown"
-                  >
-                  <div id="isicDropdown" class="isic-dropdown hidden" role="listbox"></div>
+            <div class="profile-subsection">
+              <div class="subsection-kicker">Business</div>
+              <div class="form-grid profile-business-grid">
+                <div class="form-group">
+                  <label for="sector">Sector</label>
+                  <select id="sector">
+                    <option value="">Select a sector</option>
+                  </select>
                 </div>
-                <div id="selectedIsic" class="field-hint">Select one suggested ISIC activity. Free-text entries are not accepted as final input.</div>
+
+                <div class="form-group">
+                  <label for="subsector">Subsector</label>
+                  <select id="subsector" disabled>
+                    <option value="">Select a sector first</option>
+                  </select>
+                </div>
+
+                <div class="form-group isic-picker">
+                  <label for="industry">ISIC activity / industry</label>
+                  <div class="isic-input-wrap">
+                    <input
+                      id="industry"
+                      type="text"
+                      placeholder="e.g., Manufacture of motor vehicles, seafood processing"
+                      autocomplete="off"
+                      role="combobox"
+                      aria-autocomplete="list"
+                      aria-expanded="false"
+                      aria-controls="isicDropdown"
+                    >
+                    <div id="isicDropdown" class="isic-dropdown hidden" role="listbox"></div>
+                  </div>
+                  <div id="selectedIsic" class="field-hint">Select one suggested ISIC activity. Free-text entries are not accepted as final input.</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="profile-subsection trade-flows-subsection">
+              <div class="subsection-kicker">Trade flows</div>
+              <div class="trade-flow-grid profile-trade-grid">
+                <section class="trade-side-card" data-side="purchase">
+                  <h3>Purchase from</h3>
+                  <div class="checkbox-row stacked">
+                    <label><input type="checkbox" id="purchaseDomestic" checked> Domestic (Thailand)</label>
+                    <label><input type="checkbox" id="purchaseInternational"> International</label>
+                  </div>
+                  <div class="form-group conditional-field" id="purchaseCountryField">
+                    <label>International purchase markets</label>
+                    <div class="country-picker" data-picker="purchase">
+                      <input id="purchaseCountrySearch" type="text" placeholder="Search supplier countries..." autocomplete="off">
+                      <div id="purchaseCountryDropdown" class="country-dropdown hidden"></div>
+                    </div>
+                    <div id="selectedPurchaseCountries" class="selected-country-row"></div>
+                  </div>
+                  <div class="form-group">
+                    <label>Purchase currencies</label>
+                    <div class="checkbox-row stacked compact-currencies">
+                      <label><input type="checkbox" name="purchaseCurrency" value="THB" checked> THB</label>
+                      <label><input type="checkbox" name="purchaseCurrency" value="USD"> USD</label>
+                      <label><input type="checkbox" name="purchaseCurrency" value="JPY"> JPY</label>
+                      <label><input type="checkbox" name="purchaseCurrency" value="EUR"> EUR</label>
+                      <label><input type="checkbox" name="purchaseCurrency" value="CNY"> CNY</label>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="trade-side-card" data-side="sales">
+                  <h3>Sales to</h3>
+                  <div class="checkbox-row stacked">
+                    <label><input type="checkbox" id="salesDomestic" checked> Domestic (Thailand)</label>
+                    <label><input type="checkbox" id="salesInternational"> International</label>
+                  </div>
+                  <div class="form-group conditional-field" id="salesCountryField">
+                    <label>International sales markets</label>
+                    <div class="country-picker" data-picker="sales">
+                      <input id="salesCountrySearch" type="text" placeholder="Search customer countries..." autocomplete="off">
+                      <div id="salesCountryDropdown" class="country-dropdown hidden"></div>
+                    </div>
+                    <div id="selectedSalesCountries" class="selected-country-row"></div>
+                  </div>
+                  <div class="form-group">
+                    <label>Sales currencies</label>
+                    <div class="checkbox-row stacked compact-currencies">
+                      <label><input type="checkbox" name="salesCurrency" value="THB" checked> THB</label>
+                      <label><input type="checkbox" name="salesCurrency" value="USD"> USD</label>
+                      <label><input type="checkbox" name="salesCurrency" value="JPY"> JPY</label>
+                      <label><input type="checkbox" name="salesCurrency" value="EUR"> EUR</label>
+                      <label><input type="checkbox" name="salesCurrency" value="CNY"> CNY</label>
+                    </div>
+                  </div>
+                </section>
               </div>
             </div>
           </section>
 
-          <section class="setup-card operating-profile-card">
+          <section class="setup-card market-setup-card">
             <div class="section-heading-row">
               <div>
-                <h2>Operating profile</h2>
-                <p class="section-subtitle">Capture the practical flows that shape cash, trade, payments, FX, and working capital relevance.</p>
+                <h2>Market Setup</h2>
+                <p class="section-subtitle">Choose the lookback window for news and FX context.</p>
               </div>
             </div>
-
-            <div class="trade-flow-grid">
-              <section class="trade-side-card" data-side="purchase">
-                <h3>Purchase from</h3>
-                <div class="checkbox-row stacked">
-                  <label><input type="checkbox" id="purchaseDomestic" checked> Domestic (Thailand)</label>
-                  <label><input type="checkbox" id="purchaseInternational"> International</label>
-                </div>
-                <div class="form-group conditional-field" id="purchaseCountryField">
-                  <label>International purchase markets</label>
-                  <div class="country-picker" data-picker="purchase">
-                    <input id="purchaseCountrySearch" type="text" placeholder="Search supplier countries..." autocomplete="off">
-                    <div id="purchaseCountryDropdown" class="country-dropdown hidden"></div>
-                  </div>
-                  <div id="selectedPurchaseCountries" class="selected-country-row"></div>
-                </div>
-                <div class="form-group">
-                  <label>Purchase currencies</label>
-                  <div class="checkbox-row stacked compact-currencies">
-                    <label><input type="checkbox" name="purchaseCurrency" value="THB" checked> THB</label>
-                    <label><input type="checkbox" name="purchaseCurrency" value="USD"> USD</label>
-                    <label><input type="checkbox" name="purchaseCurrency" value="JPY"> JPY</label>
-                    <label><input type="checkbox" name="purchaseCurrency" value="EUR"> EUR</label>
-                    <label><input type="checkbox" name="purchaseCurrency" value="CNY"> CNY</label>
-                  </div>
-                </div>
-              </section>
-
-              <section class="trade-side-card" data-side="sales">
-                <h3>Sales to</h3>
-                <div class="checkbox-row stacked">
-                  <label><input type="checkbox" id="salesDomestic" checked> Domestic (Thailand)</label>
-                  <label><input type="checkbox" id="salesInternational"> International</label>
-                </div>
-                <div class="form-group conditional-field" id="salesCountryField">
-                  <label>International sales markets</label>
-                  <div class="country-picker" data-picker="sales">
-                    <input id="salesCountrySearch" type="text" placeholder="Search customer countries..." autocomplete="off">
-                    <div id="salesCountryDropdown" class="country-dropdown hidden"></div>
-                  </div>
-                  <div id="selectedSalesCountries" class="selected-country-row"></div>
-                </div>
-                <div class="form-group">
-                  <label>Sales currencies</label>
-                  <div class="checkbox-row stacked compact-currencies">
-                    <label><input type="checkbox" name="salesCurrency" value="THB" checked> THB</label>
-                    <label><input type="checkbox" name="salesCurrency" value="USD"> USD</label>
-                    <label><input type="checkbox" name="salesCurrency" value="JPY"> JPY</label>
-                    <label><input type="checkbox" name="salesCurrency" value="EUR"> EUR</label>
-                    <label><input type="checkbox" name="salesCurrency" value="CNY"> CNY</label>
-                  </div>
-                </div>
-              </section>
-            </div>
-          </section>
-
-          <section class="setup-card market-setup-card compact-market-card">
-            <div class="section-heading-row compact-heading-row">
-              <div>
-                <h2>Market setup</h2>
-                <p class="section-subtitle">Set the search window and FX tenor after the client context is clear.</p>
-              </div>
-            </div>
-            <div class="form-grid compact-grid">
+            <div class="form-grid market-fields-grid">
               <div class="form-group">
                 <label for="timeframe">News timeframe</label>
                 <select id="timeframe">

@@ -1571,3 +1571,117 @@ select.auto-filled {
 .sources-panel.hidden {
   display: none !important;
 }
+
+/* ---------- v12 cleaner setup panel ---------- */
+.client-profile-card,
+.market-setup-card {
+  background: #ffffff;
+  border: 1px solid #d8e2ea;
+  border-radius: 18px;
+  padding: 18px 20px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.035);
+}
+
+.client-profile-card .section-heading-row,
+.market-setup-card .section-heading-row {
+  margin-bottom: 16px;
+}
+
+.client-profile-card h2,
+.market-setup-card h2 {
+  font-size: 20px;
+  color: #111827;
+}
+
+.profile-subsection {
+  padding-top: 14px;
+  border-top: 1px solid #eef2f7;
+}
+
+.profile-subsection:first-of-type {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.profile-subsection + .profile-subsection {
+  margin-top: 16px;
+}
+
+.subsection-kicker {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin-bottom: 10px;
+  border-radius: 999px;
+  background: #eef8f6;
+  color: #0f766e;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.profile-business-grid,
+.market-fields-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.profile-business-grid .isic-picker {
+  grid-column: 1 / -1;
+}
+
+.profile-trade-grid {
+  margin: 0;
+  gap: 14px;
+}
+
+.profile-trade-grid .trade-side-card {
+  background: #fbfdff;
+  border-color: #e1e9f2;
+  border-radius: 14px;
+  padding: 16px;
+}
+
+.profile-trade-grid .trade-side-card h3 {
+  color: #17324d;
+  font-size: 15px;
+  margin-bottom: 12px;
+}
+
+.client-profile-card .form-group,
+.market-setup-card .form-group {
+  margin-bottom: 0;
+}
+
+.market-setup-card {
+  margin-top: 16px;
+}
+
+.market-fields-grid {
+  align-items: end;
+}
+
+.market-setup-card select,
+.client-profile-card select,
+.client-profile-card input[type="text"] {
+  min-height: 42px;
+}
+
+.primary-action-row {
+  margin-top: 14px;
+}
+
+@media (max-width: 760px) {
+  .profile-business-grid,
+  .market-fields-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .client-profile-card,
+  .market-setup-card {
+    padding: 16px;
+  }
+}
