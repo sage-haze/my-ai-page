@@ -1356,37 +1356,38 @@ function renderFx(fxList, fxResearch = null) {
     const tableHeaders = Array.from({ length: 3 }, () => `<th>Date</th><th>Rate</th>`).join("");
 
     return `
-      <section class="fx-card-row">
+      <section class="fx-card-row fx-compact-card">
         <div class="fx-card-topline">
           <div>
             <div class="fx-title">${pair}</div>
             <div class="fx-subtitle">${tenor}-day trend against THB</div>
           </div>
-          <div class="fx-latest">
-            <span>Latest</span>
-            <strong>${formatDisplayRate(latest)}</strong>
-          </div>
         </div>
 
-        <div class="fx-stat-grid">
+        <div class="fx-stat-grid fx-compact-stat-grid">
+          <div class="fx-stat"><span>Latest</span><strong>${formatDisplayRate(latest)}</strong></div>
           <div class="fx-stat"><span>${tenor}D change</span><strong>${formatPercent(change)}</strong></div>
           <div class="fx-stat"><span>${tenor}D high</span><strong>${formatDisplayRate(fx.highest_rate)}</strong><em>${highDate}</em></div>
           <div class="fx-stat"><span>${tenor}D low</span><strong>${formatDisplayRate(fx.lowest_rate)}</strong><em>${lowDate}</em></div>
-          <div class="fx-stat"><span>Data points</span><strong>${series.length || "—"}</strong></div>
         </div>
 
-        <div class="fx-chart-wrap">
-          ${series.length > 1 ? `<canvas id="${canvasId}" aria-label="${pair} FX trend chart"></canvas>` : `<div class="fx-chart-status">Not enough daily data to plot a chart.</div>`}
-        </div>
+        <details class="fx-detail-toggle" data-canvas-id="${canvasId}">
+          <summary>Show trend and commentary</summary>
+          <div class="fx-detail-body">
+            <div class="fx-chart-wrap">
+              ${series.length > 1 ? `<canvas id="${canvasId}" aria-label="${pair} FX trend chart"></canvas>` : `<div class="fx-chart-status">Not enough daily data to plot a chart.</div>`}
+            </div>
 
-        ${fx.analysis ? `<div class="fx-analysis">${escapeHtml(fx.analysis)}</div>` : ""}
+            ${fx.analysis ? `<div class="fx-analysis">${escapeHtml(fx.analysis)}</div>` : ""}
 
-        <details class="fx-table-toggle">
-          <summary>Show daily FX table</summary>
-          <table class="fx-detail-table fx-bloomberg-table">
-            <thead><tr>${tableHeaders}</tr></thead>
-            <tbody>${buildFxTableRows(series, 3)}</tbody>
-          </table>
+            <details class="fx-table-toggle">
+              <summary>Show daily FX table</summary>
+              <table class="fx-detail-table fx-bloomberg-table">
+                <thead><tr>${tableHeaders}</tr></thead>
+                <tbody>${buildFxTableRows(series, 3)}</tbody>
+              </table>
+            </details>
+          </div>
         </details>
       </section>
     `;
@@ -1406,7 +1407,17 @@ function renderFx(fxList, fxResearch = null) {
     </div>
   `;
 
-  requestAnimationFrame(() => renderFxCharts(chartConfigs));
+  const configByCanvasId = new Map(chartConfigs.map(config => [config.canvasId, config]));
+  document.querySelectorAll(".fx-detail-toggle[data-canvas-id]").forEach(detail => {
+    detail.addEventListener("toggle", () => {
+      if (!detail.open) return;
+      const canvasId = detail.getAttribute("data-canvas-id");
+      if (!canvasId || fxCharts[canvasId]) return;
+      const config = configByCanvasId.get(canvasId);
+      if (!config) return;
+      requestAnimationFrame(() => renderFxCharts([config]));
+    });
+  });
 }
 
 function renderSources(sources, noRelevantUpdates = false, fallbackTriggered = false) {
@@ -1449,6 +1460,8 @@ function renderSources(sources, noRelevantUpdates = false, fallbackTriggered = f
 const DEFAULT_VISIBLE_SIGNAL_COUNT = 3;
 let lastConversationCards = [];
 let conversationCardsExpanded = false;
+let conversationBridgeBuilt = false;
+let selectedSignalIndexes = new Set();
 
 const ALLOWED_SIGNAL_TAGS = [
   "FX",
@@ -1641,20 +1654,68 @@ function renderSignalTags(tags) {
   return `<div class="signal-tag-row">${cleanTags.map(tag => `<span class="signal-tag">${escapeHtml(tag)}</span>`).join("")}</div>`;
 }
 
-function renderConversationCard(card, index, hidden = false) {
+function getConversationSectionText(card, label) {
+  const wanted = normaliseConversationLabel(label);
+  const section = (card.sections || []).find(item => normaliseConversationLabel(item.label) === wanted);
+  return String(section?.text || "").trim();
+}
+
+function truncateText(text, maxLength = 220) {
+  const clean = String(text || "").replace(/\s+/g, " ").trim();
+  if (clean.length <= maxLength) return clean;
+  return `${clean.slice(0, maxLength).replace(/\s+\S*$/, "").trim()}…`;
+}
+
+function getSignalPreviewText(card) {
+  return truncateText(
+    getConversationSectionText(card, "Relate") ||
+    getConversationSectionText(card, "Observe") ||
+    (card.sections || []).map(section => section.text).find(Boolean) ||
+    "This signal may be relevant to the selected client profile."
+  );
+}
+
+function renderSignalSelectionCard(card, index) {
   const cleanHeading = card.heading.replace(/^(Card\s+\d+\s*:\s*)/i, "").trim() || `Signal ${index + 1}`;
-  const sectionHtml = card.sections.map(section => `
-    <div class="${conversationSectionClass(section.label)}">
-      <div class="conversation-label">${escapeHtml(section.label)}</div>
-      <div class="conversation-text">${escapeHtml(section.text)}</div>
-    </div>
-  `).join("");
+  const preview = getSignalPreviewText(card);
+  const checked = selectedSignalIndexes.has(index) ? "checked" : "";
 
   return `
-    <div class="theme-card conversation-card signal-card ${hidden ? "extra-signal-card hidden" : ""}">
+    <div class="signal-selection-card" data-signal-index="${index}">
+      <label class="signal-select-row">
+        <input type="checkbox" class="signal-select-checkbox" data-signal-index="${index}" ${checked}>
+        <span>Select for bridge</span>
+      </label>
       <div class="signal-card-topline">
         ${renderSignalTags(card.tags)}
         <span class="signal-rank">#${index + 1}</span>
+      </div>
+      <h3>${escapeHtml(cleanHeading)}</h3>
+      <div class="signal-preview-label">Why it may be relevant</div>
+      <p class="signal-preview-text">${escapeHtml(preview)}</p>
+    </div>
+  `;
+}
+
+function renderBridgeCard(card, index) {
+  const cleanHeading = card.heading.replace(/^(Card\s+\d+\s*:\s*)/i, "").trim() || `Bridge ${index + 1}`;
+  const orderedLabels = ["Observe", "Relate", "Leave Space", "Lightly Explore", "Offer Support"];
+  const sectionHtml = orderedLabels.map(label => {
+    const text = getConversationSectionText(card, label);
+    if (!text) return "";
+    return `
+      <div class="${conversationSectionClass(label)}">
+        <div class="conversation-label">${escapeHtml(label)}</div>
+        <div class="conversation-text">${escapeHtml(text)}</div>
+      </div>
+    `;
+  }).join("");
+
+  return `
+    <div class="theme-card conversation-card bridge-card">
+      <div class="signal-card-topline">
+        ${renderSignalTags(card.tags)}
+        <span class="signal-rank">Bridge ${index + 1}</span>
       </div>
       <h3>${escapeHtml(cleanHeading)}</h3>
       ${sectionHtml}
@@ -1662,29 +1723,78 @@ function renderConversationCard(card, index, hidden = false) {
   `;
 }
 
-function renderConversationCardList() {
+function renderSelectedConversationBridge() {
+  const selectedCards = [...selectedSignalIndexes]
+    .sort((a, b) => a - b)
+    .map(index => lastConversationCards[index])
+    .filter(Boolean);
+
+  if (!selectedCards.length) {
+    return `<div class="empty-state bridge-empty">Select at least one signal to build a conversation bridge.</div>`;
+  }
+
+  return `
+    <div class="bridge-output" id="bridgeOutput">
+      <div class="bridge-header-row">
+        <div>
+          <h3>Conversation Bridge</h3>
+          <p>Use these five moves only for the signals you selected.</p>
+        </div>
+      </div>
+      ${selectedCards.map((card, index) => renderBridgeCard(card, index)).join("")}
+    </div>
+  `;
+}
+
+function renderSignalSelectionList() {
   const visibleLimit = conversationCardsExpanded ? lastConversationCards.length : DEFAULT_VISIBLE_SIGNAL_COUNT;
   const visibleCards = lastConversationCards.slice(0, visibleLimit);
   const hiddenCount = Math.max(0, lastConversationCards.length - DEFAULT_VISIBLE_SIGNAL_COUNT);
+  const selectedCount = selectedSignalIndexes.size;
 
-  const cardsHtml = visibleCards.map((card, index) => renderConversationCard(card, index)).join("");
+  const cardsHtml = visibleCards.map((card, index) => renderSignalSelectionCard(card, index)).join("");
   const toggleHtml = hiddenCount > 0 ? `
-    <div class="show-more-row">
-      <button type="button" class="secondary-action" id="toggleSignals">
-        ${conversationCardsExpanded ? "Show fewer signals" : `Show ${hiddenCount} more signal${hiddenCount === 1 ? "" : "s"}`}
-      </button>
-    </div>
+    <button type="button" class="secondary-action" id="toggleSignals">
+      ${conversationCardsExpanded ? "Show fewer signals" : `Show ${hiddenCount} more signal${hiddenCount === 1 ? "" : "s"}`}
+    </button>
   ` : "";
 
   analysisOutput.innerHTML = `
-    <div class="signals-summary">Showing ${visibleCards.length} of ${lastConversationCards.length} relevant signal${lastConversationCards.length === 1 ? "" : "s"}. The strongest three are shown first.</div>
-    ${cardsHtml}
-    ${toggleHtml}
+    <div class="signals-summary">Showing ${visibleCards.length} of ${lastConversationCards.length} relevant signal${lastConversationCards.length === 1 ? "" : "s"}. Select the ones you want to turn into a conversation bridge.</div>
+    <div class="signal-selection-list">${cardsHtml}</div>
+    <div class="signal-action-row">
+      ${toggleHtml}
+      <button type="button" class="secondary-action primary-bridge-action" id="buildBridgeButton" ${selectedCount ? "" : "disabled"}>
+        Build Conversation Bridge${selectedCount ? ` (${selectedCount})` : ""}
+      </button>
+    </div>
+    ${conversationBridgeBuilt ? renderSelectedConversationBridge() : ""}
   `;
+
+  document.querySelectorAll(".signal-select-checkbox").forEach(input => {
+    input.addEventListener("change", event => {
+      const index = Number(event.currentTarget.getAttribute("data-signal-index"));
+      if (!Number.isFinite(index)) return;
+      if (event.currentTarget.checked) {
+        selectedSignalIndexes.add(index);
+      } else {
+        selectedSignalIndexes.delete(index);
+      }
+      conversationBridgeBuilt = false;
+      renderSignalSelectionList();
+    });
+  });
 
   document.getElementById("toggleSignals")?.addEventListener("click", () => {
     conversationCardsExpanded = !conversationCardsExpanded;
-    renderConversationCardList();
+    renderSignalSelectionList();
+  });
+
+  document.getElementById("buildBridgeButton")?.addEventListener("click", () => {
+    if (!selectedSignalIndexes.size) return;
+    conversationBridgeBuilt = true;
+    renderSignalSelectionList();
+    document.getElementById("bridgeOutput")?.scrollIntoView({ behavior: "smooth", block: "start" });
   });
 }
 
@@ -1698,7 +1808,9 @@ function renderConversationCards(text) {
 
   lastConversationCards = cardBlocks.map(parseConversationCardBlock);
   conversationCardsExpanded = false;
-  renderConversationCardList();
+  conversationBridgeBuilt = false;
+  selectedSignalIndexes = new Set(lastConversationCards.slice(0, DEFAULT_VISIBLE_SIGNAL_COUNT).map((_, index) => index));
+  renderSignalSelectionList();
   return true;
 }
 

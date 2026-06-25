@@ -1273,3 +1273,159 @@ select.auto-filled {
     justify-content: flex-start;
   }
 }
+
+/* ---------- v9 compact market intelligence ---------- */
+.fx-compact-card .fx-card-topline {
+  margin-bottom: 8px;
+}
+
+.fx-compact-stat-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 0;
+}
+
+.fx-compact-stat-grid .fx-stat {
+  padding: 7px 6px;
+}
+
+.fx-compact-stat-grid .fx-stat strong {
+  font-size: 13px;
+}
+
+.fx-detail-toggle {
+  margin-top: 10px;
+  border-top: 1px solid #eef2f7;
+  padding-top: 8px;
+}
+
+.fx-detail-toggle summary {
+  cursor: pointer;
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.fx-detail-body {
+  margin-top: 10px;
+}
+
+/* v9 overrides for the narrower market intelligence panel */
+#fxOutput .fx-stat-grid.fx-compact-stat-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+#fxOutput .fx-chart-wrap {
+  height: 180px;
+}
+
+/* ---------- v9 selected signals and bridge workflow ---------- */
+.signal-selection-list {
+  display: grid;
+  gap: 12px;
+}
+
+.signal-selection-card {
+  border: 1px solid #dbe6ef;
+  border-radius: 14px;
+  background: #fff;
+  padding: 14px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
+}
+
+.signal-select-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+
+.signal-select-checkbox {
+  width: 15px;
+  height: 15px;
+  accent-color: #0f766e;
+}
+
+.signal-selection-card h3 {
+  margin: 8px 0 8px;
+  font-size: 16px;
+  color: #111827;
+}
+
+.signal-preview-label {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.signal-preview-text {
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.signal-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+.primary-bridge-action {
+  background: #0f766e;
+  border-color: #0f766e;
+  color: #fff;
+}
+
+.primary-bridge-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.bridge-output {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #e2e8f0;
+  display: grid;
+  gap: 14px;
+}
+
+.bridge-header-row h3 {
+  margin: 0;
+  color: #111827;
+}
+
+.bridge-header-row p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.bridge-card {
+  border-color: #cbd5e1;
+}
+
+.bridge-empty {
+  margin-top: 12px;
+}
+
+@media (max-width: 760px) {
+  #fxOutput .fx-stat-grid.fx-compact-stat-grid,
+  .fx-compact-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .signal-action-row {
+    justify-content: flex-start;
+  }
+}
