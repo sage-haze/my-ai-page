@@ -1737,7 +1737,7 @@ function renderSignalSelectionCard(card, index) {
     <div class="signal-selection-card" data-signal-index="${index}">
       <label class="signal-select-row">
         <input type="checkbox" class="signal-select-checkbox" data-signal-index="${index}" ${checked}>
-        <span>Select for bridge</span>
+        <span>Use in client conversation</span>
       </label>
       <div class="signal-card-topline">
         ${renderSignalTags(card.tags)}
@@ -1788,7 +1788,7 @@ function renderSelectedConversationBridge() {
     .filter(Boolean);
 
   if (!selectedCards.length) {
-    return `<div class="empty-state bridge-empty">Select at least one signal to build a conversation bridge.</div>`;
+    return `<div class="empty-state bridge-empty">Select at least one signal to plan your client conversation.</div>`;
   }
 
   return `
@@ -1812,12 +1812,12 @@ function renderSignalSelectionList() {
   ` : "";
 
   analysisOutput.innerHTML = `
-    <div class="signals-summary">Showing ${visibleCards.length} of ${lastConversationCards.length} relevant signal${lastConversationCards.length === 1 ? "" : "s"}. Select the ones you want to turn into a conversation bridge.</div>
+    <div class="signals-summary">Showing ${visibleCards.length} of ${lastConversationCards.length} relevant signal${lastConversationCards.length === 1 ? "" : "s"}. Select the signals you might use in a client conversation.</div>
     <div class="signal-selection-list">${cardsHtml}</div>
     <div class="signal-action-row">
       ${toggleHtml}
       <button type="button" class="secondary-action primary-bridge-action" id="buildBridgeButton" ${selectedCount ? "" : "disabled"}>
-        Build Conversation Bridge${selectedCount ? ` (${selectedCount})` : ""}
+        Plan my client conversation${selectedCount ? ` (${selectedCount})` : ""}
       </button>
     </div>
   `;

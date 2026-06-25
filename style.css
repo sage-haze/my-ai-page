@@ -1733,3 +1733,110 @@ select.auto-filled {
     margin-top: 18px;
   }
 }
+
+
+/* ---------- v14 bridge compactness and clearer selection wording ---------- */
+.signals-summary {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.4;
+  margin-bottom: 12px;
+}
+
+.signal-select-row {
+  color: #24506f;
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 7px;
+}
+
+.bridge-panel {
+  padding: 14px 16px;
+}
+
+.bridge-panel .result-card-header {
+  margin-bottom: 10px;
+}
+
+.bridge-panel .bridge-output {
+  display: grid;
+  gap: 10px;
+}
+
+.bridge-panel .theme-card.conversation-card.bridge-card {
+  padding: 12px 14px;
+  margin-bottom: 0;
+  border-radius: 12px;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03);
+}
+
+.bridge-card h3 {
+  margin: 6px 0 8px;
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+.bridge-step-list {
+  gap: 6px;
+}
+
+.bridge-step {
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
+  padding: 7px 0;
+}
+
+.bridge-step + .bridge-step {
+  border-top: 1px solid #f1f5f9;
+}
+
+.bridge-step-marker {
+  width: 20px;
+  height: 20px;
+  font-size: 11px;
+  margin-top: 1px;
+}
+
+.bridge-step-body .conversation-label {
+  font-size: 11.5px;
+  margin-bottom: 2px;
+}
+
+.bridge-step-body .conversation-text {
+  font-size: 13px;
+  line-height: 1.42;
+}
+
+.bridge-step.observe-section,
+.bridge-step.leave-space-section,
+.bridge-step.explore-section,
+.bridge-step.support-section {
+  padding: 8px 9px;
+  border-radius: 9px;
+}
+
+.bridge-source-footer {
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
+.bridge-source-footer summary {
+  font-size: 11.5px;
+}
+
+.bridge-source-footer ol {
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.bridge-source-footer li {
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+
+@media (min-width: 1100px) {
+  .bridge-panel .bridge-output {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+}
