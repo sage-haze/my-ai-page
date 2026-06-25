@@ -1024,3 +1024,252 @@ select.auto-filled {
 .secondary-action:hover {
   background: #f8fbfd;
 }
+
+/* V6 prototype-aligned bridge layout */
+.bridge-page {
+  max-width: 1120px;
+  margin: 24px auto;
+  padding: 20px;
+}
+
+.bridge-hero {
+  margin-bottom: 18px;
+}
+
+.bridge-hero h1 {
+  font-size: 32px;
+  line-height: 1.1;
+  margin: 0 0 6px;
+  color: #111827;
+}
+
+.bridge-hero .intro {
+  margin: 0;
+  color: #475569;
+  font-size: 15px;
+}
+
+.preparation-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 24px;
+  align-items: start;
+}
+
+.preparation-main {
+  min-width: 0;
+}
+
+.preparation-main .setup-card:first-child,
+.five-moves-sidebar {
+  margin-top: 0;
+}
+
+.five-moves-sidebar {
+  position: sticky;
+  top: 18px;
+  border-left: 4px solid #f1c27d;
+  background: #ffffff;
+}
+
+.five-moves-sidebar h2 {
+  font-size: 21px;
+}
+
+.five-moves-sidebar .section-subtitle {
+  max-width: 260px;
+}
+
+.five-moves-sidebar .five-moves-list {
+  list-style: none;
+  counter-reset: move-counter;
+  padding: 0;
+  margin: 4px 0 0;
+  gap: 0;
+}
+
+.five-moves-sidebar .five-moves-list li {
+  counter-increment: move-counter;
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  column-gap: 10px;
+  padding: 9px 0;
+  border-top: 1px solid #eef2f7;
+}
+
+.five-moves-sidebar .five-moves-list li::before {
+  content: counter(move-counter);
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #e8f1ff;
+  color: #24506f;
+  font-size: 12px;
+  font-weight: 800;
+  grid-row: span 2;
+  margin-top: 2px;
+}
+
+.five-moves-sidebar .five-moves-list strong {
+  display: block;
+  color: #111827;
+  margin: 0 0 2px;
+  font-size: 14px;
+}
+
+.five-moves-sidebar .five-moves-list span {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.compact-market-card {
+  background: #ffffff;
+}
+
+.primary-action-row {
+  justify-content: flex-end;
+  margin: 16px 0 2px;
+}
+
+#send {
+  background: #0f766e;
+  font-weight: 800;
+}
+
+.secondary-button,
+#updateFx.secondary-button {
+  background: #ffffff;
+  color: #0f766e;
+  border: 1px solid #99d5cc;
+  font-weight: 800;
+}
+
+.outputs-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 0.92fr);
+  gap: 24px;
+  align-items: start;
+  margin-top: 22px;
+}
+
+.signals-panel,
+.intelligence-panel,
+.sources-panel {
+  background: #ffffff;
+  border-color: #d8e2ea;
+  border-radius: 12px;
+}
+
+.sources-panel {
+  margin-top: 18px;
+}
+
+.signals-panel .result-card-header,
+.intelligence-panel .result-card-header {
+  margin-bottom: 12px;
+}
+
+.signal-card {
+  position: relative;
+  padding: 16px;
+  border-color: #d8e2ea;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03);
+}
+
+.signal-card h3 {
+  font-size: 16px;
+  margin-bottom: 10px;
+  color: #111827;
+}
+
+.signal-card-topline {
+  min-height: 26px;
+}
+
+.signal-rank {
+  color: #64748b;
+}
+
+.signal-tag {
+  border-color: #dbe6ef;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 11px;
+  letter-spacing: 0.01em;
+}
+
+.conversation-section {
+  border-top: 0;
+  padding: 8px 0;
+}
+
+.conversation-label {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12px;
+}
+
+.hero-observation {
+  border: 0;
+  border-left: 3px solid #0f766e;
+  background: #f6fffc;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.relate-section,
+.leave-space-section,
+.explore-section,
+.support-section {
+  border-top: 1px solid #eef2f7;
+}
+
+.relate-section {
+  color: #475569;
+  font-style: normal;
+}
+
+.leave-space-section .conversation-label,
+.explore-section .conversation-label,
+.support-section .conversation-label {
+  color: #24506f;
+}
+
+.support-section {
+  background: #fbfcfe;
+  margin-top: 4px;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+#fxOutput .fx-card-row {
+  padding: 12px;
+}
+
+#fxOutput .fx-stat-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+#fxOutput .fx-chart-wrap {
+  height: 180px;
+}
+
+@media (max-width: 980px) {
+  .preparation-layout,
+  .outputs-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .five-moves-sidebar {
+    position: static;
+    order: -1;
+  }
+
+  .primary-action-row {
+    justify-content: flex-start;
+  }
+}
