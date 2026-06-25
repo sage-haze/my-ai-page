@@ -1964,4 +1964,4 @@ subsectorBox.addEventListener("change", function () {
   subsectorBox.classList.remove("auto-filled");
   if (document.activeElement === industryBox) renderIsicDropdown();
 });
-updateFxButton.addEventListener("click", updateFxOnly);
+if (updateFxButton) updateFxButton.addEventListener("click", updateFxOnly);
