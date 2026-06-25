@@ -2160,7 +2160,7 @@ button.addEventListener("click", async function () {
   button.disabled = true;
   analysisOutput.innerHTML = `<span class="loading">Researching relevant signals...</span>`;
   renderFxContext("");
-  sourcesOutput.innerHTML = `<span class="loading">Loading sources...</span>`;
+  if (sourcesOutput) sourcesOutput.innerHTML = `<span class="loading">Loading sources...</span>`;
   if (contextOutput) contextOutput.textContent = "";
 
   const marketIntelligencePromise = fetchMarketIntelligence({ showLoading: true });
@@ -2193,7 +2193,7 @@ button.addEventListener("click", async function () {
 
     if (!response.ok) {
       analysisOutput.innerHTML = `<span class="error">${data.error || "Request failed."}</span>`;
-      sourcesOutput.textContent = "";
+      if (sourcesOutput) sourcesOutput.textContent = "";
       if (contextOutput) contextOutput.textContent = "";
       return;
     }
@@ -2210,7 +2210,7 @@ button.addEventListener("click", async function () {
     // renderContext(data.context || "");
   } catch (error) {
     analysisOutput.innerHTML = `<span class="error">Network error.</span>`;
-    sourcesOutput.textContent = "";
+    if (sourcesOutput) sourcesOutput.textContent = "";
     if (contextOutput) contextOutput.textContent = "";
   } finally {
     button.disabled = false;
