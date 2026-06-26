@@ -1891,3 +1891,9 @@ select.auto-filled {
 .bridge-step-scenario .bridge-step-body {
   gap: 0.18rem;
 }
+
+/* Force suggestion dropdowns closed immediately after an explicit selection. */
+.isic-picker.selection-complete .isic-dropdown,
+.country-picker.selection-complete .country-dropdown {
+  display: none !important;
+}

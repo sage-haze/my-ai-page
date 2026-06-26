@@ -37,6 +37,7 @@ let selectedPurchaseCountries = [];
 let selectedSalesCountries = [];
 let selectedIsic = null;
 let suppressIsicDropdownUntil = 0;
+const suppressCountryDropdownUntil = { purchase: 0, sales: 0 };
 let fxCharts = {};
 
 const BUSINESS_RELEVANCE_TERMS = [
@@ -854,6 +855,7 @@ function selectIsic(entry) {
   selectedIsic = entry;
   industryBox.value = `${entry.code} - ${entry.description}`;
   industryBox.classList.add("valid-selection");
+  industryBox.closest(".isic-picker")?.classList.add("selection-complete");
   autoFillSectorFromIsic(entry);
 
   const autoFillText = entry.sector && entry.subsector
@@ -901,7 +903,7 @@ function renderIsicDropdown() {
 
   const query = industryBox.value.trim();
 
-  if (isCurrentSelectedIsicValue() || Date.now() < suppressIsicDropdownUntil) {
+  if (industryBox.closest(".isic-picker")?.classList.contains("selection-complete") || isCurrentSelectedIsicValue() || Date.now() < suppressIsicDropdownUntil) {
     closeIsicDropdown();
     return;
   }
@@ -1048,12 +1050,44 @@ function getCountryOptions(search, selected) {
     .map(country => ({ ...country, checked: selected.some(c => c.code === country.code) }));
 }
 
+function closeCountryDropdownFor(side) {
+  const isPurchase = side === "purchase";
+  const searchBox = isPurchase ? purchaseCountrySearch : salesCountrySearch;
+  const dropdown = isPurchase ? purchaseCountryDropdown : salesCountryDropdown;
+  const picker = searchBox?.closest(".country-picker");
+  suppressCountryDropdownUntil[side] = Date.now() + 500;
+  picker?.classList.add("selection-complete");
+  dropdown?.classList.add("hidden");
+  if (dropdown) dropdown.style.display = "none";
+  searchBox?.blur();
+  requestAnimationFrame(() => {
+    dropdown?.classList.add("hidden");
+    if (dropdown) dropdown.style.display = "none";
+  });
+}
+
+function openCountryDropdownFor(side) {
+  const isPurchase = side === "purchase";
+  const searchBox = isPurchase ? purchaseCountrySearch : salesCountrySearch;
+  const dropdown = isPurchase ? purchaseCountryDropdown : salesCountryDropdown;
+  const picker = searchBox?.closest(".country-picker");
+  if (!dropdown || Date.now() < suppressCountryDropdownUntil[side]) return;
+  picker?.classList.remove("selection-complete");
+  dropdown.style.display = "";
+  dropdown.classList.remove("hidden");
+}
+
 function renderCountryDropdownFor(side) {
   const isPurchase = side === "purchase";
   const searchBox = isPurchase ? purchaseCountrySearch : salesCountrySearch;
   const dropdown = isPurchase ? purchaseCountryDropdown : salesCountryDropdown;
   const selected = isPurchase ? selectedPurchaseCountries : selectedSalesCountries;
   if (!searchBox || !dropdown) return;
+  if (Date.now() < suppressCountryDropdownUntil[side] || searchBox.closest(".country-picker")?.classList.contains("selection-complete")) {
+    dropdown.classList.add("hidden");
+    dropdown.style.display = "none";
+    return;
+  }
 
   const filtered = getCountryOptions(searchBox.value, selected);
   dropdown.innerHTML = filtered.map(country => `
@@ -1078,8 +1112,7 @@ function renderCountryDropdownFor(side) {
       }
       renderSelectedCountriesFor(side);
       searchBox.value = "";
-      dropdown.classList.add("hidden");
-      renderCountryDropdownFor(side);
+      closeCountryDropdownFor(side);
     });
   });
 }
@@ -2141,6 +2174,7 @@ function attachCoreInputListeners() {
     suppressIsicDropdownUntil = 0;
     selectedIsic = null;
     industryBox.classList.remove("valid-selection");
+    industryBox.closest(".isic-picker")?.classList.remove("selection-complete");
     if (selectedIsicBox) {
       selectedIsicBox.textContent = "Select one suggested ISIC activity. Free-text entries are not accepted as final input.";
     }
@@ -2176,11 +2210,13 @@ function attachCoreInputListeners() {
 
   function attachCountryPicker(side, searchBox, dropdown) {
     searchBox?.addEventListener("focus", function () {
-      dropdown?.classList.remove("hidden");
+      openCountryDropdownFor(side);
       renderCountryDropdownFor(side);
     });
     searchBox?.addEventListener("input", function () {
-      dropdown?.classList.remove("hidden");
+      suppressCountryDropdownUntil[side] = 0;
+      searchBox.closest(".country-picker")?.classList.remove("selection-complete");
+      openCountryDropdownFor(side);
       renderCountryDropdownFor(side);
     });
   }
@@ -2191,9 +2227,11 @@ function attachCoreInputListeners() {
   document.addEventListener("click", function (event) {
     if (!event.target.closest('.country-picker[data-picker="purchase"]')) {
       purchaseCountryDropdown?.classList.add("hidden");
+      if (purchaseCountryDropdown) purchaseCountryDropdown.style.display = "none";
     }
     if (!event.target.closest('.country-picker[data-picker="sales"]')) {
       salesCountryDropdown?.classList.add("hidden");
+      if (salesCountryDropdown) salesCountryDropdown.style.display = "none";
     }
   });
 }
