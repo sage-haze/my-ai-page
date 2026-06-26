@@ -97,3 +97,5 @@ Official datasets are treated as periodic context rather than breaking news. The
 - Top Relevant Signals now starts as a short selectable signal list instead of showing the full Five Moves text immediately.
 - The strongest three signals are selected by default; users can show more signals and choose what to include.
 - Clicking Build Conversation Bridge expands only the selected signals into Observe, Relate, Leave Space, Lightly Explore, and Offer Support.
+
+V18 update: default signal scan now includes commodities/input costs and macro indicators, and conversation cards include a compact Baseline & scenarios frame to help RMs discuss uncertainty without forecasting.
