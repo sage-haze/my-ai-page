@@ -1897,3 +1897,18 @@ select.auto-filled {
 .country-picker.selection-complete .country-dropdown {
   display: none !important;
 }
+
+/* V20: keep uncertainty framing subtle inside the Relate step */
+.keep-in-mind-note {
+  margin-top: 6px;
+  color: #64748b;
+  font-size: 12.5px;
+  line-height: 1.42;
+  font-style: italic;
+}
+
+.keep-in-mind-note span {
+  font-weight: 700;
+  font-style: normal;
+  color: #475569;
+}

@@ -1630,14 +1630,17 @@ function normaliseConversationLabel(label) {
     "client relevance lens": "Relate",
     "transaction banking angle": "Relate",
     "relate": "Relate",
-    "baseline": "Baseline & scenarios",
-    "base case": "Baseline & scenarios",
-    "baseline scenario": "Baseline & scenarios",
-    "baseline scenarios": "Baseline & scenarios",
-    "baseline & scenarios": "Baseline & scenarios",
-    "baseline and scenarios": "Baseline & scenarios",
-    "scenario frame": "Baseline & scenarios",
-    "uncertainty frame": "Baseline & scenarios",
+    "keep in mind": "Keep in mind",
+    "what could change": "Keep in mind",
+    "possible implications": "Keep in mind",
+    "baseline": "Keep in mind",
+    "base case": "Keep in mind",
+    "baseline scenario": "Keep in mind",
+    "baseline scenarios": "Keep in mind",
+    "baseline & scenarios": "Keep in mind",
+    "baseline and scenarios": "Keep in mind",
+    "scenario frame": "Keep in mind",
+    "uncertainty frame": "Keep in mind",
     "useful observation": "Observe",
     "useful observation to offer": "Observe",
     "gentle observation": "Observe",
@@ -1662,7 +1665,7 @@ function conversationSectionClass(label) {
   const normalised = normaliseConversationLabel(label).toLowerCase();
   if (normalised === "observe") return "conversation-section hero-observation observe-section";
   if (normalised === "relate") return "conversation-section background-cue relate-section";
-  if (normalised === "baseline & scenarios") return "conversation-section scenario-frame scenario-section";
+  if (normalised === "keep in mind") return "conversation-section keep-in-mind-section";
   if (normalised === "leave space") return "conversation-section soft-invitation leave-space-section";
   if (normalised === "lightly explore") return "conversation-section follow-up-path explore-section";
   if (normalised === "offer support") return "conversation-section bank-handoff support-section";
@@ -1670,7 +1673,7 @@ function conversationSectionClass(label) {
 }
 
 function mergeAdjacentConversationSections(sections) {
-  const order = ["Observe", "Relate", "Baseline & scenarios", "Leave Space", "Lightly Explore", "Offer Support"];
+  const order = ["Observe", "Relate", "Keep in mind", "Leave Space", "Lightly Explore", "Offer Support"];
   const byLabel = new Map();
 
   sections.forEach(section => {
@@ -1701,7 +1704,7 @@ function parseConversationCardBlock(block) {
   const sections = [];
   let tags = [];
   const sourceNumbers = new Set(extractSourceNumbers(block));
-  const sectionPattern = /^(Observe|Relate|Baseline & scenarios|Baseline and scenarios|Baseline scenarios|Scenario frame|Uncertainty frame|Leave Space|Lightly Explore|Offer Support|Propose Support Path|Why this may matter|Background cue|Plain-English context|Plain English context|Client relevance lens|Transaction banking angle|Useful observation(?: to offer)?|Gentle observation|Soft invitation|If they pick up on it|If client engages|Bank angle(?: \/ handoff)?|Bank relevance|Handoff cue)\s*:\s*(.*)$/i;
+  const sectionPattern = /^(Observe|Relate|Keep in mind|What could change|Possible implications|Baseline & scenarios|Baseline and scenarios|Baseline scenarios|Scenario frame|Uncertainty frame|Leave Space|Lightly Explore|Offer Support|Propose Support Path|Why this may matter|Background cue|Plain-English context|Plain English context|Client relevance lens|Transaction banking angle|Useful observation(?: to offer)?|Gentle observation|Soft invitation|If they pick up on it|If client engages|Bank angle(?: \/ handoff)?|Bank relevance|Handoff cue)\s*:\s*(.*)$/i;
   let current = null;
 
   lines.forEach(line => {
@@ -1864,10 +1867,10 @@ function renderSignalSelectionCard(card, index) {
 
 function renderBridgeCard(card, index) {
   const cleanHeading = card.heading.replace(/^(Card\s+\d+\s*:\s*)/i, "").trim() || `Card ${index + 1}`;
+  const keepInMind = stripSourceMarkers(getConversationSectionText(card, "Keep in mind"));
   const orderedItems = [
     { label: "Observe", move: 1 },
     { label: "Relate", move: 2 },
-    { label: "Baseline & scenarios", move: null },
     { label: "Leave Space", move: 3 },
     { label: "Lightly Explore", move: 4 },
     { label: "Offer Support", move: 5 }
@@ -1876,15 +1879,16 @@ function renderBridgeCard(card, index) {
     const label = item.label;
     const text = stripSourceMarkers(getConversationSectionText(card, label));
     if (!text) return "";
-    const marker = item.move ? String(item.move) : "↕";
-    const markerClass = item.move ? "" : " bridge-step-marker-scenario";
-    const stepClass = item.move ? ` bridge-step-${item.move}` : " bridge-step-scenario";
+    const keepInMindHtml = label === "Relate" && keepInMind
+      ? `<div class="keep-in-mind-note"><span>Keep in mind:</span> ${escapeHtml(keepInMind)}</div>`
+      : "";
     return `
-      <div class="${conversationSectionClass(label)} bridge-step${stepClass}">
-        <div class="bridge-step-marker${markerClass}">${marker}</div>
+      <div class="${conversationSectionClass(label)} bridge-step bridge-step-${item.move}">
+        <div class="bridge-step-marker">${item.move}</div>
         <div class="bridge-step-body">
           <div class="conversation-label">${escapeHtml(label)}</div>
           <div class="conversation-text">${escapeHtml(text)}</div>
+          ${keepInMindHtml}
         </div>
       </div>
     `;

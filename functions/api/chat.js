@@ -915,20 +915,24 @@ function signalThreadText(signalThreads = []) {
   return (signalThreads && signalThreads.length ? signalThreads : defaultSignalThreads()).join(", ");
 }
 
-function formatBaselineScenarios(value) {
+function formatKeepInMind(value) {
   if (!value) return "";
   if (typeof value === "string") return value.trim();
   if (typeof value !== "object") return String(value || "").trim();
 
+  const direct = value.keepInMind || value.keep_in_mind || value.whatCouldChange || value.what_could_change || value.possibleImplications || value.possible_implications || "";
+  if (direct) return String(direct).trim();
+
   const baseline = value.baseline || value.baseCase || value.base_case || value.workingAssumption || value.working_assumption || "";
-  const upside = value.ifUp || value.if_up || value.ifRises || value.if_rises || value.ifWorsens || value.if_worsens || value.ifMovesOneWay || value.if_moves_one_way || value.upside || value.riskScenario || value.risk_scenario || "";
-  const downside = value.ifDown || value.if_down || value.ifFalls || value.if_falls || value.ifImproves || value.if_improves || value.ifMovesOtherWay || value.if_moves_other_way || value.downside || value.benefitScenario || value.benefit_scenario || "";
+  const oneWay = value.ifUp || value.if_up || value.ifRises || value.if_rises || value.ifWorsens || value.if_worsens || value.ifMovesOneWay || value.if_moves_one_way || value.upside || value.riskScenario || value.risk_scenario || "";
+  const otherWay = value.ifDown || value.if_down || value.ifFalls || value.if_falls || value.ifImproves || value.if_improves || value.ifMovesOtherWay || value.if_moves_other_way || value.downside || value.benefitScenario || value.benefit_scenario || "";
   const watch = value.watch || value.watchItems || value.watch_items || value.whatToWatch || value.what_to_watch || "";
 
+  const implicationParts = [oneWay, otherWay].filter(Boolean);
+  const implicationText = implicationParts.length ? implicationParts.join("; ") : "";
   return [
     baseline ? `Baseline: ${baseline}` : "",
-    upside ? `If it moves one way: ${upside}` : "",
-    downside ? `If it moves the other way: ${downside}` : "",
+    implicationText ? `What could change: ${implicationText}` : "",
     watch ? `Watch: ${watch}` : ""
   ].filter(Boolean).join(" ").trim();
 }
@@ -1926,14 +1930,14 @@ function formatNewsThemesFromJson(parsed) {
     const transactionBankingAngle = String(card.transactionBankingAngle || card.transaction_banking_angle || card.relate || "").trim();
     const observe = String(card.observe || card.usefulObservation || card.useful_observation || card.gentleObservation || card.gentle_observation || "").trim();
     const relate = [transactionBankingAngle, backgroundCue].filter(Boolean).join(" ").trim();
-    const baselineScenarios = formatBaselineScenarios(card.baselineScenarios || card.baseline_scenarios || card.scenarioFrame || card.scenario_frame || card.uncertaintyFrame || card.uncertainty_frame || card.baseCase || card.base_case || "");
+    const keepInMind = formatKeepInMind(card.keepInMind || card.keep_in_mind || card.whatCouldChange || card.what_could_change || card.possibleImplications || card.possible_implications || card.baselineScenarios || card.baseline_scenarios || card.scenarioFrame || card.scenario_frame || card.uncertaintyFrame || card.uncertainty_frame || card.baseCase || card.base_case || "");
     const leaveSpace = String(card.leaveSpace || card.leave_space || card.softInvitation || card.soft_invitation || "").trim();
     const lightlyExplore = String(card.lightlyExplore || card.lightly_explore || card.ifTheyPickUp || card.if_they_pick_up || card.ifClientEngages || card.if_client_engages || "").trim();
     const bankAngle = String(card.bankAngle || card.bank_angle || card.bankRelevance || card.bank_relevance || "").trim();
     const handoffCue = String(card.handoffCue || card.handoff_cue || "").trim();
     const offerSupport = String(card.offerSupport || card.offer_support || [bankAngle, handoffCue].filter(Boolean).join(" ")).trim();
     const tags = normalizeCardTags(card.tags || card.tag || [], `${title} ${observe} ${relate} ${offerSupport}`);
-    const sourceNumbers = Array.isArray(card.sourceNumbers) ? card.sourceNumbers : extractSourceRefs(`${observe} ${relate} ${baselineScenarios} ${leaveSpace} ${lightlyExplore} ${offerSupport}`);
+    const sourceNumbers = Array.isArray(card.sourceNumbers) ? card.sourceNumbers : extractSourceRefs(`${observe} ${relate} ${keepInMind} ${leaveSpace} ${lightlyExplore} ${offerSupport}`);
     const cleanSourceNumbers = [...new Set(sourceNumbers.map(Number).filter(Number.isFinite))].sort((a, b) => a - b);
 
     return [
@@ -1942,7 +1946,7 @@ function formatNewsThemesFromJson(parsed) {
       cleanSourceNumbers.length ? `Sources: ${cleanSourceNumbers.map(number => `[${number}]`).join(" ")}` : "",
       observe ? `Observe: ${stripInlineSourceRefs(observe)}` : "",
       relate ? `Relate: ${stripInlineSourceRefs(relate)}` : "",
-      baselineScenarios ? `Baseline & scenarios: ${stripInlineSourceRefs(baselineScenarios)}` : "",
+      keepInMind ? `Keep in mind: ${stripInlineSourceRefs(keepInMind)}` : "",
       leaveSpace ? `Leave Space: ${stripInlineSourceRefs(leaveSpace)}` : "",
       lightlyExplore ? `Lightly Explore: ${stripInlineSourceRefs(lightlyExplore)}` : "",
       offerSupport ? `Offer Support: ${stripInlineSourceRefs(offerSupport)}` : ""
@@ -1962,7 +1966,7 @@ function formatStructuralNoNewsCard({ timeframe, industry, tradeFlow, conversati
     `Tags: Working capital, Payments, Trade`,
     `Observe: We are not seeing a strong recent headline for this profile, but for companies with purchases from ${purchaseMarkets} and sales to ${salesMarkets}, the practical treasury conversation often starts with payment timing, cash buffers, and whether working capital still fits the operating cycle.`,
     `Relate: For a Thailand-based ${industry} client, the discussion can still connect to supplier and buyer payment timing, cash visibility, and recurring ${currencyText} flows. This is structural context, not a news-based signal.`,
-    `Baseline & scenarios: Baseline: no strong recent headline is driving the conversation. If conditions tighten, payment timing, supplier terms, and liquidity buffers may become more important. If conditions ease, the opportunity may be to review efficiency, cash deployment, or process discipline. Watch: receivables timing, supplier requests, inventory buffers, and currency mismatch.`,
+    `Keep in mind: External news is quiet, so treat this as a structural conversation angle rather than a forecast. If conditions change, the practical issue is whether payment timing, supplier terms, liquidity buffers, or currency mismatch become more visible.`,
     `Leave Space: I am not sure whether that is relevant for your business right now, but it is a useful area to keep in view when external news is quiet.`,
     `Lightly Explore: If the client opens up, explore whether the issue is mainly supplier terms, receivables timing, inventory buffers, or currency mismatch.`,
     `Offer Support: Possible relevance to cash forecasting, liquidity structure, trade lines, receivables/payables flows, and FX process discipline. Bring in FX, trade, cash management, or credit specialists if the client asks for specific hedge levels, facility sizing, structure, legal, sanctions, or credit advice.`
@@ -2092,7 +2096,8 @@ Conversation standard:
 - Treat purchase countries as supplier/source markets and sales countries as buyer/revenue markets. Do not cross-combine countries randomly.
 - Prefer direct Thailand, selected purchase-market, selected sales-market, or selected-currency relevance.
 - Make each card follow the five moves: Observe, Relate, Leave Space, Lightly Explore, Offer Support. The observation should be the main banker-ready line. Do not interrogate the client with blunt questions.
-- Add a compact baseline/scenario frame so the junior banker can lead the conversation without pretending to predict the market. Treat the baseline as a working assumption, not a forecast. Show how the issue could matter if it moves one way or the other; whether that is beneficial or risky depends on the client's purchase/sales flows, currencies, and cash cycle.
+- For Lightly Explore, ask about patterns before problems. Use nuanced, client-safe wording that lets the client answer at an industry/process level before revealing anything sensitive.
+- Add one compact keepInMind line so the junior banker can lead the conversation despite uncertainty without pretending to predict the market. This should be a subtle coaching note, not a major scenario section. Avoid "upside/downside" unless the client position makes it obvious. Prefer wording such as "If this develops further...", "If conditions change...", or "The practical issue is whether...".
 - Broader sector news may be used only when the bridge to this client profile is clear. If the article is not specific to the selected ISIC activity, say so plainly.
 
 Grounding rules:
@@ -2102,7 +2107,7 @@ Grounding rules:
 - You may draw cautious implications, but clearly distinguish direct evidence from inferred relevance.
 - Do not cite a source unless it directly supports the statement being made.
 - Every card must include at least one source number in the sourceNumbers array. Official datasets may be used as context, but do not describe them as recent news unless the date supports it.
-- Do not put [1] or [2] inline inside the observe, relate, baselineScenarios, leaveSpace, lightlyExplore, or offerSupport text. Put source references only in sourceNumbers.
+- Do not put [1] or [2] inline inside the observe, relate, keepInMind, leaveSpace, lightlyExplore, or offerSupport text. Put source references only in sourceNumbers.
 - If the sources do not contain meaningful evidence relevant to this Thailand-based client context, return JSON with "status": "NO_NEWS" and an empty cards array. If only official data is available, make the card clearly about local/regional context rather than breaking news.
 - If there is at least one useful news-based card, return JSON with "status": "OK". Do NOT include the string NO_NEWS anywhere in titles, paragraphs, or bullets.
 
@@ -2132,14 +2137,9 @@ Return JSON only in this exact shape:
       "tags": ["FX", "Trade"],
       "observe": "A gentle, evidence-grounded observation the banker can offer without assuming the client has a problem.",
       "relate": "Connect the signal to the client’s likely operating flows: cash, trade, payments, FX, working capital, liquidity, or resilience.",
-      "baselineScenarios": {
-        "baseline": "The current working assumption or starting point, framed without false precision.",
-        "ifMovesOneWay": "How the client could be affected if the driver rises, worsens, strengthens, or tightens.",
-        "ifMovesOtherWay": "How the client could be affected if the driver falls, improves, weakens, or eases.",
-        "watch": "One or two practical signals the RM can keep in view."
-      },
+      "keepInMind": "One concise, uncertainty-aware sentence. It should not forecast or force a clean opportunity/risk split. It should explain what could change and why that might matter differently depending on the client’s flows, currencies, or cash cycle.",
       "leaveSpace": "A low-pressure phrase that lets the client respond without forcing disclosure.",
-      "lightlyExplore": "One non-invasive follow-up path only if the client shows interest.",
+      "lightlyExplore": "One non-invasive follow-up path only if the client shows interest. Make this indirect, optional, and client-safe. Prefer asking about market patterns, variation by buyer/supplier, or process changes; avoid asking clients to directly admit business loss, cash pressure, late collections, or credit weakness.",
       "offerSupport": "A practical support angle and any specialist handoff cue. Include where to bring in FX, markets, trade, cash, compliance, sanctions, legal, tax, credit, or sector specialists.",
       "sourceNumbers": [1, 2]
     }
