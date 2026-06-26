@@ -1544,10 +1544,8 @@ let conversationCardsExpanded = false;
 let conversationBridgeBuilt = false;
 let selectedSignalIndexes = new Set();
 let lastSources = [];
-let generatedConversationCardsByIndex = new Map();
-let bridgeGenerationInProgress = false;
-let signalRunActive = false;
 let generateSignalsLoading = false;
+let signalRunLocked = false;
 let currentInputSignature = "";
 
 const ALLOWED_SIGNAL_TAGS = [
@@ -1837,7 +1835,6 @@ function renderSignalSourceLine(card) {
 
 function resetConversationBridge() {
   conversationBridgeBuilt = false;
-  generatedConversationCardsByIndex = new Map();
   if (bridgeOutput) bridgeOutput.innerHTML = "";
   if (bridgePanel) bridgePanel.classList.add("hidden");
 }
@@ -1917,17 +1914,13 @@ function renderBridgeCard(card, index) {
 }
 
 function renderSelectedConversationBridge() {
-  const selectedIndexes = [...selectedSignalIndexes].sort((a, b) => a - b);
-  const selectedCards = selectedIndexes
-    .map(index => generatedConversationCardsByIndex.get(index))
+  const selectedCards = [...selectedSignalIndexes]
+    .sort((a, b) => a - b)
+    .map(index => lastConversationCards[index])
     .filter(Boolean);
 
-  if (!selectedIndexes.length) {
+  if (!selectedCards.length) {
     return `<div class="empty-state bridge-empty">Select at least one signal to plan your client conversation.</div>`;
-  }
-
-  if (selectedCards.length < selectedIndexes.length) {
-    return `<div class="empty-state bridge-empty"><span class="loading">Planning selected conversation cards...</span></div>`;
   }
 
   return `
@@ -1950,29 +1943,18 @@ function renderSignalSelectionList() {
     </button>
   ` : "";
 
-  const staleNote = !signalRunActive && lastConversationCards.length
-    ? `<div class="signals-stale-note">Inputs changed. Generate relevant signals again to refresh the results.</div>`
-    : "";
-  const buildButtonLabel = bridgeGenerationInProgress
-    ? "Planning conversation..."
-    : `Plan my client conversation${selectedCount ? ` (${selectedCount})` : ""}`;
-
   analysisOutput.innerHTML = `
     <div class="signals-summary">Showing ${visibleCards.length} of ${lastConversationCards.length} relevant signal${lastConversationCards.length === 1 ? "" : "s"}. Select the signals you might use in a client conversation.</div>
-    ${staleNote}
     <div class="signal-selection-list">${cardsHtml}</div>
     <div class="signal-action-row">
       ${toggleHtml}
-      <button type="button" class="secondary-action primary-bridge-action" id="buildBridgeButton" ${selectedCount && signalRunActive && !bridgeGenerationInProgress ? "" : "disabled"}>
-        ${buildButtonLabel}
+      <button type="button" class="secondary-action primary-bridge-action" id="buildBridgeButton" ${selectedCount ? "" : "disabled"}>
+        Plan my client conversation${selectedCount ? ` (${selectedCount})` : ""}
       </button>
     </div>
   `;
 
-  if (bridgeGenerationInProgress && bridgeOutput && bridgePanel) {
-    bridgePanel.classList.remove("hidden");
-    bridgeOutput.innerHTML = `<div class="empty-state bridge-empty"><span class="loading">Planning selected conversation cards...</span></div>`;
-  } else if (conversationBridgeBuilt && bridgeOutput && bridgePanel) {
+  if (conversationBridgeBuilt && bridgeOutput && bridgePanel) {
     bridgeOutput.innerHTML = renderSelectedConversationBridge();
     bridgePanel.classList.remove("hidden");
   } else if (!conversationBridgeBuilt) {
@@ -1999,22 +1981,22 @@ function renderSignalSelectionList() {
   });
 
   document.getElementById("buildBridgeButton")?.addEventListener("click", () => {
-    generateConversationCardsForSelection();
+    if (!selectedSignalIndexes.size) return;
+    conversationBridgeBuilt = true;
+    renderSignalSelectionList();
+    bridgePanel?.scrollIntoView({ behavior: "smooth", block: "start" });
   });
 }
 
 function renderConversationCards(text) {
-  const cards = parseConversationCardBlocks(text);
+  const cardBlocks = String(text || "")
+    .split(/(?=Card\s+\d+\s*:)/i)
+    .map(block => block.trim())
+    .filter(Boolean);
 
-  if (cards.length === 0) return false;
+  if (cardBlocks.length === 0) return false;
 
-  lastConversationCards = cards;
-  generatedConversationCardsByIndex = new Map();
-  cards.forEach((card, index) => {
-    const hasFullConversationCard = ["Observe", "Relate", "Leave Space", "Lightly Explore", "Offer Support"]
-      .every(label => Boolean(getConversationSectionText(card, label)));
-    if (hasFullConversationCard) generatedConversationCardsByIndex.set(index, card);
-  });
+  lastConversationCards = cardBlocks.map(parseConversationCardBlock);
   conversationCardsExpanded = false;
   resetConversationBridge();
   selectedSignalIndexes = new Set(lastConversationCards.slice(0, DEFAULT_VISIBLE_SIGNAL_COUNT).map((_, index) => index));
@@ -2279,8 +2261,6 @@ function getClientProfile() {
   return {};
 }
 
-
-
 function getInputSignature() {
   const tradeFlow = getTradeFlow();
   const payload = {
@@ -2299,8 +2279,8 @@ function getInputSignature() {
 
 function updateGenerateButtonState() {
   if (!button) return;
-  const signatureMatches = signalRunActive && currentInputSignature && getInputSignature() === currentInputSignature;
-  button.disabled = generateSignalsLoading || signatureMatches;
+  const signatureMatches = signalRunLocked && currentInputSignature && getInputSignature() === currentInputSignature;
+  button.disabled = Boolean(generateSignalsLoading || signatureMatches);
   if (generateSignalsLoading) {
     button.textContent = "Generating signals...";
   } else if (signatureMatches) {
@@ -2317,18 +2297,17 @@ function updateGenerateButtonState() {
 
 function markSignalInputsChanged() {
   if (generateSignalsLoading) return;
-  const signature = getInputSignature();
-  if (signalRunActive && currentInputSignature && signature === currentInputSignature) {
-    updateGenerateButtonState();
-    return;
+  const hasChanged = !currentInputSignature || getInputSignature() !== currentInputSignature;
+  if (hasChanged) {
+    signalRunLocked = false;
+    currentInputSignature = "";
+    if (lastConversationCards.length && analysisOutput && !analysisOutput.querySelector(".signals-stale-note")) {
+      const note = document.createElement("div");
+      note.className = "signals-stale-note";
+      note.textContent = "Inputs changed. Generate relevant signals again to refresh the results.";
+      analysisOutput.prepend(note);
+    }
   }
-  signalRunActive = false;
-  currentInputSignature = "";
-  conversationBridgeBuilt = false;
-  generatedConversationCardsByIndex = new Map();
-  if (bridgeOutput) bridgeOutput.innerHTML = "";
-  if (bridgePanel) bridgePanel.classList.add("hidden");
-  if (lastConversationCards.length) renderSignalSelectionList();
   updateGenerateButtonState();
 }
 
@@ -2354,125 +2333,6 @@ function attachSignalInputInvalidationListeners() {
   document.querySelectorAll('input[name="purchaseCurrency"], input[name="salesCurrency"], input[name="signalThread"]').forEach(control => {
     control.addEventListener("change", markSignalInputsChanged);
   });
-}
-
-function parseConversationCardBlocks(text) {
-  return String(text || "")
-    .split(/(?=Card\s+\d+\s*:)/i)
-    .map(block => block.trim())
-    .filter(Boolean)
-    .map(parseConversationCardBlock);
-}
-
-function serializeSignalForRequest(card, index) {
-  return {
-    index,
-    title: card.heading || `Signal ${index + 1}`,
-    tags: Array.isArray(card.tags) ? card.tags : [],
-    context: getConversationSectionText(card, "Observe"),
-    whyRelevant: getConversationSectionText(card, "Relate") || getSignalPreviewText(card),
-    sourceNumbers: Array.isArray(card.sourceNumbers) ? card.sourceNumbers : []
-  };
-}
-
-function getCurrentRequestPayload(extra = {}) {
-  const sector = sectorBox.value;
-  const subsector = subsectorBox.value;
-  const industry = selectedIsic ? selectedIsic.description : industryBox.value.trim();
-  const isicCode = selectedIsic?.code || "";
-  const timeframe = timeframeBox.value;
-  const fxTenor = fxTenorBox?.value || "30";
-  const conversationGoal = "general_check_in";
-  const clientProfile = getClientProfile();
-  const signalThreads = getSignalThreads();
-  const tradeFlow = getTradeFlow();
-  const currencies = [...new Set([...(tradeFlow.purchase.currencies || []), ...(tradeFlow.sales.currencies || [])])];
-  const tradeRoles = getSelectedTradeRolesFromFlow(tradeFlow);
-  const countries = getAllTradeFlowCountries(tradeFlow);
-  const defaultPrompt = defaultPromptBox.value.trim();
-
-  return {
-    sector,
-    subsector,
-    industry,
-    isicCode,
-    tradeRoles,
-    tradeFlow,
-    timeframe,
-    fxTenor,
-    currencies,
-    countries,
-    defaultPrompt,
-    conversationGoal,
-    clientProfile,
-    signalThreads,
-    ...extra
-  };
-}
-
-async function generateConversationCardsForSelection() {
-  if (!selectedSignalIndexes.size || bridgeGenerationInProgress) return;
-
-  const selectedIndexes = [...selectedSignalIndexes].sort((a, b) => a - b);
-  const missingIndexes = selectedIndexes.filter(index => !generatedConversationCardsByIndex.has(index));
-
-  if (bridgePanel && bridgeOutput) {
-    bridgePanel.classList.remove("hidden");
-    bridgeOutput.innerHTML = `<div class="empty-state bridge-empty"><span class="loading">${missingIndexes.length ? "Planning selected conversation cards..." : "Loading selected conversation cards..."}</span></div>`;
-  }
-
-  if (!missingIndexes.length) {
-    conversationBridgeBuilt = true;
-    renderSignalSelectionList();
-    bridgePanel?.scrollIntoView({ behavior: "smooth", block: "start" });
-    return;
-  }
-
-  bridgeGenerationInProgress = true;
-  let generationFailed = false;
-  renderSignalSelectionList();
-
-  try {
-    const selectedSignals = missingIndexes
-      .map(index => lastConversationCards[index] ? serializeSignalForRequest(lastConversationCards[index], index) : null)
-      .filter(Boolean);
-
-    const response = await fetch("/api/chat", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(getCurrentRequestPayload({
-        mode: "conversation_cards",
-        selectedSignals,
-        sources: lastSources
-      }))
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      generationFailed = true;
-      if (bridgeOutput) bridgeOutput.innerHTML = `<span class="error">${escapeHtml(data.error || "Conversation card generation failed.")}</span>`;
-      return;
-    }
-
-    const generatedCards = parseConversationCardBlocks(data.news?.content || data.analysis || "");
-    generatedCards.forEach((card, generatedIndex) => {
-      const originalIndex = missingIndexes[generatedIndex];
-      if (Number.isFinite(originalIndex)) generatedConversationCardsByIndex.set(originalIndex, card);
-    });
-
-    conversationBridgeBuilt = true;
-    renderSignalSelectionList();
-    bridgePanel?.scrollIntoView({ behavior: "smooth", block: "start" });
-  } catch (error) {
-    generationFailed = true;
-    if (bridgeOutput) bridgeOutput.innerHTML = `<span class="error">Conversation card network error.</span>`;
-  } finally {
-    bridgeGenerationInProgress = false;
-    if (!generationFailed) renderSignalSelectionList();
-  }
 }
 
 
@@ -2539,9 +2399,8 @@ button.addEventListener("click", async function () {
   }
 
   generateSignalsLoading = true;
-  signalRunActive = false;
+  signalRunLocked = false;
   currentInputSignature = "";
-  generatedConversationCardsByIndex = new Map();
   updateGenerateButtonState();
   resetConversationBridge();
   analysisOutput.innerHTML = `<span class="loading">Researching relevant signals...</span>`;
@@ -2571,8 +2430,7 @@ button.addEventListener("click", async function () {
         defaultPrompt,
         conversationGoal,
         clientProfile,
-        signalThreads,
-        mode: "signals"
+        signalThreads
       })
     });
 
@@ -2585,10 +2443,10 @@ button.addEventListener("click", async function () {
       return;
     }
 
-    signalRunActive = true;
-    currentInputSignature = getInputSignature();
     renderSources(data.sources || [], Boolean(data.no_relevant_updates), Boolean(data.fallback_triggered));
     renderAnalysis(data.news?.content || data.analysis || "No analysis returned.");
+    signalRunLocked = true;
+    currentInputSignature = getInputSignature();
 
     const marketIntelligenceRendered = await marketIntelligencePromise;
     if (!marketIntelligenceRendered && Array.isArray(data.fx)) {
