@@ -36,6 +36,8 @@ const selectedIsicBox = document.getElementById("selectedIsic");
 let selectedPurchaseCountries = [];
 let selectedSalesCountries = [];
 let selectedIsic = null;
+let suppressIsicDropdownUntil = 0;
+const suppressCountryDropdownUntil = { purchase: 0, sales: 0 };
 let fxCharts = {};
 
 const BUSINESS_RELEVANCE_TERMS = [
@@ -832,18 +834,28 @@ function autoFillSectorFromIsic(entry) {
   subsectorBox.classList.add("auto-filled");
 }
 
+function isCurrentSelectedIsicValue() {
+  if (!selectedIsic || !industryBox) return false;
+  return industryBox.value.trim() === `${selectedIsic.code} - ${selectedIsic.description}`;
+}
+
 function closeIsicDropdown() {
   if (isicDropdown) {
     isicDropdown.classList.add("hidden");
     isicDropdown.innerHTML = "";
+    isicDropdown.hidden = true;
+    isicDropdown.style.display = "none";
   }
   industryBox?.setAttribute("aria-expanded", "false");
 }
 
 function selectIsic(entry) {
+  if (!entry || !industryBox) return;
+  suppressIsicDropdownUntil = Date.now() + 600;
   selectedIsic = entry;
   industryBox.value = `${entry.code} - ${entry.description}`;
   industryBox.classList.add("valid-selection");
+  industryBox.closest(".isic-picker")?.classList.add("selection-complete");
   autoFillSectorFromIsic(entry);
 
   const autoFillText = entry.sector && entry.subsector
@@ -851,12 +863,15 @@ function selectIsic(entry) {
     : "";
 
   selectedIsicBox.textContent = `Selected: ${entry.code} - ${entry.description}.${autoFillText}`;
+  markSignalInputsChanged();
   closeIsicDropdown();
 
-  // Keep the interaction feeling complete after a selection. Without blurring, the
-  // input remains focused and some browsers can leave the suggestion layer visually
-  // present until the user clicks elsewhere.
-  window.setTimeout(() => industryBox?.blur(), 0);
+  // Keep the interaction feeling complete after a selection. Some browsers fire
+  // focus/click events after option selection, so close once immediately and once
+  // again on the next frames to prevent the suggestions from reappearing.
+  industryBox.blur();
+  requestAnimationFrame(closeIsicDropdown);
+  window.setTimeout(closeIsicDropdown, 80);
 }
 
 
@@ -873,24 +888,26 @@ function getIsicMatchMeta(entry) {
   return [reasonText, context].filter(Boolean).join(" | ");
 }
 
+function handleIsicOptionSelection(event) {
+  const option = event.target?.closest?.(".isic-option");
+  if (!option || !isicDropdown?.contains(option)) return;
 
-function getIsicMatchMeta(entry) {
-  const reasons = [];
-  if (entry.matchedRoles?.length) reasons.push(entry.matchedRoles.slice(0, 1).join(", "));
-  if (entry.matchedDomains?.length) reasons.push(entry.matchedDomains.slice(0, 1).join(", "));
-  if (entry.fallbackSuggestion && entry.fallbackReason) reasons.push(entry.fallbackReason);
-  if (!reasons.length && entry.subsector) reasons.push(entry.subsector);
-  if (!reasons.length && entry.sector) reasons.push(entry.sector);
+  event.preventDefault();
+  event.stopPropagation();
 
-  const context = [entry.sector, entry.subsector].filter(Boolean).join(" • ");
-  const reasonText = reasons.length ? `${entry.fallbackSuggestion ? "Suggested" : "Matched"}: ${reasons.join(" + ")}` : "";
-  return [reasonText, context].filter(Boolean).join(" | ");
+  const entry = ISIC_DATA.find(item => item.code === option.dataset.code);
+  if (entry) selectIsic(entry);
 }
 
 function renderIsicDropdown() {
   if (!isicDropdown || typeof ISIC_DATA === "undefined") return;
 
   const query = industryBox.value.trim();
+
+  if (industryBox.closest(".isic-picker")?.classList.contains("selection-complete") || isCurrentSelectedIsicValue() || Date.now() < suppressIsicDropdownUntil) {
+    closeIsicDropdown();
+    return;
+  }
 
   if (!query) {
     isicDropdown.classList.add("hidden");
@@ -917,6 +934,8 @@ function renderIsicDropdown() {
     ? (fallbackHeading || (query ? "Suggested ISIC activities to choose from" : "Suggested ISIC activities"))
     : (query ? (hasStrongQueryMatch ? "Closest ISIC matches" : "Related ISIC suggestions") : "Suggested ISIC activities");
 
+  isicDropdown.hidden = false;
+  isicDropdown.style.display = "";
   isicDropdown.classList.remove("hidden");
   industryBox.setAttribute("aria-expanded", "true");
   isicDropdown.innerHTML = `
@@ -1032,12 +1051,44 @@ function getCountryOptions(search, selected) {
     .map(country => ({ ...country, checked: selected.some(c => c.code === country.code) }));
 }
 
+function closeCountryDropdownFor(side) {
+  const isPurchase = side === "purchase";
+  const searchBox = isPurchase ? purchaseCountrySearch : salesCountrySearch;
+  const dropdown = isPurchase ? purchaseCountryDropdown : salesCountryDropdown;
+  const picker = searchBox?.closest(".country-picker");
+  suppressCountryDropdownUntil[side] = Date.now() + 500;
+  picker?.classList.add("selection-complete");
+  dropdown?.classList.add("hidden");
+  if (dropdown) dropdown.style.display = "none";
+  searchBox?.blur();
+  requestAnimationFrame(() => {
+    dropdown?.classList.add("hidden");
+    if (dropdown) dropdown.style.display = "none";
+  });
+}
+
+function openCountryDropdownFor(side) {
+  const isPurchase = side === "purchase";
+  const searchBox = isPurchase ? purchaseCountrySearch : salesCountrySearch;
+  const dropdown = isPurchase ? purchaseCountryDropdown : salesCountryDropdown;
+  const picker = searchBox?.closest(".country-picker");
+  if (!dropdown || Date.now() < suppressCountryDropdownUntil[side]) return;
+  picker?.classList.remove("selection-complete");
+  dropdown.style.display = "";
+  dropdown.classList.remove("hidden");
+}
+
 function renderCountryDropdownFor(side) {
   const isPurchase = side === "purchase";
   const searchBox = isPurchase ? purchaseCountrySearch : salesCountrySearch;
   const dropdown = isPurchase ? purchaseCountryDropdown : salesCountryDropdown;
   const selected = isPurchase ? selectedPurchaseCountries : selectedSalesCountries;
   if (!searchBox || !dropdown) return;
+  if (Date.now() < suppressCountryDropdownUntil[side] || searchBox.closest(".country-picker")?.classList.contains("selection-complete")) {
+    dropdown.classList.add("hidden");
+    dropdown.style.display = "none";
+    return;
+  }
 
   const filtered = getCountryOptions(searchBox.value, selected);
   dropdown.innerHTML = filtered.map(country => `
@@ -1061,9 +1112,9 @@ function renderCountryDropdownFor(side) {
           : selectedSalesCountries.filter(c => c.code !== country.code);
       }
       renderSelectedCountriesFor(side);
+      markSignalInputsChanged();
       searchBox.value = "";
-      dropdown.classList.add("hidden");
-      renderCountryDropdownFor(side);
+      closeCountryDropdownFor(side);
     });
   });
 }
@@ -1091,6 +1142,7 @@ function renderSelectedCountriesFor(side) {
       if (isPurchase) selectedPurchaseCountries = selectedPurchaseCountries.filter(c => c.code !== btn.dataset.code);
       else selectedSalesCountries = selectedSalesCountries.filter(c => c.code !== btn.dataset.code);
       renderSelectedCountriesFor(side);
+      markSignalInputsChanged();
       renderCountryDropdownFor(side);
     });
   });
@@ -1351,6 +1403,29 @@ function renderFxResearchDiagnostic(fxResearch) {
   `;
 }
 
+function renderFxAnalysis(text) {
+  const cleanText = String(text || "").trim();
+  if (!cleanText) return "";
+
+  const lines = cleanText.split(/\n+/).map(line => line.trim()).filter(Boolean);
+  const html = lines.map(line => {
+    const inlineHeading = line.match(/^(Market Observation|Market observation|Internal Analysis|Internal analysis)\s*:?\s*(.*)$/i);
+    if (inlineHeading) {
+      const normalisedHeading = inlineHeading[1].toLowerCase().startsWith("market")
+        ? "Market Observation"
+        : "Internal Analysis";
+      const remainder = inlineHeading[2]?.trim();
+      return `
+        <div class="fx-analysis-heading">${escapeHtml(normalisedHeading)}</div>
+        ${remainder ? `<p>${escapeHtml(remainder)}</p>` : ""}
+      `;
+    }
+    return `<p>${escapeHtml(line)}</p>`;
+  }).join("");
+
+  return `<div class="fx-analysis">${html}</div>`;
+}
+
 function renderFx(fxList, fxResearch = null) {
   const tenor = fxTenorBox?.value || "30";
   Object.values(fxCharts).forEach(chart => chart?.destroy?.());
@@ -1410,7 +1485,7 @@ function renderFx(fxList, fxResearch = null) {
               ${series.length > 1 ? `<canvas id="${canvasId}" aria-label="${pair} FX trend chart"></canvas>` : `<div class="fx-chart-status">Not enough daily data to plot a chart.</div>`}
             </div>
 
-            ${fx.analysis ? `<div class="fx-analysis">${escapeHtml(fx.analysis)}</div>` : ""}
+            ${renderFxAnalysis(fx.analysis)}
 
             <details class="fx-table-toggle">
               <summary>Show daily FX table</summary>
@@ -1469,6 +1544,9 @@ let conversationCardsExpanded = false;
 let conversationBridgeBuilt = false;
 let selectedSignalIndexes = new Set();
 let lastSources = [];
+let generateSignalsLoading = false;
+let signalRunLocked = false;
+let currentInputSignature = "";
 
 const ALLOWED_SIGNAL_TAGS = [
   "FX",
@@ -1558,6 +1636,17 @@ function normaliseConversationLabel(label) {
     "client relevance lens": "Relate",
     "transaction banking angle": "Relate",
     "relate": "Relate",
+    "keep in mind": "Keep in mind",
+    "what could change": "Keep in mind",
+    "possible implications": "Keep in mind",
+    "baseline": "Keep in mind",
+    "base case": "Keep in mind",
+    "baseline scenario": "Keep in mind",
+    "baseline scenarios": "Keep in mind",
+    "baseline & scenarios": "Keep in mind",
+    "baseline and scenarios": "Keep in mind",
+    "scenario frame": "Keep in mind",
+    "uncertainty frame": "Keep in mind",
     "useful observation": "Observe",
     "useful observation to offer": "Observe",
     "gentle observation": "Observe",
@@ -1582,6 +1671,7 @@ function conversationSectionClass(label) {
   const normalised = normaliseConversationLabel(label).toLowerCase();
   if (normalised === "observe") return "conversation-section hero-observation observe-section";
   if (normalised === "relate") return "conversation-section background-cue relate-section";
+  if (normalised === "keep in mind") return "conversation-section keep-in-mind-section";
   if (normalised === "leave space") return "conversation-section soft-invitation leave-space-section";
   if (normalised === "lightly explore") return "conversation-section follow-up-path explore-section";
   if (normalised === "offer support") return "conversation-section bank-handoff support-section";
@@ -1589,7 +1679,7 @@ function conversationSectionClass(label) {
 }
 
 function mergeAdjacentConversationSections(sections) {
-  const order = ["Observe", "Relate", "Leave Space", "Lightly Explore", "Offer Support"];
+  const order = ["Observe", "Relate", "Keep in mind", "Leave Space", "Lightly Explore", "Offer Support"];
   const byLabel = new Map();
 
   sections.forEach(section => {
@@ -1620,7 +1710,7 @@ function parseConversationCardBlock(block) {
   const sections = [];
   let tags = [];
   const sourceNumbers = new Set(extractSourceNumbers(block));
-  const sectionPattern = /^(Observe|Relate|Leave Space|Lightly Explore|Offer Support|Propose Support Path|Why this may matter|Background cue|Plain-English context|Plain English context|Client relevance lens|Transaction banking angle|Useful observation(?: to offer)?|Gentle observation|Soft invitation|If they pick up on it|If client engages|Bank angle(?: \/ handoff)?|Bank relevance|Handoff cue)\s*:\s*(.*)$/i;
+  const sectionPattern = /^(Observe|Relate|Keep in mind|What could change|Possible implications|Baseline & scenarios|Baseline and scenarios|Baseline scenarios|Scenario frame|Uncertainty frame|Leave Space|Lightly Explore|Offer Support|Propose Support Path|Why this may matter|Background cue|Plain-English context|Plain English context|Client relevance lens|Transaction banking angle|Useful observation(?: to offer)?|Gentle observation|Soft invitation|If they pick up on it|If client engages|Bank angle(?: \/ handoff)?|Bank relevance|Handoff cue)\s*:\s*(.*)$/i;
   let current = null;
 
   lines.forEach(line => {
@@ -1783,16 +1873,28 @@ function renderSignalSelectionCard(card, index) {
 
 function renderBridgeCard(card, index) {
   const cleanHeading = card.heading.replace(/^(Card\s+\d+\s*:\s*)/i, "").trim() || `Card ${index + 1}`;
-  const orderedLabels = ["Observe", "Relate", "Leave Space", "Lightly Explore", "Offer Support"];
-  const sectionHtml = orderedLabels.map((label, stepIndex) => {
+  const keepInMind = stripSourceMarkers(getConversationSectionText(card, "Keep in mind"));
+  const orderedItems = [
+    { label: "Observe", move: 1 },
+    { label: "Relate", move: 2 },
+    { label: "Leave Space", move: 3 },
+    { label: "Lightly Explore", move: 4 },
+    { label: "Offer Support", move: 5 }
+  ];
+  const sectionHtml = orderedItems.map(item => {
+    const label = item.label;
     const text = stripSourceMarkers(getConversationSectionText(card, label));
     if (!text) return "";
+    const keepInMindHtml = label === "Relate" && keepInMind
+      ? `<div class="keep-in-mind-note"><span>Keep in mind:</span> ${escapeHtml(keepInMind)}</div>`
+      : "";
     return `
-      <div class="${conversationSectionClass(label)} bridge-step bridge-step-${stepIndex + 1}">
-        <div class="bridge-step-marker">${stepIndex + 1}</div>
+      <div class="${conversationSectionClass(label)} bridge-step bridge-step-${item.move}">
+        <div class="bridge-step-marker">${item.move}</div>
         <div class="bridge-step-body">
           <div class="conversation-label">${escapeHtml(label)}</div>
           <div class="conversation-text">${escapeHtml(text)}</div>
+          ${keepInMindHtml}
         </div>
       </div>
     `;
@@ -2079,15 +2181,23 @@ async function fetchMarketIntelligence({ showLoading = false } = {}) {
 
 function attachCoreInputListeners() {
   industryBox?.addEventListener("input", function () {
+    suppressIsicDropdownUntil = 0;
     selectedIsic = null;
     industryBox.classList.remove("valid-selection");
+    industryBox.closest(".isic-picker")?.classList.remove("selection-complete");
     if (selectedIsicBox) {
       selectedIsicBox.textContent = "Select one suggested ISIC activity. Free-text entries are not accepted as final input.";
     }
     renderIsicDropdown();
   });
 
-  industryBox?.addEventListener("focus", renderIsicDropdown);
+  industryBox?.addEventListener("focus", function () {
+    if (isCurrentSelectedIsicValue()) {
+      closeIsicDropdown();
+      return;
+    }
+    renderIsicDropdown();
+  });
   industryBox?.addEventListener("keydown", function (event) {
     if (event.key === "Escape") {
       closeIsicDropdown();
@@ -2100,17 +2210,23 @@ function attachCoreInputListeners() {
     }
   });
 
+  ["pointerdown", "mousedown", "click"].forEach(eventName => {
+    isicDropdown?.addEventListener(eventName, handleIsicOptionSelection, true);
+  });
+
   [purchaseInternationalBox, salesInternationalBox].forEach(box => {
     box?.addEventListener("change", updateTradeFlowVisibility);
   });
 
   function attachCountryPicker(side, searchBox, dropdown) {
     searchBox?.addEventListener("focus", function () {
-      dropdown?.classList.remove("hidden");
+      openCountryDropdownFor(side);
       renderCountryDropdownFor(side);
     });
     searchBox?.addEventListener("input", function () {
-      dropdown?.classList.remove("hidden");
+      suppressCountryDropdownUntil[side] = 0;
+      searchBox.closest(".country-picker")?.classList.remove("selection-complete");
+      openCountryDropdownFor(side);
       renderCountryDropdownFor(side);
     });
   }
@@ -2121,9 +2237,11 @@ function attachCoreInputListeners() {
   document.addEventListener("click", function (event) {
     if (!event.target.closest('.country-picker[data-picker="purchase"]')) {
       purchaseCountryDropdown?.classList.add("hidden");
+      if (purchaseCountryDropdown) purchaseCountryDropdown.style.display = "none";
     }
     if (!event.target.closest('.country-picker[data-picker="sales"]')) {
       salesCountryDropdown?.classList.add("hidden");
+      if (salesCountryDropdown) salesCountryDropdown.style.display = "none";
     }
   });
 }
@@ -2135,12 +2253,86 @@ function getSignalThreads() {
 
   return checked.length
     ? checked
-    : ["sector_news", "fx_rates", "geopolitics", "trade_supply_chain"];
+    : ["sector_news", "fx_rates", "geopolitics", "trade_supply_chain", "commodities", "macro_indicators"];
 }
 
 
 function getClientProfile() {
   return {};
+}
+
+function getInputSignature() {
+  const tradeFlow = getTradeFlow();
+  const payload = {
+    sector: sectorBox?.value || "",
+    subsector: subsectorBox?.value || "",
+    industry: selectedIsic ? `${selectedIsic.code} - ${selectedIsic.description}` : (industryBox?.value || "").trim(),
+    isicCode: selectedIsic?.code || "",
+    timeframe: timeframeBox?.value || "30",
+    fxTenor: fxTenorBox?.value || "30",
+    tradeFlow,
+    defaultPrompt: defaultPromptBox?.value?.trim() || "",
+    signalThreads: getSignalThreads()
+  };
+  return JSON.stringify(payload);
+}
+
+function updateGenerateButtonState() {
+  if (!button) return;
+  const signatureMatches = signalRunLocked && currentInputSignature && getInputSignature() === currentInputSignature;
+  button.disabled = Boolean(generateSignalsLoading || signatureMatches);
+  if (generateSignalsLoading) {
+    button.textContent = "Generating signals...";
+  } else if (signatureMatches) {
+    button.textContent = "Signals Generated";
+  } else if (lastConversationCards.length) {
+    button.textContent = "Refresh Relevant Signals";
+  } else {
+    button.textContent = "Generate Relevant Signals";
+  }
+  button.title = signatureMatches
+    ? "Signals are stable for the current inputs. Change the setup above to generate a new search."
+    : "Generate relevant signals for the current setup.";
+}
+
+function markSignalInputsChanged() {
+  if (generateSignalsLoading) return;
+  const hasChanged = !currentInputSignature || getInputSignature() !== currentInputSignature;
+  if (hasChanged) {
+    signalRunLocked = false;
+    currentInputSignature = "";
+    if (lastConversationCards.length && analysisOutput && !analysisOutput.querySelector(".signals-stale-note")) {
+      const note = document.createElement("div");
+      note.className = "signals-stale-note";
+      note.textContent = "Inputs changed. Generate relevant signals again to refresh the results.";
+      analysisOutput.prepend(note);
+    }
+  }
+  updateGenerateButtonState();
+}
+
+function attachSignalInputInvalidationListeners() {
+  [
+    sectorBox,
+    subsectorBox,
+    timeframeBox,
+    fxTenorBox,
+    purchaseDomesticBox,
+    purchaseInternationalBox,
+    salesDomesticBox,
+    salesInternationalBox,
+    defaultPromptBox
+  ].forEach(control => {
+    control?.addEventListener("change", markSignalInputsChanged);
+  });
+
+  [industryBox, purchaseCountrySearch, salesCountrySearch].forEach(control => {
+    control?.addEventListener("input", markSignalInputsChanged);
+  });
+
+  document.querySelectorAll('input[name="purchaseCurrency"], input[name="salesCurrency"], input[name="signalThread"]').forEach(control => {
+    control.addEventListener("change", markSignalInputsChanged);
+  });
 }
 
 
@@ -2206,7 +2398,10 @@ button.addEventListener("click", async function () {
     return;
   }
 
-  button.disabled = true;
+  generateSignalsLoading = true;
+  signalRunLocked = false;
+  currentInputSignature = "";
+  updateGenerateButtonState();
   resetConversationBridge();
   analysisOutput.innerHTML = `<span class="loading">Researching relevant signals...</span>`;
   renderFxContext("");
@@ -2250,6 +2445,8 @@ button.addEventListener("click", async function () {
 
     renderSources(data.sources || [], Boolean(data.no_relevant_updates), Boolean(data.fallback_triggered));
     renderAnalysis(data.news?.content || data.analysis || "No analysis returned.");
+    signalRunLocked = true;
+    currentInputSignature = getInputSignature();
 
     const marketIntelligenceRendered = await marketIntelligencePromise;
     if (!marketIntelligenceRendered && Array.isArray(data.fx)) {
@@ -2263,7 +2460,8 @@ button.addEventListener("click", async function () {
     if (sourcesOutput) sourcesOutput.textContent = "";
     if (contextOutput) contextOutput.textContent = "";
   } finally {
-    button.disabled = false;
+    generateSignalsLoading = false;
+    updateGenerateButtonState();
   }
 });
 
@@ -2273,6 +2471,8 @@ renderCountryDropdownFor("purchase");
 renderCountryDropdownFor("sales");
 updateTradeFlowVisibility();
 attachCoreInputListeners();
+attachSignalInputInvalidationListeners();
+updateGenerateButtonState();
 
 sectorBox?.addEventListener("change", function () {
   sectorBox.classList.remove("auto-filled");
