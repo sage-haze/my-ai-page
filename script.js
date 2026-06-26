@@ -863,6 +863,7 @@ function selectIsic(entry) {
     : "";
 
   selectedIsicBox.textContent = `Selected: ${entry.code} - ${entry.description}.${autoFillText}`;
+  markSignalInputsChanged();
   closeIsicDropdown();
 
   // Keep the interaction feeling complete after a selection. Some browsers fire
@@ -1111,6 +1112,7 @@ function renderCountryDropdownFor(side) {
           : selectedSalesCountries.filter(c => c.code !== country.code);
       }
       renderSelectedCountriesFor(side);
+      markSignalInputsChanged();
       searchBox.value = "";
       closeCountryDropdownFor(side);
     });
@@ -1140,6 +1142,7 @@ function renderSelectedCountriesFor(side) {
       if (isPurchase) selectedPurchaseCountries = selectedPurchaseCountries.filter(c => c.code !== btn.dataset.code);
       else selectedSalesCountries = selectedSalesCountries.filter(c => c.code !== btn.dataset.code);
       renderSelectedCountriesFor(side);
+      markSignalInputsChanged();
       renderCountryDropdownFor(side);
     });
   });
@@ -1541,6 +1544,11 @@ let conversationCardsExpanded = false;
 let conversationBridgeBuilt = false;
 let selectedSignalIndexes = new Set();
 let lastSources = [];
+let generatedConversationCardsByIndex = new Map();
+let bridgeGenerationInProgress = false;
+let signalRunActive = false;
+let generateSignalsLoading = false;
+let currentInputSignature = "";
 
 const ALLOWED_SIGNAL_TAGS = [
   "FX",
@@ -1829,6 +1837,7 @@ function renderSignalSourceLine(card) {
 
 function resetConversationBridge() {
   conversationBridgeBuilt = false;
+  generatedConversationCardsByIndex = new Map();
   if (bridgeOutput) bridgeOutput.innerHTML = "";
   if (bridgePanel) bridgePanel.classList.add("hidden");
 }
@@ -1908,13 +1917,17 @@ function renderBridgeCard(card, index) {
 }
 
 function renderSelectedConversationBridge() {
-  const selectedCards = [...selectedSignalIndexes]
-    .sort((a, b) => a - b)
-    .map(index => lastConversationCards[index])
+  const selectedIndexes = [...selectedSignalIndexes].sort((a, b) => a - b);
+  const selectedCards = selectedIndexes
+    .map(index => generatedConversationCardsByIndex.get(index))
     .filter(Boolean);
 
-  if (!selectedCards.length) {
+  if (!selectedIndexes.length) {
     return `<div class="empty-state bridge-empty">Select at least one signal to plan your client conversation.</div>`;
+  }
+
+  if (selectedCards.length < selectedIndexes.length) {
+    return `<div class="empty-state bridge-empty"><span class="loading">Planning selected conversation cards...</span></div>`;
   }
 
   return `
@@ -1937,18 +1950,29 @@ function renderSignalSelectionList() {
     </button>
   ` : "";
 
+  const staleNote = !signalRunActive && lastConversationCards.length
+    ? `<div class="signals-stale-note">Inputs changed. Generate relevant signals again to refresh the results.</div>`
+    : "";
+  const buildButtonLabel = bridgeGenerationInProgress
+    ? "Planning conversation..."
+    : `Plan my client conversation${selectedCount ? ` (${selectedCount})` : ""}`;
+
   analysisOutput.innerHTML = `
     <div class="signals-summary">Showing ${visibleCards.length} of ${lastConversationCards.length} relevant signal${lastConversationCards.length === 1 ? "" : "s"}. Select the signals you might use in a client conversation.</div>
+    ${staleNote}
     <div class="signal-selection-list">${cardsHtml}</div>
     <div class="signal-action-row">
       ${toggleHtml}
-      <button type="button" class="secondary-action primary-bridge-action" id="buildBridgeButton" ${selectedCount ? "" : "disabled"}>
-        Plan my client conversation${selectedCount ? ` (${selectedCount})` : ""}
+      <button type="button" class="secondary-action primary-bridge-action" id="buildBridgeButton" ${selectedCount && signalRunActive && !bridgeGenerationInProgress ? "" : "disabled"}>
+        ${buildButtonLabel}
       </button>
     </div>
   `;
 
-  if (conversationBridgeBuilt && bridgeOutput && bridgePanel) {
+  if (bridgeGenerationInProgress && bridgeOutput && bridgePanel) {
+    bridgePanel.classList.remove("hidden");
+    bridgeOutput.innerHTML = `<div class="empty-state bridge-empty"><span class="loading">Planning selected conversation cards...</span></div>`;
+  } else if (conversationBridgeBuilt && bridgeOutput && bridgePanel) {
     bridgeOutput.innerHTML = renderSelectedConversationBridge();
     bridgePanel.classList.remove("hidden");
   } else if (!conversationBridgeBuilt) {
@@ -1975,22 +1999,22 @@ function renderSignalSelectionList() {
   });
 
   document.getElementById("buildBridgeButton")?.addEventListener("click", () => {
-    if (!selectedSignalIndexes.size) return;
-    conversationBridgeBuilt = true;
-    renderSignalSelectionList();
-    bridgePanel?.scrollIntoView({ behavior: "smooth", block: "start" });
+    generateConversationCardsForSelection();
   });
 }
 
 function renderConversationCards(text) {
-  const cardBlocks = String(text || "")
-    .split(/(?=Card\s+\d+\s*:)/i)
-    .map(block => block.trim())
-    .filter(Boolean);
+  const cards = parseConversationCardBlocks(text);
 
-  if (cardBlocks.length === 0) return false;
+  if (cards.length === 0) return false;
 
-  lastConversationCards = cardBlocks.map(parseConversationCardBlock);
+  lastConversationCards = cards;
+  generatedConversationCardsByIndex = new Map();
+  cards.forEach((card, index) => {
+    const hasFullConversationCard = ["Observe", "Relate", "Leave Space", "Lightly Explore", "Offer Support"]
+      .every(label => Boolean(getConversationSectionText(card, label)));
+    if (hasFullConversationCard) generatedConversationCardsByIndex.set(index, card);
+  });
   conversationCardsExpanded = false;
   resetConversationBridge();
   selectedSignalIndexes = new Set(lastConversationCards.slice(0, DEFAULT_VISIBLE_SIGNAL_COUNT).map((_, index) => index));
@@ -2256,6 +2280,202 @@ function getClientProfile() {
 }
 
 
+
+function getInputSignature() {
+  const tradeFlow = getTradeFlow();
+  const payload = {
+    sector: sectorBox?.value || "",
+    subsector: subsectorBox?.value || "",
+    industry: selectedIsic ? `${selectedIsic.code} - ${selectedIsic.description}` : (industryBox?.value || "").trim(),
+    isicCode: selectedIsic?.code || "",
+    timeframe: timeframeBox?.value || "30",
+    fxTenor: fxTenorBox?.value || "30",
+    tradeFlow,
+    defaultPrompt: defaultPromptBox?.value?.trim() || "",
+    signalThreads: getSignalThreads()
+  };
+  return JSON.stringify(payload);
+}
+
+function updateGenerateButtonState() {
+  if (!button) return;
+  const signatureMatches = signalRunActive && currentInputSignature && getInputSignature() === currentInputSignature;
+  button.disabled = generateSignalsLoading || signatureMatches;
+  if (generateSignalsLoading) {
+    button.textContent = "Generating signals...";
+  } else if (signatureMatches) {
+    button.textContent = "Signals Generated";
+  } else if (lastConversationCards.length) {
+    button.textContent = "Refresh Relevant Signals";
+  } else {
+    button.textContent = "Generate Relevant Signals";
+  }
+  button.title = signatureMatches
+    ? "Signals are stable for the current inputs. Change the setup above to generate a new search."
+    : "Generate relevant signals for the current setup.";
+}
+
+function markSignalInputsChanged() {
+  if (generateSignalsLoading) return;
+  const signature = getInputSignature();
+  if (signalRunActive && currentInputSignature && signature === currentInputSignature) {
+    updateGenerateButtonState();
+    return;
+  }
+  signalRunActive = false;
+  currentInputSignature = "";
+  conversationBridgeBuilt = false;
+  generatedConversationCardsByIndex = new Map();
+  if (bridgeOutput) bridgeOutput.innerHTML = "";
+  if (bridgePanel) bridgePanel.classList.add("hidden");
+  if (lastConversationCards.length) renderSignalSelectionList();
+  updateGenerateButtonState();
+}
+
+function attachSignalInputInvalidationListeners() {
+  [
+    sectorBox,
+    subsectorBox,
+    timeframeBox,
+    fxTenorBox,
+    purchaseDomesticBox,
+    purchaseInternationalBox,
+    salesDomesticBox,
+    salesInternationalBox,
+    defaultPromptBox
+  ].forEach(control => {
+    control?.addEventListener("change", markSignalInputsChanged);
+  });
+
+  [industryBox, purchaseCountrySearch, salesCountrySearch].forEach(control => {
+    control?.addEventListener("input", markSignalInputsChanged);
+  });
+
+  document.querySelectorAll('input[name="purchaseCurrency"], input[name="salesCurrency"], input[name="signalThread"]').forEach(control => {
+    control.addEventListener("change", markSignalInputsChanged);
+  });
+}
+
+function parseConversationCardBlocks(text) {
+  return String(text || "")
+    .split(/(?=Card\s+\d+\s*:)/i)
+    .map(block => block.trim())
+    .filter(Boolean)
+    .map(parseConversationCardBlock);
+}
+
+function serializeSignalForRequest(card, index) {
+  return {
+    index,
+    title: card.heading || `Signal ${index + 1}`,
+    tags: Array.isArray(card.tags) ? card.tags : [],
+    context: getConversationSectionText(card, "Observe"),
+    whyRelevant: getConversationSectionText(card, "Relate") || getSignalPreviewText(card),
+    sourceNumbers: Array.isArray(card.sourceNumbers) ? card.sourceNumbers : []
+  };
+}
+
+function getCurrentRequestPayload(extra = {}) {
+  const sector = sectorBox.value;
+  const subsector = subsectorBox.value;
+  const industry = selectedIsic ? selectedIsic.description : industryBox.value.trim();
+  const isicCode = selectedIsic?.code || "";
+  const timeframe = timeframeBox.value;
+  const fxTenor = fxTenorBox?.value || "30";
+  const conversationGoal = "general_check_in";
+  const clientProfile = getClientProfile();
+  const signalThreads = getSignalThreads();
+  const tradeFlow = getTradeFlow();
+  const currencies = [...new Set([...(tradeFlow.purchase.currencies || []), ...(tradeFlow.sales.currencies || [])])];
+  const tradeRoles = getSelectedTradeRolesFromFlow(tradeFlow);
+  const countries = getAllTradeFlowCountries(tradeFlow);
+  const defaultPrompt = defaultPromptBox.value.trim();
+
+  return {
+    sector,
+    subsector,
+    industry,
+    isicCode,
+    tradeRoles,
+    tradeFlow,
+    timeframe,
+    fxTenor,
+    currencies,
+    countries,
+    defaultPrompt,
+    conversationGoal,
+    clientProfile,
+    signalThreads,
+    ...extra
+  };
+}
+
+async function generateConversationCardsForSelection() {
+  if (!selectedSignalIndexes.size || bridgeGenerationInProgress) return;
+
+  const selectedIndexes = [...selectedSignalIndexes].sort((a, b) => a - b);
+  const missingIndexes = selectedIndexes.filter(index => !generatedConversationCardsByIndex.has(index));
+
+  if (bridgePanel && bridgeOutput) {
+    bridgePanel.classList.remove("hidden");
+    bridgeOutput.innerHTML = `<div class="empty-state bridge-empty"><span class="loading">${missingIndexes.length ? "Planning selected conversation cards..." : "Loading selected conversation cards..."}</span></div>`;
+  }
+
+  if (!missingIndexes.length) {
+    conversationBridgeBuilt = true;
+    renderSignalSelectionList();
+    bridgePanel?.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+
+  bridgeGenerationInProgress = true;
+  let generationFailed = false;
+  renderSignalSelectionList();
+
+  try {
+    const selectedSignals = missingIndexes
+      .map(index => lastConversationCards[index] ? serializeSignalForRequest(lastConversationCards[index], index) : null)
+      .filter(Boolean);
+
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(getCurrentRequestPayload({
+        mode: "conversation_cards",
+        selectedSignals,
+        sources: lastSources
+      }))
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      generationFailed = true;
+      if (bridgeOutput) bridgeOutput.innerHTML = `<span class="error">${escapeHtml(data.error || "Conversation card generation failed.")}</span>`;
+      return;
+    }
+
+    const generatedCards = parseConversationCardBlocks(data.news?.content || data.analysis || "");
+    generatedCards.forEach((card, generatedIndex) => {
+      const originalIndex = missingIndexes[generatedIndex];
+      if (Number.isFinite(originalIndex)) generatedConversationCardsByIndex.set(originalIndex, card);
+    });
+
+    conversationBridgeBuilt = true;
+    renderSignalSelectionList();
+    bridgePanel?.scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (error) {
+    generationFailed = true;
+    if (bridgeOutput) bridgeOutput.innerHTML = `<span class="error">Conversation card network error.</span>`;
+  } finally {
+    bridgeGenerationInProgress = false;
+    if (!generationFailed) renderSignalSelectionList();
+  }
+}
+
+
 button.addEventListener("click", async function () {
   const sector = sectorBox.value;
   const subsector = subsectorBox.value;
@@ -2318,7 +2538,11 @@ button.addEventListener("click", async function () {
     return;
   }
 
-  button.disabled = true;
+  generateSignalsLoading = true;
+  signalRunActive = false;
+  currentInputSignature = "";
+  generatedConversationCardsByIndex = new Map();
+  updateGenerateButtonState();
   resetConversationBridge();
   analysisOutput.innerHTML = `<span class="loading">Researching relevant signals...</span>`;
   renderFxContext("");
@@ -2347,7 +2571,8 @@ button.addEventListener("click", async function () {
         defaultPrompt,
         conversationGoal,
         clientProfile,
-        signalThreads
+        signalThreads,
+        mode: "signals"
       })
     });
 
@@ -2360,6 +2585,8 @@ button.addEventListener("click", async function () {
       return;
     }
 
+    signalRunActive = true;
+    currentInputSignature = getInputSignature();
     renderSources(data.sources || [], Boolean(data.no_relevant_updates), Boolean(data.fallback_triggered));
     renderAnalysis(data.news?.content || data.analysis || "No analysis returned.");
 
@@ -2375,7 +2602,8 @@ button.addEventListener("click", async function () {
     if (sourcesOutput) sourcesOutput.textContent = "";
     if (contextOutput) contextOutput.textContent = "";
   } finally {
-    button.disabled = false;
+    generateSignalsLoading = false;
+    updateGenerateButtonState();
   }
 });
 
@@ -2385,6 +2613,8 @@ renderCountryDropdownFor("purchase");
 renderCountryDropdownFor("sales");
 updateTradeFlowVisibility();
 attachCoreInputListeners();
+attachSignalInputInvalidationListeners();
+updateGenerateButtonState();
 
 sectorBox?.addEventListener("change", function () {
   sectorBox.classList.remove("auto-filled");

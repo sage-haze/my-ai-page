@@ -1908,6 +1908,44 @@ function normalizeCardTags(tags = [], fallbackText = "") {
   return (unique.length ? unique : ["Sector"]).slice(0, 3);
 }
 
+
+function formatSignalsFromJson(parsed) {
+  const signals = Array.isArray(parsed.signals)
+    ? parsed.signals
+    : (Array.isArray(parsed.cards) ? parsed.cards : (Array.isArray(parsed.themes) ? parsed.themes : []));
+
+  return signals.map((signal, index) => {
+    const title = String(signal.title || signal.heading || `Signal ${index + 1}`).replace(/^(Theme|Card|Signal)\s*\d+\s*:\s*/i, "").trim();
+    const context = String(signal.context || signal.marketContext || signal.market_context || signal.observe || "").trim();
+    const whyRelevant = String(
+      signal.whyRelevant ||
+      signal.why_relevant ||
+      signal.whyThisMayMatter ||
+      signal.why_this_may_matter ||
+      signal.transactionBankingAngle ||
+      signal.transaction_banking_angle ||
+      signal.relate ||
+      signal.explanation ||
+      ""
+    ).trim();
+    const relevanceQualifier = String(signal.relevanceQualifier || signal.relevance_qualifier || signal.relevanceLevel || signal.relevance_level || "").trim();
+    const combinedRelate = [relevanceQualifier, whyRelevant].filter(Boolean).join(" ").trim();
+    const tags = normalizeCardTags(signal.tags || signal.tag || [], `${title} ${context} ${combinedRelate}`);
+    const sourceNumbers = Array.isArray(signal.sourceNumbers)
+      ? signal.sourceNumbers
+      : extractSourceRefs(`${title} ${context} ${combinedRelate}`);
+    const cleanSourceNumbers = [...new Set(sourceNumbers.map(Number).filter(Number.isFinite))].sort((a, b) => a - b);
+
+    return [
+      `Card ${index + 1}: ${stripInlineSourceRefs(title)}`,
+      `Tags: ${tags.join(", ")}`,
+      cleanSourceNumbers.length ? `Sources: ${cleanSourceNumbers.map(number => `[${number}]`).join(" ")}` : "",
+      context ? `Observe: ${stripInlineSourceRefs(context)}` : "",
+      combinedRelate ? `Relate: ${stripInlineSourceRefs(combinedRelate)}` : ""
+    ].filter(Boolean).join("\n");
+  }).filter(Boolean).join("\n\n");
+}
+
 function formatNewsThemesFromJson(parsed) {
   const cards = Array.isArray(parsed.cards) ? parsed.cards : (Array.isArray(parsed.themes) ? parsed.themes : []);
 
@@ -2032,6 +2070,375 @@ function alignSourcesToAnalysis({ sources, newsSection, timeframe }) {
       content: remapSourceNumbersInText(newsSection.content, numberMap)
     },
     sources: renumberedSources
+  };
+}
+
+
+async function analyzeNewsSignals({ env, sources, sector, subsector, industry, isicCode = "", tradeRoles, countries, tradeFlow = null, timeframe, plannedQueries, defaultPrompt, conversationGoal = "general_check_in", clientProfile = {}, signalThreads = [] }) {
+  if (!sources.length) {
+    return {
+      status: "NO_NEWS",
+      content: normalizeNoNewsText(timeframe)
+    };
+  }
+
+  const countryText = countries
+    .map(country => country.label || `${country.name} (${country.code})`)
+    .join(", ");
+
+  const articleContext = sources.map(source => {
+    const text = source.raw_content || source.summary || "";
+    const trimmedText = text.length > 2200 ? text.slice(0, 2200) + "…" : text;
+
+    return `
+[${source.source_number}]
+Title: ${source.title}
+URL: ${source.url}
+Publisher: ${source.domain || source.source || "Unknown"}
+Published: ${source.published_at || "Unknown"}
+Source type: ${source.source_group}
+${Array.isArray(source.syndicated_via) && source.syndicated_via.length ? `Same/similar story also seen via: ${source.syndicated_via.join(", ")}` : ""}
+Relevance reviewer note: ${source.relevance_justification || ""}
+Content:
+${trimmedText}
+`.trim();
+  }).join("\n\n");
+
+  const prompt = `
+You are a transaction banking conversation coach supporting a junior Thailand-based relationship manager.
+
+The user's custom focus/context is:
+${defaultPrompt}
+
+Customer profile:
+- Sector: ${sector}
+- Subsector: ${subsector}
+- Specific industry / ISIC activity: ${industry}
+- Client base: Thailand
+- Directional trade flow:
+${tradeFlow ? tradeFlowSummary(tradeFlow) : `Client trade role: ${tradeRoles.join(", ")}
+Countries / markets relevant to the client: ${countryText}`}
+- Timeframe for news search: last ${timeframe} days
+- Enabled signal threads: ${signalThreadText(signalThreads)}
+- Search mode: Relevant signal scan only
+- Search queries used: ${plannedQueries.map(plan => `${plan.label}: ${plan.query}`).join(" | ")}
+
+Task:
+Create compact, evidence-grounded Top Relevant Signals only. Do not generate the full five-move conversation cards yet. Rank the signals from most useful to least useful for a junior transaction banker.
+${cardCountInstruction().replace("cards", "signals").replace("cards", "signals")}
+
+What a signal should contain:
+- A practical title that names the market development and the transaction-banking bridge.
+- One short context line grounded in the source.
+- One short whyRelevant line that explains why this may matter for cash, trade, payments, FX flows, working capital, liquidity, operational resilience, or specialist handoff.
+- Source numbers only in sourceNumbers, not inline in the text.
+
+Conversation standard:
+- This first stage is high judgement: select only developments that are genuinely useful for this client profile.
+- Translate external developments into transaction-banking relevance, but do not over-generalise.
+- Prefer direct Thailand, selected purchase-market, selected sales-market, selected-currency, or selected-ISIC relevance.
+- If relevance is indirect, say so plainly in the whyRelevant line, e.g. "This is a sector signal rather than a direct buyer-market update."
+- Separate purchase-side cost/supplier implications from sales-side revenue/demand implications when the sources support that distinction.
+- Treat purchase countries as supplier/source markets and sales countries as buyer/revenue markets. Do not cross-combine countries randomly.
+- Broader macro and commodity signals are useful, but only when they clearly connect to selected flows, currencies, input costs, demand, payment timing, or working capital.
+
+Grounding rules:
+- Use ONLY the provided sources.
+- Do NOT add unstated facts, general industry knowledge, background assumptions, or evergreen commentary as if sourced.
+- Do NOT imply that an article specifically discusses the client's product, market, currency, or trade flow unless the source explicitly does.
+- You may draw cautious implications, but clearly distinguish direct evidence from inferred relevance.
+- Every signal must include at least one source number in the sourceNumbers array.
+- Official datasets may be used as context, but do not describe them as recent news unless the date supports it.
+- If the sources do not contain meaningful evidence relevant to this Thailand-based client context, return JSON with "status": "NO_NEWS" and an empty signals array.
+- If there is at least one useful news-based signal, return JSON with "status": "OK". Do NOT include the string NO_NEWS anywhere in titles or explanations.
+
+Relevance discipline:
+- Do not force weakly related articles into high-confidence signals.
+- Do not use numeric scores, signal strength labels, evidence grades, or prefixes such as "Primary Market Signal".
+- Prefer fewer, stronger signals over many isolated source summaries.
+- If a development is only useful as a light conversation opener, frame it as a small awareness point rather than a risk or sales opportunity.
+- Do NOT assume a named company in an article is the bank's client or the user's client. Frame it as a sector signal, competitor signal, buyer/supplier signal, or market development.
+- Do NOT repeat standalone FX rate commentary. Mention FX only when a source directly supports an implication, or when selected purchase/sales currencies create an obvious directional crosswind clearly presented as an inference.
+
+Writing style:
+- Use practical, banker-friendly titles. Avoid generic titles such as "Supply Chain Risk" or "Market Update".
+- Keep context and whyRelevant concise.
+- Use calibrated wording such as "may", "could", "worth monitoring", or "conversation opener" when relevance is indirect.
+
+Return JSON only in this exact shape:
+{
+  "status": "OK",
+  "signals": [
+    {
+      "title": "Specific practical title without scoring or signal prefixes",
+      "tags": ["Trade", "Working capital"],
+      "context": "One source-grounded sentence on what happened.",
+      "whyRelevant": "One concise transaction-banking relevance sentence calibrated to the selected client profile.",
+      "sourceNumbers": [1, 2]
+    }
+  ]
+}
+
+Allowed tags: FX, Trade, Working capital, Payments, Supply chain, Liquidity, Geopolitics, Rates, Commodities, Sector. Use one to three tags per signal. Prefer transaction-banking relevance tags over generic macro labels.
+
+If not relevant, return exactly this JSON:
+{
+  "status": "NO_NEWS",
+  "signals": []
+}
+
+Provided sources:
+${articleContext}
+`.trim();
+
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${env.OPENAI_API_KEY}`
+    },
+    body: JSON.stringify({
+      model: env.OPENAI_ANALYSIS_MODEL || OPENAI_ANALYSIS_MODEL,
+      input: prompt
+    })
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error?.message || "OpenAI signal analysis request failed.");
+  }
+
+  const rawText = (extractOutputText(data) || "").trim();
+  const parsed = parseJsonObject(rawText);
+
+  if (!parsed) {
+    const cleanedText = rawText.replace(/\bNO_NEWS\b/g, "").trim();
+    const sourceRefs = extractSourceRefs(cleanedText);
+    if (!cleanedText || sourceRefs.length === 0) {
+      return {
+        status: "NO_NEWS",
+        content: normalizeNoNewsText(timeframe)
+      };
+    }
+    return {
+      status: "OK",
+      content: cleanedText
+    };
+  }
+
+  const status = String(parsed.status || "").toUpperCase();
+  const signals = Array.isArray(parsed.signals)
+    ? parsed.signals
+    : (Array.isArray(parsed.cards) ? parsed.cards : (Array.isArray(parsed.themes) ? parsed.themes : []));
+
+  if (status === "NO_NEWS" || signals.length === 0) {
+    return {
+      status: "NO_NEWS",
+      content: normalizeNoNewsText(timeframe)
+    };
+  }
+
+  const content = formatSignalsFromJson({ ...parsed, signals }).replace(/\bNO_NEWS\b/g, "").trim();
+  const sourceRefs = extractSourceRefs(content);
+
+  if (!content || sourceRefs.length === 0) {
+    return {
+      status: "NO_NEWS",
+      content: normalizeNoNewsText(timeframe)
+    };
+  }
+
+  return {
+    status: "OK",
+    content
+  };
+}
+
+function normalizeClientProvidedSources(sources = []) {
+  return (Array.isArray(sources) ? sources : [])
+    .map((source, index) => ({
+      ...source,
+      source_number: Number(source.number || source.source_number || index + 1),
+      title: String(source.title || source.url || `Source ${index + 1}`),
+      url: String(source.url || ""),
+      source: source.source || source.domain || "Source",
+      domain: source.domain || source.source || "Source",
+      published_at: source.published_at || "Unknown",
+      source_group: source.source_group || "selected_signal_source",
+      raw_content: source.raw_content || source.summary || source.justification || "",
+      summary: source.summary || source.justification || ""
+    }))
+    .filter(source => Number.isFinite(source.source_number));
+}
+
+function normalizeSelectedSignals(signals = []) {
+  return (Array.isArray(signals) ? signals : [])
+    .map((signal, index) => {
+      const sourceNumbers = Array.isArray(signal.sourceNumbers)
+        ? signal.sourceNumbers.map(Number).filter(Number.isFinite)
+        : extractSourceRefs(`${signal.title || ""} ${signal.context || ""} ${signal.whyRelevant || ""}`);
+      return {
+        index: Number.isFinite(Number(signal.index)) ? Number(signal.index) : index,
+        title: String(signal.title || signal.heading || `Signal ${index + 1}`).trim(),
+        tags: normalizeCardTags(signal.tags || [], `${signal.title || ""} ${signal.context || ""} ${signal.whyRelevant || ""}`),
+        context: String(signal.context || signal.observe || "").trim(),
+        whyRelevant: String(signal.whyRelevant || signal.why_relevant || signal.relate || "").trim(),
+        sourceNumbers: [...new Set(sourceNumbers)].sort((a, b) => a - b)
+      };
+    })
+    .filter(signal => signal.title && signal.sourceNumbers.length);
+}
+
+async function generateConversationCardsFromSignals({ env, selectedSignals, sources, sector, subsector, industry, isicCode = "", tradeRoles = [], countries = [], tradeFlow = null, timeframe, defaultPrompt = "", conversationGoal = "general_check_in", clientProfile = {}, signalThreads = [] }) {
+  const cleanSignals = normalizeSelectedSignals(selectedSignals);
+  const cleanSources = normalizeClientProvidedSources(sources);
+
+  if (!cleanSignals.length) {
+    return { status: "NO_SELECTION", content: "" };
+  }
+
+  const neededSourceNumbers = new Set(cleanSignals.flatMap(signal => signal.sourceNumbers));
+  const sourceByNumber = new Map(cleanSources.map(source => [Number(source.source_number), source]));
+  const relevantSources = [...neededSourceNumbers]
+    .map(number => sourceByNumber.get(Number(number)))
+    .filter(Boolean);
+
+  const articleContext = relevantSources.map(source => {
+    const text = source.raw_content || source.summary || source.justification || "";
+    const trimmedText = text.length > 2000 ? text.slice(0, 2000) + "…" : text;
+    return `
+[${source.source_number}]
+Title: ${source.title}
+URL: ${source.url}
+Publisher: ${source.domain || source.source || "Unknown"}
+Published: ${source.published_at || "Unknown"}
+Source type: ${source.source_group}
+Content / reviewer note:
+${trimmedText || source.justification || "No additional snippet provided; rely on the selected signal summary."}
+`.trim();
+  }).join("\n\n");
+
+  const signalContext = cleanSignals.map((signal, index) => `
+Signal ${index + 1} (originalIndex: ${signal.index})
+Title: ${signal.title}
+Tags: ${signal.tags.join(", ")}
+Context: ${signal.context}
+Why relevant: ${signal.whyRelevant}
+Source numbers: ${signal.sourceNumbers.map(number => `[${number}]`).join(" ")}
+`.trim()).join("\n\n");
+
+  const countryText = countries
+    .map(country => country.label || `${country.name} (${country.code})`)
+    .join(", ");
+
+  const prompt = `
+You are a transaction banking conversation coach supporting a junior Thailand-based relationship manager.
+
+The user has already selected the signals below. Create full Conversation Cards only for those selected signals, in the same order. Do not add new signals.
+
+Customer profile:
+- Sector: ${sector}
+- Subsector: ${subsector}
+- Specific industry / ISIC activity: ${industry}
+- Client base: Thailand
+- Directional trade flow:
+${tradeFlow ? tradeFlowSummary(tradeFlow) : `Client trade role: ${tradeRoles.join(", ")}
+Countries / markets relevant to the client: ${countryText}`}
+- Timeframe for news search: last ${timeframe} days
+- Enabled signal threads: ${signalThreadText(signalThreads)}
+- User focus/context: ${defaultPrompt}
+
+Selected signals:
+${signalContext}
+
+Task:
+For each selected signal, generate one client-safe Conversation Card using the five moves: Observe, Relate, Leave Space, Lightly Explore, Offer Support. Include a subtle Keep in mind line that sits under Relate in the UI.
+
+Conversation standard:
+- Help the RM think and speak better; do not give a polished monologue to recite.
+- Translate the selected signal into cash, trade, payments, FX flows, working capital, liquidity, operational resilience, and specialist handoff.
+- The card should make uncertainty easier to discuss without pretending to forecast.
+- The Keep in mind line should be one concise, italic-style coaching note. It should not be a major scenario section. Avoid "upside/downside" unless the client position makes it obvious. Prefer wording such as "If this develops further...", "If conditions change...", or "The practical issue is whether...".
+- For Lightly Explore, ask about patterns before problems. Use nuanced, client-safe wording that lets the client answer at an industry/process level before revealing anything sensitive.
+- Avoid asking clients to directly admit business loss, cash pressure, late collections, weakening margins, or credit weakness.
+- Prefer indirect questions such as whether buyer/supplier conversations, payment timing, documentation requirements, pricing behaviour, or operating practices are changing across the market.
+- Treat purchase countries as supplier/source markets and sales countries as buyer/revenue markets. Do not cross-combine countries randomly.
+- If relevance is indirect, say so plainly.
+
+Grounding rules:
+- Use ONLY the selected signal summary and provided sources.
+- Do NOT add unstated facts, general industry knowledge, background assumptions, or evergreen commentary as if sourced.
+- You may draw cautious implications, but clearly distinguish direct evidence from inferred relevance.
+- Every card must include sourceNumbers copied from the selected signal where they support the card.
+- Do not put [1] or [2] inline inside the observe, relate, keepInMind, leaveSpace, lightlyExplore, or offerSupport text. Put source references only in sourceNumbers.
+- Do NOT assume a named company in a source is the bank's client or the user's client. Frame it as a sector signal, competitor signal, buyer/supplier signal, or market development.
+
+Writing style:
+- Practical, banker-friendly, and concise.
+- Calibrated language: "may", "could", "worth watching", "if relevant".
+- Avoid overly promotional language and avoid sounding like the RM is diagnosing the client.
+
+Return JSON only in this exact shape:
+{
+  "status": "OK",
+  "cards": [
+    {
+      "title": "Use the selected signal title or a slightly cleaner version",
+      "tags": ["Trade", "Working capital"],
+      "observe": "A gentle, evidence-grounded observation the banker can offer without assuming the client has a problem.",
+      "relate": "Connect the signal to the client’s likely operating flows: cash, trade, payments, FX, working capital, liquidity, or resilience.",
+      "keepInMind": "One concise uncertainty-aware sentence that helps the junior banker discuss plausible change without forecasting.",
+      "leaveSpace": "A low-pressure phrase that lets the client respond without forcing disclosure.",
+      "lightlyExplore": "One non-invasive follow-up path only if the client shows interest. Ask about patterns or process changes before client-specific problems.",
+      "offerSupport": "A practical support angle and any specialist handoff cue.",
+      "sourceNumbers": [1, 2]
+    }
+  ]
+}
+
+Allowed tags: FX, Trade, Working capital, Payments, Supply chain, Liquidity, Geopolitics, Rates, Commodities, Sector. Use one to three tags per card.
+
+Provided sources:
+${articleContext || "No additional source snippets were provided beyond the selected signal summaries."}
+`.trim();
+
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${env.OPENAI_API_KEY}`
+    },
+    body: JSON.stringify({
+      model: env.OPENAI_ANALYSIS_MODEL || OPENAI_ANALYSIS_MODEL,
+      input: prompt
+    })
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error?.message || "OpenAI conversation card request failed.");
+  }
+
+  const rawText = (extractOutputText(data) || "").trim();
+  const parsed = parseJsonObject(rawText);
+
+  if (!parsed) {
+    const cleanedText = rawText.replace(/\bNO_NEWS\b/g, "").trim();
+    return {
+      status: cleanedText ? "OK" : "NO_NEWS",
+      content: cleanedText
+    };
+  }
+
+  const cards = Array.isArray(parsed.cards) ? parsed.cards : [];
+  if (!cards.length) {
+    return { status: "NO_NEWS", content: "" };
+  }
+
+  const content = formatNewsThemesFromJson({ ...parsed, cards }).replace(/\bNO_NEWS\b/g, "").trim();
+  return {
+    status: "OK",
+    content
   };
 }
 
@@ -2391,6 +2798,8 @@ export async function onRequestPost(context) {
     const signalThreads = Array.isArray(body.signalThreads) && body.signalThreads.length
       ? body.signalThreads.map(item => String(item))
       : defaultSignalThreads();
+    const requestMode = String(body.mode || body.requestMode || "signals").trim().toLowerCase();
+    const includeFxInChat = body.includeFx === true;
 
     if (!sector) return Response.json({ error: "Please select a sector." }, { status: 400 });
     if (!subsector) return Response.json({ error: "Please select a subsector." }, { status: 400 });
@@ -2407,12 +2816,43 @@ export async function onRequestPost(context) {
       return Response.json({ error: `Unsupported currency selected: ${unsupported.join(", ")}` }, { status: 400 });
     }
 
-    if (!env.TAVILY_API_KEY) {
-      return Response.json({ error: "Missing TAVILY_API_KEY secret in Cloudflare." }, { status: 500 });
-    }
-
     if (!env.OPENAI_API_KEY) {
       return Response.json({ error: "Missing OPENAI_API_KEY secret in Cloudflare." }, { status: 500 });
+    }
+
+    if (["conversation_cards", "cards", "plan_conversation"].includes(requestMode)) {
+      const selectedSignals = Array.isArray(body.selectedSignals) ? body.selectedSignals : [];
+      const clientSources = Array.isArray(body.sources) ? body.sources : [];
+      const cardsSection = await generateConversationCardsFromSignals({
+        env,
+        selectedSignals,
+        sources: clientSources,
+        sector,
+        subsector,
+        industry,
+        isicCode,
+        tradeRoles,
+        countries,
+        tradeFlow,
+        timeframe,
+        defaultPrompt,
+        conversationGoal,
+        clientProfile,
+        signalThreads
+      });
+
+      return Response.json({
+        analysis: cardsSection.content || "",
+        news: cardsSection,
+        context: { points: [] },
+        no_relevant_updates: false,
+        search_mode: "selected_conversation_card_generation",
+        sources: clientSources
+      });
+    }
+
+    if (!env.TAVILY_API_KEY) {
+      return Response.json({ error: "Missing TAVILY_API_KEY secret in Cloudflare." }, { status: 500 });
     }
 
     const { start_date, end_date } = getDateRange(timeframe);
@@ -2452,12 +2892,14 @@ export async function onRequestPost(context) {
       )),
       fetchNoKeyOfficialEvidence({ tradeFlow, signalThreads }),
       fetchCredentialedOfficialEvidence({ env, tradeFlow, currencies, signalThreads }),
-      fetchFxRates(currencies, fxTenor)
+      includeFxInChat ? fetchFxRates(currencies, fxTenor) : Promise.resolve([])
     ]);
 
     const officialEvidence = [...noKeyOfficialEvidence, ...credentialedOfficialEvidence];
 
-    const fxResults = await analyzeFxRates({ env, fxList: rawFxResults, sector, subsector, industry, tradeRoles, countries, tradeFlow, fxTenor });
+    const fxResults = includeFxInChat
+      ? await analyzeFxRates({ env, fxList: rawFxResults, sector, subsector, industry, tradeRoles, countries, tradeFlow, fxTenor })
+      : [];
 
     const primaryCandidateSources = prepareCandidateSources({
       sources: [...tavilyBatches.flat(), ...gdeltBatches.flat(), ...officialEvidence]
@@ -2568,12 +3010,12 @@ export async function onRequestPost(context) {
         search_keywords: searchKeywords,
         search_queries: effectiveQueries,
         fallback_triggered: fallbackTriggered,
-        search_mode: "conversation_card_signal_scan",
+        search_mode: "relevant_signal_scan",
         sources: []
       });
     }
 
-    const rawNewsSection = await analyzeNewsDevelopments({
+    const rawNewsSection = await analyzeNewsSignals({
       env,
       sources: mergedSources,
       sector,
@@ -2606,7 +3048,7 @@ export async function onRequestPost(context) {
       search_keywords: searchKeywords,
       search_queries: effectiveQueries,
       fallback_triggered: fallbackTriggered,
-      search_mode: "conversation_card_signal_scan",
+      search_mode: "relevant_signal_scan",
       sources: aligned.newsSection.status === "NO_NEWS" ? [] : aligned.sources.map(source => ({
         number: source.source_number,
         title: source.title,
@@ -2616,7 +3058,8 @@ export async function onRequestPost(context) {
         published_at: source.published_at,
         source_group: source.source_group,
         syndicated_via: Array.isArray(source.syndicated_via) ? source.syndicated_via : [],
-        justification: source.relevance_justification || ""
+        justification: source.relevance_justification || "",
+        summary: String(source.summary || source.raw_content || "").slice(0, 1400)
       }))
     });
   } catch (error) {
