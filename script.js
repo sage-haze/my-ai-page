@@ -39,6 +39,34 @@ let selectedIsic = null;
 let suppressIsicDropdownUntil = 0;
 const suppressCountryDropdownUntil = { purchase: 0, sales: 0 };
 let fxCharts = {};
+let signalRequestInFlight = false;
+let signalRunLocked = false;
+
+function updateGenerateSignalsButtonState() {
+  if (!button) return;
+  button.disabled = signalRequestInFlight || signalRunLocked;
+  if (signalRequestInFlight) {
+    button.title = "";
+  } else if (signalRunLocked) {
+    button.title = "Update the setup above to generate a fresh set of signals.";
+  } else {
+    button.title = "";
+  }
+}
+
+function unlockGenerateSignalsForSetupChange() {
+  if (!signalRunLocked) return;
+  signalRunLocked = false;
+  updateGenerateSignalsButtonState();
+}
+
+function isSetupChangingTarget(target) {
+  if (!target || typeof target.closest !== "function") return false;
+  if (!target.closest(".preparation-main")) return false;
+  if (target.closest("#send")) return false;
+  if (target.id === "purchaseCountrySearch" || target.id === "salesCountrySearch") return false;
+  return Boolean(target.matches?.("input, select, textarea") || target.closest(".country-chip button"));
+}
 
 const BUSINESS_RELEVANCE_TERMS = [
   "agriculture", "crop", "growing", "farming", "forestry", "fishing", "aquaculture",
@@ -863,7 +891,6 @@ function selectIsic(entry) {
     : "";
 
   selectedIsicBox.textContent = `Selected: ${entry.code} - ${entry.description}.${autoFillText}`;
-  markSignalInputsChanged();
   closeIsicDropdown();
 
   // Keep the interaction feeling complete after a selection. Some browsers fire
@@ -1112,7 +1139,6 @@ function renderCountryDropdownFor(side) {
           : selectedSalesCountries.filter(c => c.code !== country.code);
       }
       renderSelectedCountriesFor(side);
-      markSignalInputsChanged();
       searchBox.value = "";
       closeCountryDropdownFor(side);
     });
@@ -1142,7 +1168,6 @@ function renderSelectedCountriesFor(side) {
       if (isPurchase) selectedPurchaseCountries = selectedPurchaseCountries.filter(c => c.code !== btn.dataset.code);
       else selectedSalesCountries = selectedSalesCountries.filter(c => c.code !== btn.dataset.code);
       renderSelectedCountriesFor(side);
-      markSignalInputsChanged();
       renderCountryDropdownFor(side);
     });
   });
@@ -1544,9 +1569,6 @@ let conversationCardsExpanded = false;
 let conversationBridgeBuilt = false;
 let selectedSignalIndexes = new Set();
 let lastSources = [];
-let generateSignalsLoading = false;
-let signalRunLocked = false;
-let currentInputSignature = "";
 
 const ALLOWED_SIGNAL_TAGS = [
   "FX",
@@ -2261,80 +2283,20 @@ function getClientProfile() {
   return {};
 }
 
-function getInputSignature() {
-  const tradeFlow = getTradeFlow();
-  const payload = {
-    sector: sectorBox?.value || "",
-    subsector: subsectorBox?.value || "",
-    industry: selectedIsic ? `${selectedIsic.code} - ${selectedIsic.description}` : (industryBox?.value || "").trim(),
-    isicCode: selectedIsic?.code || "",
-    timeframe: timeframeBox?.value || "30",
-    fxTenor: fxTenorBox?.value || "30",
-    tradeFlow,
-    defaultPrompt: defaultPromptBox?.value?.trim() || "",
-    signalThreads: getSignalThreads()
+function attachGenerateSignalsUnlockListeners() {
+  const setupRoot = document.querySelector(".preparation-main");
+  if (!setupRoot) return;
+
+  const handleSetupChange = event => {
+    if (isSetupChangingTarget(event.target)) unlockGenerateSignalsForSetupChange();
   };
-  return JSON.stringify(payload);
+
+  setupRoot.addEventListener("input", handleSetupChange, true);
+  setupRoot.addEventListener("change", handleSetupChange, true);
+  setupRoot.addEventListener("click", handleSetupChange, true);
 }
 
-function updateGenerateButtonState() {
-  if (!button) return;
-  const signatureMatches = signalRunLocked && currentInputSignature && getInputSignature() === currentInputSignature;
-  button.disabled = Boolean(generateSignalsLoading || signatureMatches);
-  if (generateSignalsLoading) {
-    button.textContent = "Generating signals...";
-  } else if (signatureMatches) {
-    button.textContent = "Signals Generated";
-  } else if (lastConversationCards.length) {
-    button.textContent = "Refresh Relevant Signals";
-  } else {
-    button.textContent = "Generate Relevant Signals";
-  }
-  button.title = signatureMatches
-    ? "Signals are stable for the current inputs. Change the setup above to generate a new search."
-    : "Generate relevant signals for the current setup.";
-}
-
-function markSignalInputsChanged() {
-  if (generateSignalsLoading) return;
-  const hasChanged = !currentInputSignature || getInputSignature() !== currentInputSignature;
-  if (hasChanged) {
-    signalRunLocked = false;
-    currentInputSignature = "";
-    if (lastConversationCards.length && analysisOutput && !analysisOutput.querySelector(".signals-stale-note")) {
-      const note = document.createElement("div");
-      note.className = "signals-stale-note";
-      note.textContent = "Inputs changed. Generate relevant signals again to refresh the results.";
-      analysisOutput.prepend(note);
-    }
-  }
-  updateGenerateButtonState();
-}
-
-function attachSignalInputInvalidationListeners() {
-  [
-    sectorBox,
-    subsectorBox,
-    timeframeBox,
-    fxTenorBox,
-    purchaseDomesticBox,
-    purchaseInternationalBox,
-    salesDomesticBox,
-    salesInternationalBox,
-    defaultPromptBox
-  ].forEach(control => {
-    control?.addEventListener("change", markSignalInputsChanged);
-  });
-
-  [industryBox, purchaseCountrySearch, salesCountrySearch].forEach(control => {
-    control?.addEventListener("input", markSignalInputsChanged);
-  });
-
-  document.querySelectorAll('input[name="purchaseCurrency"], input[name="salesCurrency"], input[name="signalThread"]').forEach(control => {
-    control.addEventListener("change", markSignalInputsChanged);
-  });
-}
-
+attachGenerateSignalsUnlockListeners();
 
 button.addEventListener("click", async function () {
   const sector = sectorBox.value;
@@ -2398,10 +2360,10 @@ button.addEventListener("click", async function () {
     return;
   }
 
-  generateSignalsLoading = true;
+  signalRequestInFlight = true;
   signalRunLocked = false;
-  currentInputSignature = "";
-  updateGenerateButtonState();
+  updateGenerateSignalsButtonState();
+  let signalRunSucceeded = false;
   resetConversationBridge();
   analysisOutput.innerHTML = `<span class="loading">Researching relevant signals...</span>`;
   renderFxContext("");
@@ -2444,9 +2406,9 @@ button.addEventListener("click", async function () {
     }
 
     renderSources(data.sources || [], Boolean(data.no_relevant_updates), Boolean(data.fallback_triggered));
-    renderAnalysis(data.news?.content || data.analysis || "No analysis returned.");
-    signalRunLocked = true;
-    currentInputSignature = getInputSignature();
+    const analysisText = data.news?.content || data.analysis || "";
+    renderAnalysis(analysisText || "No analysis returned.");
+    signalRunSucceeded = Boolean(String(analysisText).trim());
 
     const marketIntelligenceRendered = await marketIntelligencePromise;
     if (!marketIntelligenceRendered && Array.isArray(data.fx)) {
@@ -2460,8 +2422,9 @@ button.addEventListener("click", async function () {
     if (sourcesOutput) sourcesOutput.textContent = "";
     if (contextOutput) contextOutput.textContent = "";
   } finally {
-    generateSignalsLoading = false;
-    updateGenerateButtonState();
+    signalRequestInFlight = false;
+    if (signalRunSucceeded) signalRunLocked = true;
+    updateGenerateSignalsButtonState();
   }
 });
 
@@ -2471,8 +2434,6 @@ renderCountryDropdownFor("purchase");
 renderCountryDropdownFor("sales");
 updateTradeFlowVisibility();
 attachCoreInputListeners();
-attachSignalInputInvalidationListeners();
-updateGenerateButtonState();
 
 sectorBox?.addEventListener("change", function () {
   sectorBox.classList.remove("auto-filled");

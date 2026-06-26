@@ -2431,7 +2431,7 @@ export async function onRequestPost(context) {
     const searchDepth = "advanced";
     const gdeltQueries = buildGdeltQueries({ industry, tradeFlow, signalThreads });
 
-    const [tavilyBatches, gdeltBatches, noKeyOfficialEvidence, credentialedOfficialEvidence] = await Promise.all([
+    const [tavilyBatches, gdeltBatches, noKeyOfficialEvidence, credentialedOfficialEvidence, rawFxResults] = await Promise.all([
       Promise.all(plannedQueries.map(plan =>
         tavilySearch({
           apiKey: env.TAVILY_API_KEY,
@@ -2451,14 +2451,13 @@ export async function onRequestPost(context) {
         }).then(results => normalizeGdeltResults(results, plan.label)).catch(() => [])
       )),
       fetchNoKeyOfficialEvidence({ tradeFlow, signalThreads }),
-      fetchCredentialedOfficialEvidence({ env, tradeFlow, currencies, signalThreads })
+      fetchCredentialedOfficialEvidence({ env, tradeFlow, currencies, signalThreads }),
+      fetchFxRates(currencies, fxTenor)
     ]);
 
     const officialEvidence = [...noKeyOfficialEvidence, ...credentialedOfficialEvidence];
 
-    // Market Intelligence is loaded separately through /api/fx. Avoid doing the same FX work
-    // inside /api/chat so the relevant-signal generation is not held up by FX analysis.
-    const fxResults = [];
+    const fxResults = await analyzeFxRates({ env, fxList: rawFxResults, sector, subsector, industry, tradeRoles, countries, tradeFlow, fxTenor });
 
     const primaryCandidateSources = prepareCandidateSources({
       sources: [...tavilyBatches.flat(), ...gdeltBatches.flat(), ...officialEvidence]
