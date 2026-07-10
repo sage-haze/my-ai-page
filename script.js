@@ -1474,6 +1474,21 @@ function renderFxDriverAnalysis(fx) {
   return `<div class="fx-driver-analysis">${driverHtml}${watchHtml}</div>`;
 }
 
+function renderFxResearchReference(fx, fxResearch) {
+  if (!fxResearch?.used || !fxResearch?.url) return "";
+  const pair = String(fx?.pair || "").replace(/=X$/i, "");
+  const excerpt = (fxResearch.excerpts || []).find(item => String(item.pair || "") === pair)?.excerpt || "";
+  return `
+    <details class="fx-research-reference">
+      <summary>Internal analysis reference</summary>
+      <div class="fx-research-reference-body">
+        <a href="${escapeHtml(fxResearch.url)}" target="_blank" rel="noopener noreferrer">Open ${escapeHtml(fxResearch.filename || "weekly FX analysis")}</a>
+        ${excerpt ? `<p>${escapeHtml(excerpt)}</p>` : `<p>No pair-specific excerpt was extracted.</p>`}
+      </div>
+    </details>
+  `;
+}
+
 function renderFx(fxList, fxResearch = null) {
   Object.values(fxCharts).forEach(chart => chart?.destroy?.());
   fxCharts = {};
@@ -1491,7 +1506,8 @@ function renderFx(fxList, fxResearch = null) {
     return;
   }
 
-  const fxCards = nonThb.map(fx => {
+  const chartConfigs = [];
+  const fxCards = nonThb.map((fx, index) => {
     const series = getFxSeries(fx);
     if (!series.length) return "";
     const latest = series[series.length - 1];
@@ -1500,13 +1516,15 @@ function renderFx(fxList, fxResearch = null) {
       return { days, reference, change: getChangeToLatest(latest, reference) };
     });
     const base = String(fx.base || cleanFxPair(fx.pair, fx.base).replace(/THB$/i, ""));
+    const pair = cleanFxPair(fx.pair, fx.base);
+    const canvasId = `fxChart-${index}-${pair.replace(/[^A-Za-z0-9]/g, "")}`;
+    const axis = getFxChartAxis(series, 90);
+    chartConfigs.push({ canvasId, pair, series, ...axis });
 
     return `
       <section class="fx-card-row fx-inline-card">
         <div class="fx-card-topline">
-          <div>
-            <div class="fx-title">THB per ${escapeHtml(base)}</div>
-          </div>
+          <div class="fx-title">THB per ${escapeHtml(base)}</div>
         </div>
 
         <div class="fx-snapshot-row">
@@ -1524,7 +1542,27 @@ function renderFx(fxList, fxResearch = null) {
           `).join("")}
         </div>
 
+        <div class="fx-history-grid">
+          <div class="fx-chart-panel">
+            <div class="fx-history-heading">90-day movement</div>
+            <div class="fx-chart-wrap">
+              <canvas id="${canvasId}"></canvas>
+              <div class="fx-chart-status"></div>
+            </div>
+          </div>
+          <div class="fx-rate-table-panel">
+            <div class="fx-history-heading">90-day rates</div>
+            <div class="fx-table-scroll">
+              <table class="fx-rate-history-table">
+                <thead><tr><th>Date</th><th>Rate</th><th>Date</th><th>Rate</th><th>Date</th><th>Rate</th></tr></thead>
+                <tbody>${buildFxTableRows(series, 3)}</tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
         ${renderFxDriverAnalysis(fx)}
+        ${renderFxResearchReference(fx, fxResearch)}
       </section>
     `;
   }).join("");
@@ -1534,8 +1572,8 @@ function renderFx(fxList, fxResearch = null) {
   `).join("");
 
   fxOutput.innerHTML = `<div class="fx-card-stack">${fxCards}${errorBlocks}</div>`;
+  requestAnimationFrame(() => renderFxCharts(chartConfigs));
 }
-
 
 function renderSources(sources, noRelevantUpdates = false, fallbackTriggered = false) {
   lastSources = Array.isArray(sources) ? sources : [];
@@ -1907,14 +1945,19 @@ function renderBridgeCard(card, index) {
     { label: "Reaffirm support", move: "R" }
   ];
   const sectionHtml = orderedItems.map(item => {
-    const text = stripSourceMarkers(getConversationSectionText(card, item.label));
-    if (!text) return "";
+    const section = (card.sections || []).find(entry => normalizeSectionLabel(entry.label) === normalizeSectionLabel(item.label));
+    const text = stripSourceMarkers(section?.text || "");
+    const listItems = Array.isArray(section?.items) ? section.items.map(stripSourceMarkers).filter(Boolean) : [];
+    if (!text && !listItems.length) return "";
+    const contentHtml = listItems.length
+      ? `<ul class="conversation-points">${listItems.map(point => `<li>${escapeHtml(point)}</li>`).join("")}</ul>`
+      : `<div class="conversation-text">${escapeHtml(text)}</div>`;
     return `
       <div class="${conversationSectionClass(item.label)} bridge-step bridge-step-${item.move.toLowerCase()}">
         <div class="bridge-step-marker">${item.move}</div>
         <div class="bridge-step-body">
           <div class="conversation-label">${escapeHtml(item.label)}</div>
-          <div class="conversation-text">${escapeHtml(text)}</div>
+          ${contentHtml}
         </div>
       </div>
     `;
@@ -1959,6 +2002,13 @@ function serializeSelectedSignal(card) {
   };
 }
 
+function normalizeConversationList(value) {
+  if (Array.isArray(value)) return value.map(item => String(item || "").trim()).filter(Boolean);
+  const text = String(value || "").trim();
+  if (!text) return [];
+  return text.split(/\n+/).map(item => item.replace(/^[•\-*]\s*/, "").trim()).filter(Boolean);
+}
+
 function apiConversationCardToParsed(card, index) {
   return {
     heading: `Card ${index + 1}: ${String(card.title || `Signal ${index + 1}`).trim()}`,
@@ -1967,10 +2017,10 @@ function apiConversationCardToParsed(card, index) {
     sections: [
       { label: "Comment on context", text: String(card.commentOnContext || "").trim() },
       { label: "Link to client", text: String(card.linkToClient || "").trim() },
-      { label: "Explore lightly", text: String(card.exploreLightly || "").trim() },
-      { label: "Allow room", text: String(card.allowRoom || "").trim() },
+      { label: "Explore lightly", items: normalizeConversationList(card.exploreLightly) },
+      { label: "Allow room", items: normalizeConversationList(card.allowRoom) },
       { label: "Reaffirm support", text: String(card.reaffirmSupport || "").trim() }
-    ].filter(section => section.text)
+    ].filter(section => section.text || (section.items && section.items.length))
   };
 }
 

@@ -48,7 +48,7 @@ export async function onRequestPost(context) {
     const prompt = `
 You are a transaction banking conversation coach supporting a junior relationship manager at a Thailand-based bank.
 
-Create one concise CLEAR conversation card for each selected Client Signal. Use only the selected signal content below. Do not search the web and do not add new market facts.
+Create one detailed but practical CLEAR conversation card for each selected Client Signal. Use only the selected signal content below. Do not search the web and do not add new market facts.
 
 Client profile:
 - Sector: ${String(profile.sector || "")}
@@ -58,20 +58,20 @@ Client profile:
 - Sales flow: ${String(profile.salesFlow || "")}
 
 CLEAR structure:
-- Comment on context: a simple observation grounded in the selected signal
-- Link to client: relate it gently to the client’s business without asserting that the client is affected
-- Explore lightly: one optional, non-invasive path for the banker if the client shows interest
-- Allow room: a low-pressure line that leaves space for the client to decide what is relevant
-- Reaffirm support: reflect a useful next step or offer support, including specialist handoff only where appropriate
+- Comment on context: summarise the underlying article or development with enough detail for the banker to understand what changed, why it matters in the market, and which facts are most useful. Use 2 to 3 concise sentences.
+- Link to client: preserve and strengthen the specific client relevance already present in the selected signal. Explain plausible links to the client's purchase flows, sales flows, supplier or buyer dynamics, documents, payment timing, FX, cash conversion cycle, or working capital. Use 2 to 3 concise sentences and do not assert that the client is affected.
+- Explore lightly: provide 2 to 3 concrete, light, open-ended questions the banker could use as entry points. Questions should invite discussion and be specific to the signal, such as changes in orders, buyer behaviour, supplier terms, documentation, pricing, payment timing, or working-capital processes.
+- Allow room: provide 2 to 4 short listening cues for what the banker should listen out for if the client engages, such as stronger competition, demand shifts, operational pain points, payment or documentation friction, liquidity pressure, or opportunities.
+- Reaffirm support: offer one useful next step or a relevant specialist handoff without pushing a product.
 
 Rules:
-- Keep every section to one sentence
 - Use calm, plain English
 - Do not forecast
 - Do not invent facts
 - Do not imply the client has a problem
-- Avoid ambiguous contrasts such as “rather than”, “instead of”, “without assuming”, “despite”, and “although” unless directly necessary
-- Explore lightly must ask about patterns or processes, not force disclosure of loss, cash stress, late payment, or credit weakness
+- Do not weaken or generalise a strong relevance link from the selected signal
+- Avoid ambiguous contrasts such as “rather than”, “instead of”, “without assuming”, “despite”, and “although” unless directly necessary and supported
+- Questions must not force disclosure of loss, cash stress, late payment, or credit weakness
 - Preserve each signal’s sourceNumbers exactly
 
 Return JSON only:
@@ -80,11 +80,11 @@ Return JSON only:
     {
       "title": "Signal title",
       "tags": ["Trade"],
-      "commentOnContext": "...",
-      "linkToClient": "...",
-      "exploreLightly": "...",
-      "allowRoom": "...",
-      "reaffirmSupport": "...",
+      "commentOnContext": "Two or three concise sentences",
+      "linkToClient": "Two or three concise sentences",
+      "exploreLightly": ["Question 1?", "Question 2?"],
+      "allowRoom": ["Listening cue 1", "Listening cue 2"],
+      "reaffirmSupport": "One concise next step",
       "sourceNumbers": [1]
     }
   ]
@@ -124,8 +124,8 @@ ${JSON.stringify(signals, null, 2)}
                       tags: { type: "array", items: { type: "string" }, maxItems: 3 },
                       commentOnContext: { type: "string" },
                       linkToClient: { type: "string" },
-                      exploreLightly: { type: "string" },
-                      allowRoom: { type: "string" },
+                      exploreLightly: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 3 },
+                      allowRoom: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 4 },
                       reaffirmSupport: { type: "string" },
                       sourceNumbers: { type: "array", items: { type: "integer" }, maxItems: 6 }
                     },

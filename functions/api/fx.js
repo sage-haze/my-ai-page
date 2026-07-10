@@ -399,14 +399,16 @@ Writing standard:
 - Use the neutral heading "Key drivers"
 - Provide 2 to 4 bullets
 - Every bullet must have a short boldable title and one clear explanatory sentence
-- A good bullet looks like: "Higher US interest rates: The Fed kept policy tighter while the Bank of Thailand maintained a more supportive stance, helping the USD hold firm against THB"
-- Be specific about the transmission channel so the banker learns how rates, capital flows, energy costs, trade, risk sentiment, or domestic activity can affect the currency
-- Keep each explanation to one sentence of no more than 32 words
+- Be specific about the transmission channel so the banker learns how policy rates, yields, capital flows, energy costs, trade, risk sentiment, or domestic activity can affect the currency
+- Keep each explanation to one sentence of no more than 38 words
 - Do not use vague filler such as "market uncertainty affected sentiment"
-- Do not describe the internal document, cite internal analysis, or mention a PDF
+- Do not cite or name the internal analysis inside the driver bullets
 - Do not claim a driver unless supported by the supplied research or clearly visible in the market series
 - If evidence for a driver is weak, omit it
 - Add 2 to 3 short "What to watch" items, each under 12 words
+- For CNYTHB, explain the cross-rate clearly: CNYTHB is derived from USDTHB divided by USDCNY. Distinguish THB-side drivers from CNY-side drivers, and do not simply recycle the USDTHB explanation
+- For CNYTHB, prioritise China activity, PBOC policy, export demand, regional risk sentiment, and the relative movement of USDTHB versus USDCNY when supported
+- If the internal attachment contains a relevant currency section, return one short relevant excerpt or close paraphrase of no more than 55 words for display below the FX card. Otherwise return an empty string
 - Do not forecast a precise rate
 
 Return JSON only:
@@ -417,7 +419,8 @@ Return JSON only:
       "drivers": [
         { "title": "Higher US interest rates", "explanation": "..." }
       ],
-      "watch_items": ["Fed policy signals", "Bank of Thailand guidance"]
+      "watch_items": ["Fed policy signals", "Bank of Thailand guidance"],
+      "research_excerpt": ""
     }
   ]
 }
@@ -484,9 +487,10 @@ ${JSON.stringify(compactFx, null, 2)}
                         minItems: 1,
                         maxItems: 3,
                         items: { type: "string" }
-                      }
+                      },
+                      research_excerpt: { type: "string" }
                     },
-                    required: ["pair", "drivers", "watch_items"]
+                    required: ["pair", "drivers", "watch_items", "research_excerpt"]
                   }
                 }
               },
@@ -498,25 +502,39 @@ ${JSON.stringify(compactFx, null, 2)}
     });
 
     const data = await response.json();
-    if (!response.ok) return { fx: fxList, fxResearch: null };
+    if (!response.ok) return { fx: fxList, fxResearch: internalFxResearchResult?.status || null };
 
     const text = extractOutputText(data);
     const jsonStart = text.indexOf("{");
     const jsonEnd = text.lastIndexOf("}");
-    if (jsonStart === -1 || jsonEnd === -1) return { fx: fxList, fxResearch: null };
+    if (jsonStart === -1 || jsonEnd === -1) return { fx: fxList, fxResearch: internalFxResearchResult?.status || null };
 
     const parsed = JSON.parse(text.slice(jsonStart, jsonEnd + 1));
     const analysisByPair = new Map((parsed.analyses || []).map(item => [String(item.pair || "").replace(/=X$/i, ""), item]));
 
+    const enrichedFx = fxList.map(fx => {
+      const key = String(fx.pair || "").replace(/=X$/i, "");
+      return { ...fx, driver_analysis: analysisByPair.get(key) || null, analysis: "" };
+    });
+
+    const researchStatus = internalFxResearchResult?.status || null;
+    const excerpts = enrichedFx
+      .map(fx => ({
+        pair: String(fx.pair || "").replace(/=X$/i, ""),
+        excerpt: String(fx.driver_analysis?.research_excerpt || "").trim()
+      }))
+      .filter(item => item.excerpt);
+
     return {
-      fx: fxList.map(fx => {
-        const key = String(fx.pair || "").replace(/=X$/i, "");
-        return { ...fx, driver_analysis: analysisByPair.get(key) || null, analysis: "" };
-      }),
-      fxResearch: null
+      fx: enrichedFx,
+      fxResearch: researchStatus ? {
+        ...researchStatus,
+        url: researchStatus.key ? `/api/fx-research?key=${encodeURIComponent(researchStatus.key)}` : "",
+        excerpts
+      } : null
     };
   } catch (_) {
-    return { fx: fxList, fxResearch: null };
+    return { fx: fxList, fxResearch: internalFxResearchResult?.status || null };
   }
 }
 
