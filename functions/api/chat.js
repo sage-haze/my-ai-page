@@ -1398,26 +1398,45 @@ async function fetchYahooFxRate(baseCurrency, rangeDays = 30) {
       base: "CNY",
       pair: "CNYTHB",
       series: derivedSeries,
-      source: "Yahoo Finance prototype: USDTHB ÷ USDCNY"
+      source: "Yahoo Finance prototype: USDTHB ÷ USDCNY",
+      derivation: "Cross rate derived as USDTHB ÷ USDCNY",
+      market_context_note: "Read alongside THB per USD: CNYTHB can reflect both Baht movement against USD and CNY movement against USD"
     });
   }
 
   const pair = `${baseCurrency}THB=X`;
   const series = await fetchYahooSeries(pair, rangeDays);
 
-  return summarizeFxSeries({
+  const result = summarizeFxSeries({
     base: baseCurrency,
     pair,
     series,
     source: "Yahoo Finance (prototype)"
   });
+
+  if (["EUR", "JPY"].includes(baseCurrency)) {
+    result.market_context_note = `Read alongside THB per USD: ${baseCurrency}THB can reflect both Baht movement against USD and ${baseCurrency} movement against USD`;
+  }
+
+  return result;
+}
+
+function expandFxCurrencies(currencies) {
+  const requested = [...new Set((currencies || []).map(currency => String(currency).toUpperCase()))];
+  const needsUsdReference = requested.some(currency => ["CNY", "EUR", "JPY"].includes(currency));
+
+  if (needsUsdReference && !requested.includes("USD")) {
+    return ["USD", ...requested];
+  }
+
+  return requested;
 }
 
 async function fetchFxRates(currencies, rangeDays = 30) {
-  const uniqueCurrencies = [...new Set(currencies)];
+  const expandedCurrencies = expandFxCurrencies(currencies);
 
   return Promise.all(
-    uniqueCurrencies.map(currency =>
+    expandedCurrencies.map(currency =>
       fetchYahooFxRate(currency, rangeDays).catch(error => ({
         skip: false,
         base: currency,
@@ -2061,7 +2080,7 @@ Create evidence-grounded Client Signals from the provided sources. Rank them fro
 ${cardCountInstruction()}
 
 Signal coverage:
-- Include direct client signals where supported: Thailand, selected supplier markets, selected buyer markets, selected currencies, and the specific ISIC activity
+- Include direct client signals where supported: Thailand, selected supplier markets, selected buyer markets, the client's broad currency exposure, and the specific ISIC activity
 - Also include useful general-market signals where they may affect upstream suppliers, downstream buyers, regional demand, input costs, logistics, trade policy, countries, or the wider industry
 - General-market signals must still have a clear and cautious bridge to the selected client profile
 - Separate purchase-side cost/supplier implications from sales-side revenue/demand implications when the evidence supports that distinction
@@ -2097,6 +2116,8 @@ Relevance discipline:
 - Not every card needs a risk, opportunity, or RM angle. Only include those when genuinely supported.
 - Avoid recommendations such as financing a specific expansion, acquisition, or project unless the source clearly supports it for the selected client profile.
 - Do NOT assume a named company in an article is the bank's client or the user's client. Frame it as a sector signal, competitor signal, buyer/supplier signal, or market development.
+- Do not infer invoice, settlement, or proceeds currency from a selected country or market.
+- Do not name a specific currency in a country-specific Link to client sentence unless the source explicitly discusses that currency and the client profile explicitly maps it to the relevant transaction flow. Otherwise use neutral wording such as sales proceeds, payment timing, FX exposure, buyer terms, or receivable timing.
 - Do NOT repeat the standalone FX rate commentary. Mention FX only when a source directly supports an implication, or when selected purchase/sales currencies create an obvious directional crosswind that is clearly presented as an inference.
 
 Writing style:

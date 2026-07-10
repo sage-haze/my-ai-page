@@ -2193,3 +2193,129 @@ select.auto-filled {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- v5 compact market intelligence details ---------- */
+.fx-derivation-note {
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 10.5px;
+  line-height: 1.3;
+}
+
+.fx-more-details {
+  margin-top: 10px;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 8px;
+}
+
+.fx-more-details > summary,
+.fx-subdetails > summary,
+.fx-research-reference > summary {
+  cursor: pointer;
+  color: #24506f;
+  font-size: 12px;
+  font-weight: 700;
+  list-style-position: outside;
+}
+
+.fx-more-details > summary:hover,
+.fx-subdetails > summary:hover,
+.fx-research-reference > summary:hover {
+  color: #123b59;
+}
+
+.fx-more-details-body {
+  display: grid;
+  gap: 10px;
+  margin-top: 9px;
+}
+
+.fx-chart-panel-full {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+#fxOutput .fx-chart-panel-full .fx-chart-wrap {
+  width: 100%;
+  height: 240px;
+}
+
+.fx-subdetails,
+.fx-research-reference {
+  margin-top: 0;
+  padding: 9px 0 0;
+  border-top: 1px solid #dbe5ee;
+}
+
+.fx-subdetails .fx-rate-table-panel {
+  margin-top: 8px;
+  padding: 0;
+  border: 1px solid #dbe5ee;
+  border-radius: 9px;
+  overflow: hidden;
+}
+
+.fx-subdetails .fx-table-scroll {
+  max-height: 260px;
+}
+
+.fx-driver-analysis {
+  margin-top: 0;
+}
+
+.fx-watch-section li strong {
+  color: #1f3d57;
+}
+
+/* Keep CLEAR cards aligned and readable */
+.bridge-panel,
+.bridge-card,
+.bridge-step,
+.bridge-step-body,
+.bridge-step-body .conversation-label,
+.bridge-step-body .conversation-text,
+.conversation-points {
+  font-family: Arial, sans-serif;
+}
+
+.bridge-step {
+  grid-template-columns: 24px minmax(0, 1fr);
+  column-gap: 10px;
+  align-items: start;
+  padding: 10px;
+}
+
+.bridge-step-marker {
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+  font-size: 10.5px;
+  line-height: 1;
+}
+
+.bridge-step-body {
+  min-width: 0;
+  padding: 0;
+}
+
+.bridge-step-body .conversation-label {
+  margin: 0 0 3px;
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.bridge-step-body .conversation-text,
+.conversation-points {
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.conversation-points {
+  padding-left: 17px;
+}
+
+@media (max-width: 760px) {
+  #fxOutput .fx-chart-panel-full .fx-chart-wrap {
+    height: 210px;
+  }
+}

@@ -1467,7 +1467,12 @@ function renderFxDriverAnalysis(fx) {
   const watchHtml = watchItems.length ? `
     <div class="fx-driver-section fx-watch-section">
       <h4>What to watch</h4>
-      <ul>${watchItems.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+      <ul>${watchItems.map(item => {
+        if (typeof item === "string") return `<li>${escapeHtml(item)}</li>`;
+        const title = String(item?.title || "Watch item").trim();
+        const explanation = String(item?.explanation || item?.detail || "").trim();
+        return `<li><strong>${escapeHtml(title)}${explanation ? ":" : ""}</strong>${explanation ? ` ${escapeHtml(explanation)}` : ""}</li>`;
+      }).join("")}</ul>
     </div>
   ` : "";
 
@@ -1487,6 +1492,14 @@ function renderFxResearchReference(fx, fxResearch) {
       </div>
     </details>
   `;
+}
+
+function renderFxDerivationNote(fx) {
+  const derivation = String(fx?.derivation || "").trim();
+  const contextNote = String(fx?.market_context_note || "").trim();
+  const notes = [derivation, contextNote].filter(Boolean);
+  if (!notes.length) return "";
+  return `<div class="fx-derivation-note">${notes.map(note => escapeHtml(note)).join("<br>")}</div>`;
 }
 
 function renderFx(fxList, fxResearch = null) {
@@ -1524,7 +1537,10 @@ function renderFx(fxList, fxResearch = null) {
     return `
       <section class="fx-card-row fx-inline-card">
         <div class="fx-card-topline">
-          <div class="fx-title">THB per ${escapeHtml(base)}</div>
+          <div>
+            <div class="fx-title">THB per ${escapeHtml(base)}</div>
+            ${renderFxDerivationNote(fx)}
+          </div>
         </div>
 
         <div class="fx-snapshot-row">
@@ -1542,27 +1558,34 @@ function renderFx(fxList, fxResearch = null) {
           `).join("")}
         </div>
 
-        <div class="fx-history-grid">
-          <div class="fx-chart-panel">
-            <div class="fx-history-heading">90-day movement</div>
-            <div class="fx-chart-wrap">
-              <canvas id="${canvasId}"></canvas>
-              <div class="fx-chart-status"></div>
+        <details class="fx-more-details">
+          <summary>See more details</summary>
+          <div class="fx-more-details-body">
+            <div class="fx-chart-panel fx-chart-panel-full">
+              <div class="fx-history-heading">90-day movement</div>
+              <div class="fx-chart-wrap">
+                <canvas id="${canvasId}"></canvas>
+                <div class="fx-chart-status"></div>
+              </div>
             </div>
-          </div>
-          <div class="fx-rate-table-panel">
-            <div class="fx-history-heading">90-day rates</div>
-            <div class="fx-table-scroll">
-              <table class="fx-rate-history-table">
-                <thead><tr><th>Date</th><th>Rate</th><th>Date</th><th>Rate</th><th>Date</th><th>Rate</th></tr></thead>
-                <tbody>${buildFxTableRows(series, 3)}</tbody>
-              </table>
-            </div>
-          </div>
-        </div>
 
-        ${renderFxDriverAnalysis(fx)}
-        ${renderFxResearchReference(fx, fxResearch)}
+            ${renderFxDriverAnalysis(fx)}
+
+            <details class="fx-subdetails fx-full-rates">
+              <summary>View full rates</summary>
+              <div class="fx-rate-table-panel">
+                <div class="fx-table-scroll">
+                  <table class="fx-rate-history-table">
+                    <thead><tr><th>Date</th><th>Rate</th><th>Date</th><th>Rate</th><th>Date</th><th>Rate</th></tr></thead>
+                    <tbody>${buildFxTableRows(series, 3)}</tbody>
+                  </table>
+                </div>
+              </div>
+            </details>
+
+            ${renderFxResearchReference(fx, fxResearch)}
+          </div>
+        </details>
       </section>
     `;
   }).join("");
@@ -1572,7 +1595,20 @@ function renderFx(fxList, fxResearch = null) {
   `).join("");
 
   fxOutput.innerHTML = `<div class="fx-card-stack">${fxCards}${errorBlocks}</div>`;
-  requestAnimationFrame(() => renderFxCharts(chartConfigs));
+  requestAnimationFrame(() => {
+    renderFxCharts(chartConfigs);
+    document.querySelectorAll(".fx-more-details").forEach(details => {
+      details.addEventListener("toggle", () => {
+        if (!details.open) return;
+        requestAnimationFrame(() => {
+          Object.values(fxCharts).forEach(chart => {
+            chart?.resize?.();
+            chart?.update?.("none");
+          });
+        });
+      });
+    });
+  });
 }
 
 function renderSources(sources, noRelevantUpdates = false, fallbackTriggered = false) {
@@ -1933,6 +1969,13 @@ function renderSignalSelectionCard(card, index) {
       ${renderSignalSourceLine(card)}
     </div>
   `;
+}
+
+function normalizeSectionLabel(label) {
+  return String(label || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 function renderBridgeCard(card, index) {

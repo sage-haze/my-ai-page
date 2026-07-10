@@ -201,7 +201,7 @@ async function fetchYahooSeries(pair, rangeDays = 30) {
     .filter(Boolean);
 }
 
-function summarizeFxSeries({ base, pair, series, source }) {
+function summarizeFxSeries({ base, pair, series, source, derivation = "" }) {
   if (!series.length) {
     throw new Error(`No usable FX points returned for ${pair}.`);
   }
@@ -227,6 +227,7 @@ function summarizeFxSeries({ base, pair, series, source }) {
     lowest_rate: lowest.rate.toFixed(4),
     lowest_date: lowest.date,
     source,
+    derivation,
     retrieved_at: new Date().toISOString()
   };
 }
@@ -260,26 +261,45 @@ async function fetchYahooFxRate(baseCurrency, rangeDays = 30) {
       base: "CNY",
       pair: "CNYTHB",
       series: derivedSeries,
-      source: "Yahoo Finance prototype: USDTHB ÷ USDCNY"
+      source: "Yahoo Finance prototype: USDTHB ÷ USDCNY",
+      derivation: "Cross rate derived as USDTHB ÷ USDCNY",
+      market_context_note: "Read alongside THB per USD: CNYTHB can reflect both Baht movement against USD and CNY movement against USD"
     });
   }
 
   const pair = `${baseCurrency}THB=X`;
   const series = await fetchYahooSeries(pair, rangeDays);
 
-  return summarizeFxSeries({
+  const result = summarizeFxSeries({
     base: baseCurrency,
     pair,
     series,
     source: "Yahoo Finance (prototype)"
   });
+
+  if (["EUR", "JPY"].includes(baseCurrency)) {
+    result.market_context_note = `Read alongside THB per USD: ${baseCurrency}THB can reflect both Baht movement against USD and ${baseCurrency} movement against USD`;
+  }
+
+  return result;
+}
+
+function expandFxCurrencies(currencies) {
+  const requested = [...new Set((currencies || []).map(currency => String(currency).toUpperCase()))];
+  const needsUsdReference = requested.some(currency => ["CNY", "EUR", "JPY"].includes(currency));
+
+  if (needsUsdReference && !requested.includes("USD")) {
+    return ["USD", ...requested];
+  }
+
+  return requested;
 }
 
 async function fetchFxRates(currencies, rangeDays = 30) {
-  const uniqueCurrencies = [...new Set(currencies)];
+  const expandedCurrencies = expandFxCurrencies(currencies);
 
   return Promise.all(
-    uniqueCurrencies.map(currency =>
+    expandedCurrencies.map(currency =>
       fetchYahooFxRate(currency, rangeDays).catch(error => ({
         skip: false,
         base: currency,
@@ -398,16 +418,23 @@ For each selected currency, explain the most useful drivers of the observed move
 Writing standard:
 - Use the neutral heading "Key drivers"
 - Provide 2 to 4 bullets
-- Every bullet must have a short boldable title and one clear explanatory sentence
-- Be specific about the transmission channel so the banker learns how policy rates, yields, capital flows, energy costs, trade, risk sentiment, or domestic activity can affect the currency
-- Keep each explanation to one sentence of no more than 38 words
+- Every driver must have a short boldable title and one clear explanatory sentence
+- Be specific about the transmission channel so the banker learns how policy rates, yields, capital flows, energy costs, trade, risk sentiment, or domestic activity can affect THB per unit of the selected currency
+- Keep each driver explanation to one sentence of no more than 42 words
 - Do not use vague filler such as "market uncertainty affected sentiment"
 - Do not cite or name the internal analysis inside the driver bullets
 - Do not claim a driver unless supported by the supplied research or clearly visible in the market series
 - If evidence for a driver is weak, omit it
-- Add 2 to 3 short "What to watch" items, each under 12 words
-- For CNYTHB, explain the cross-rate clearly: CNYTHB is derived from USDTHB divided by USDCNY. Distinguish THB-side drivers from CNY-side drivers, and do not simply recycle the USDTHB explanation
-- For CNYTHB, prioritise China activity, PBOC policy, export demand, regional risk sentiment, and the relative movement of USDTHB versus USDCNY when supported
+- Add 2 to 3 "What to watch" items. Each must have a short title and one practical sentence explaining what release, policy signal, or market indicator matters and why
+- Include a specific upcoming announcement or release date only when it is stated in the supplied research or sources. Never invent a date
+- For central-bank watch items, specify the guidance to monitor, such as the growth, inflation, rate-path, currency-stability, or liquidity language
+- Do not make USD cross-rate mechanics the main explanation for every non-USD pair
+- When EUR, JPY or CNY is selected, USDTHB is automatically included as a visible reference card
+- Use USDTHB as a Thailand-side reference when it helps explain the selected cross rate, but do not imply it is the sole cause
+- For each non-USD pair, distinguish clearly between (1) Baht-side movement visible in USDTHB and (2) movement in the foreign currency against USD
+- For direct pairs such as JPYTHB or EURTHB, explain the THB-side and foreign-currency-side economic drivers directly. Mention USD only when it is a genuinely material transmission channel supported by the evidence
+- For CNYTHB, the displayed market series is derived as USDTHB divided by USDCNY. Treat that as a data-construction note, not a key driver. Explain China-side and Thailand-side economic drivers in plain language
+- For CNYTHB, prioritise China activity, PBOC policy, export demand, regional risk sentiment, and Thailand-side rates, capital flows, energy or trade factors when supported
 - If the internal attachment contains a relevant currency section, return one short relevant excerpt or close paraphrase of no more than 55 words for display below the FX card. Otherwise return an empty string
 - Do not forecast a precise rate
 
@@ -419,7 +446,10 @@ Return JSON only:
       "drivers": [
         { "title": "Higher US interest rates", "explanation": "..." }
       ],
-      "watch_items": ["Fed policy signals", "Bank of Thailand guidance"],
+      "watch_items": [
+        { "title": "US CPI — date if supported", "explanation": "A stronger print could keep US yields elevated and support USD" },
+        { "title": "Bank of Thailand guidance", "explanation": "Watch for changes in growth, inflation, rate-path or currency-stability language" }
+      ],
       "research_excerpt": ""
     }
   ]
@@ -486,7 +516,15 @@ ${JSON.stringify(compactFx, null, 2)}
                         type: "array",
                         minItems: 1,
                         maxItems: 3,
-                        items: { type: "string" }
+                        items: {
+                          type: "object",
+                          additionalProperties: false,
+                          properties: {
+                            title: { type: "string" },
+                            explanation: { type: "string" }
+                          },
+                          required: ["title", "explanation"]
+                        }
                       },
                       research_excerpt: { type: "string" }
                     },

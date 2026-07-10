@@ -70,6 +70,7 @@ Rules:
 - Do not invent facts
 - Do not imply the client has a problem
 - Do not weaken or generalise a strong relevance link from the selected signal
+- Do not infer invoice, settlement, or proceeds currency from a country or market. Name a specific currency only when it is explicitly present in the selected signal and supported by the client profile; otherwise use neutral wording such as sales proceeds, payment timing, FX exposure, or receivable timing
 - Avoid ambiguous contrasts such as “rather than”, “instead of”, “without assuming”, “despite”, and “although” unless directly necessary and supported
 - Questions must not force disclosure of loss, cash stress, late payment, or credit weakness
 - Preserve each signal’s sourceNumbers exactly
