@@ -2319,3 +2319,68 @@ select.auto-filled {
     height: 210px;
   }
 }
+
+
+/* ---------- v7 FX containment and CLEAR guidance ---------- */
+.fx-card-row,
+.fx-inline-card,
+.fx-more-details,
+.fx-more-details-body,
+.fx-chart-panel-full,
+.fx-subdetails,
+.fx-research-reference,
+.fx-rate-table-panel,
+.fx-chart-wrap {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.fx-more-details {
+  overflow: hidden;
+}
+
+.fx-more-details > summary,
+.fx-subdetails > summary,
+.fx-research-reference > summary {
+  box-sizing: border-box;
+  width: 100%;
+  padding-left: 1px;
+  padding-right: 1px;
+}
+
+#fxOutput .fx-chart-panel-full .fx-chart-wrap,
+#fxOutput .fx-chart-panel-full canvas {
+  max-width: 100% !important;
+  box-sizing: border-box;
+}
+
+.bridge-step-body .conversation-text,
+.bridge-step-body .conversation-points,
+.bridge-step-body .conversation-points li {
+  font-family: Arial, sans-serif;
+  font-size: 12.5px;
+  line-height: 1.45;
+  font-weight: 400;
+}
+
+.bridge-step-e .conversation-points,
+.bridge-step-a .conversation-points,
+.bridge-step-r .conversation-points {
+  margin-top: 2px;
+}
+
+.bridge-step-e .conversation-points li,
+.bridge-step-a .conversation-points li,
+.bridge-step-r .conversation-points li {
+  margin-bottom: 7px;
+}
+
+.conversation-guidance {
+  margin: 0 0 6px;
+  color: #475569;
+  font-family: Arial, sans-serif;
+  font-size: 12.5px;
+  line-height: 1.42;
+}

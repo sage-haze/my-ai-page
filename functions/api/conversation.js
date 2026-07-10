@@ -60,9 +60,9 @@ Client profile:
 CLEAR structure:
 - Comment on context: summarise the underlying article or development with enough detail for the banker to understand what changed, why it matters in the market, and which facts are most useful. Use 2 to 3 concise sentences.
 - Link to client: preserve and strengthen the specific client relevance already present in the selected signal. Explain plausible links to the client's purchase flows, sales flows, supplier or buyer dynamics, documents, payment timing, FX, cash conversion cycle, or working capital. Use 2 to 3 concise sentences and do not assert that the client is affected.
-- Explore lightly: provide 2 to 3 concrete, light, open-ended questions the banker could use as entry points. Questions should invite discussion and be specific to the signal, such as changes in orders, buyer behaviour, supplier terms, documentation, pricing, payment timing, or working-capital processes.
-- Allow room: provide 2 to 4 short listening cues for what the banker should listen out for if the client engages, such as stronger competition, demand shifts, operational pain points, payment or documentation friction, liquidity pressure, or opportunities.
-- Reaffirm support: offer one useful next step or a relevant specialist handoff without pushing a product.
+- Explore lightly: begin from the idea that the banker should only ask if the client seems interested. Provide 2 to 3 gentle, open-ended questions. Each item must include the question, why the banker might ask it, and what different answers may indicate. Keep the explanation practical and brief so the banker can choose the question they feel comfortable using.
+- Allow room: start from "Listen for where the client places the emphasis". Provide 2 to 4 concise listening cues. Each cue must explain what that emphasis may indicate and one sensible way the banker could follow the client's lead. Do not simply list risks.
+- Reaffirm support: provide 2 to 3 conditional examples showing how support could look in action. Each example should start with the client signal or concern that would justify the response, then offer a proportionate next step. Do not prescribe the same close regardless of how the conversation develops.
 
 Rules:
 - Use calm, plain English
@@ -73,6 +73,7 @@ Rules:
 - Do not infer invoice, settlement, or proceeds currency from a country or market. Name a specific currency only when it is explicitly present in the selected signal and supported by the client profile; otherwise use neutral wording such as sales proceeds, payment timing, FX exposure, or receivable timing
 - Avoid ambiguous contrasts such as “rather than”, “instead of”, “without assuming”, “despite”, and “although” unless directly necessary and supported
 - Questions must not force disclosure of loss, cash stress, late payment, or credit weakness
+- Reaffirm support must reflect what the client actually raises before suggesting a review, specialist, or product conversation
 - Preserve each signal’s sourceNumbers exactly
 
 Return JSON only:
@@ -83,9 +84,15 @@ Return JSON only:
       "tags": ["Trade"],
       "commentOnContext": "Two or three concise sentences",
       "linkToClient": "Two or three concise sentences",
-      "exploreLightly": ["Question 1?", "Question 2?"],
-      "allowRoom": ["Listening cue 1", "Listening cue 2"],
-      "reaffirmSupport": "One concise next step",
+      "exploreLightly": [
+        "Question? — Why ask: brief reason. What to listen for: what a yes, no, or qualified answer may indicate"
+      ],
+      "allowRoom": [
+        "Client emphasis — What it may indicate; how the banker can follow the client's lead"
+      ],
+      "reaffirmSupport": [
+        "If the client highlights X: reflect it back and offer Y"
+      ],
       "sourceNumbers": [1]
     }
   ]
@@ -127,7 +134,7 @@ ${JSON.stringify(signals, null, 2)}
                       linkToClient: { type: "string" },
                       exploreLightly: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 3 },
                       allowRoom: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 4 },
-                      reaffirmSupport: { type: "string" },
+                      reaffirmSupport: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 3 },
                       sourceNumbers: { type: "array", items: { type: "integer" }, maxItems: 6 }
                     },
                     required: ["title", "tags", "commentOnContext", "linkToClient", "exploreLightly", "allowRoom", "reaffirmSupport", "sourceNumbers"]

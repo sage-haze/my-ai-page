@@ -1400,7 +1400,7 @@ async function fetchYahooFxRate(baseCurrency, rangeDays = 30) {
       series: derivedSeries,
       source: "Yahoo Finance prototype: USDTHB ÷ USDCNY",
       derivation: "Cross rate derived as USDTHB ÷ USDCNY",
-      market_context_note: "Read alongside THB per USD: CNYTHB can reflect both Baht movement against USD and CNY movement against USD"
+      market_context_note: "Movement reflects both Baht-side and Renminbi-side factors"
     });
   }
 
@@ -1415,7 +1415,7 @@ async function fetchYahooFxRate(baseCurrency, rangeDays = 30) {
   });
 
   if (["EUR", "JPY"].includes(baseCurrency)) {
-    result.market_context_note = `Read alongside THB per USD: ${baseCurrency}THB can reflect both Baht movement against USD and ${baseCurrency} movement against USD`;
+    result.market_context_note = `Movement reflects both Baht-side and ${baseCurrency === "JPY" ? "Yen" : "Euro"}-side factors`;
   }
 
   return result;
@@ -2091,6 +2091,8 @@ Card standard:
 - Each card has only two sections: Comment on context and Link to client
 - Comment on context: one concise, plain-English statement of what the sources show
 - Link to client: one concise sentence explaining a possible connection to the client profile without asserting that the client is affected
+- Separate the directly supported first-order link from any second-order implication. Use conditional wording such as "if orders take longer to confirm" or "if buyers change payment terms" before mentioning receivable timing, inventory holding, packing costs, liquidity, or working-capital effects
+- Do not claim slower collections, higher inventory, delayed payments, or greater cash tied up unless the source directly supports that outcome. When it is only a plausible transmission channel, make the condition explicit
 - Do not generate a question or next step in this first stage
 - Prefer a concrete commercial transmission channel over generic wording
 - Avoid ambiguous contrasts or corrective phrases such as "rather than", "instead of", "not necessarily", "without assuming", "despite", or "although" unless the source itself clearly supports the contrast

@@ -1495,11 +1495,9 @@ function renderFxResearchReference(fx, fxResearch) {
 }
 
 function renderFxDerivationNote(fx) {
-  const derivation = String(fx?.derivation || "").trim();
   const contextNote = String(fx?.market_context_note || "").trim();
-  const notes = [derivation, contextNote].filter(Boolean);
-  if (!notes.length) return "";
-  return `<div class="fx-derivation-note">${notes.map(note => escapeHtml(note)).join("<br>")}</div>`;
+  if (!contextNote) return "";
+  return `<div class="fx-derivation-note">${escapeHtml(contextNote)}</div>`;
 }
 
 function renderFx(fxList, fxResearch = null) {
@@ -1992,8 +1990,15 @@ function renderBridgeCard(card, index) {
     const text = stripSourceMarkers(section?.text || "");
     const listItems = Array.isArray(section?.items) ? section.items.map(stripSourceMarkers).filter(Boolean) : [];
     if (!text && !listItems.length) return "";
+    const sectionIntro = item.label === "Explore lightly"
+      ? "If the client seems interested, these are a few gentle ways to explore the topic"
+      : item.label === "Allow room"
+        ? "Listen for where the client places the emphasis"
+        : item.label === "Reaffirm support"
+          ? "If the client highlights a specific need, reflect it back before offering support"
+          : "";
     const contentHtml = listItems.length
-      ? `<ul class="conversation-points">${listItems.map(point => `<li>${escapeHtml(point)}</li>`).join("")}</ul>`
+      ? `${sectionIntro ? `<div class="conversation-guidance">${escapeHtml(sectionIntro)}</div>` : ""}<ul class="conversation-points">${listItems.map(point => `<li>${escapeHtml(point)}</li>`).join("")}</ul>`
       : `<div class="conversation-text">${escapeHtml(text)}</div>`;
     return `
       <div class="${conversationSectionClass(item.label)} bridge-step bridge-step-${item.move.toLowerCase()}">
@@ -2062,7 +2067,7 @@ function apiConversationCardToParsed(card, index) {
       { label: "Link to client", text: String(card.linkToClient || "").trim() },
       { label: "Explore lightly", items: normalizeConversationList(card.exploreLightly) },
       { label: "Allow room", items: normalizeConversationList(card.allowRoom) },
-      { label: "Reaffirm support", text: String(card.reaffirmSupport || "").trim() }
+      { label: "Reaffirm support", items: normalizeConversationList(card.reaffirmSupport) }
     ].filter(section => section.text || (section.items && section.items.length))
   };
 }
