@@ -419,6 +419,7 @@ Writing standard:
 - Use the neutral heading "Key drivers"
 - Provide 2 to 4 bullets
 - Every driver must have a short boldable title and one clear explanatory sentence
+- Driver titles must be specific and must not include generic section labels such as “Key drivers”, “Driver”, or “What to watch”
 - Be specific about the transmission channel so the banker learns how policy rates, yields, capital flows, energy costs, trade, risk sentiment, or domestic activity can affect THB per unit of the selected currency
 - Keep each driver explanation to one sentence of no more than 42 words
 - Do not use vague filler such as "market uncertainty affected sentiment"

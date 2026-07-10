@@ -1450,6 +1450,15 @@ function getChangeToLatest(latest, reference) {
   return ((latest.rate - reference.rate) / reference.rate) * 100;
 }
 
+function cleanFxBulletTitle(value, fallback) {
+  const cleaned = String(value || "")
+    .replace(/^key\s+drivers?\s*[:\-–—]\s*/i, "")
+    .replace(/^what\s+to\s+watch\s*[:\-–—]\s*/i, "")
+    .replace(/^drivers?\s*[:\-–—]\s*/i, "")
+    .trim();
+  return cleaned || fallback;
+}
+
 function renderFxDriverAnalysis(fx) {
   const analysis = fx?.driver_analysis;
   if (!analysis) return "";
@@ -1460,7 +1469,11 @@ function renderFxDriverAnalysis(fx) {
   const driverHtml = drivers.length ? `
     <div class="fx-driver-section">
       <h4>Key drivers</h4>
-      <ul>${drivers.map(item => `<li><strong>${escapeHtml(item.title || "Driver")}:</strong> ${escapeHtml(item.explanation || "")}</li>`).join("")}</ul>
+      <ul>${drivers.map(item => {
+        const title = cleanFxBulletTitle(item?.title, "Market factor");
+        const explanation = String(item?.explanation || "").trim();
+        return `<li><strong>${escapeHtml(title)}${explanation ? ":" : ""}</strong>${explanation ? ` ${escapeHtml(explanation)}` : ""}</li>`;
+      }).join("")}</ul>
     </div>
   ` : "";
 
@@ -1469,7 +1482,7 @@ function renderFxDriverAnalysis(fx) {
       <h4>What to watch</h4>
       <ul>${watchItems.map(item => {
         if (typeof item === "string") return `<li>${escapeHtml(item)}</li>`;
-        const title = String(item?.title || "Watch item").trim();
+        const title = cleanFxBulletTitle(item?.title, "Watch item");
         const explanation = String(item?.explanation || item?.detail || "").trim();
         return `<li><strong>${escapeHtml(title)}${explanation ? ":" : ""}</strong>${explanation ? ` ${escapeHtml(explanation)}` : ""}</li>`;
       }).join("")}</ul>
@@ -1985,7 +1998,7 @@ function normalizeSectionLabel(label) {
 function renderExploreItems(items) {
   if (!items.length) return "";
   return `
-    <div class="conversation-guidance">If the client seems interested, choose a question that feels natural</div>
+    <div class="conversation-guidance">If the client seems interested, choose a gentle invitation that feels natural</div>
     <div class="conversation-question-list">
       ${items.map(item => `
         <div class="conversation-question-item">
