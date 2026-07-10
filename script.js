@@ -1,12 +1,11 @@
 const button = document.getElementById("send");
+const updateFxButton = document.getElementById("updateFx");
 
-const APP_DEFAULTS = Object.freeze({
-  newsLookbackDays: "60",
-  fxChartDays: 90
-});
 const sectorBox = document.getElementById("sector");
 const subsectorBox = document.getElementById("subsector");
 const industryBox = document.getElementById("industry");
+const timeframeBox = document.getElementById("timeframe");
+const fxTenorBox = document.getElementById("fxTenor");
 const conversationGoalBox = document.getElementById("conversationGoal");
 const relationshipContextBox = document.getElementById("relationshipContext");
 const cashPositionBox = document.getElementById("cashPosition");
@@ -49,7 +48,7 @@ function updateGenerateSignalsButtonState() {
   if (signalRequestInFlight) {
     button.title = "";
   } else if (signalRunLocked) {
-    button.title = "Update the client profile to generate a fresh set of signals.";
+    button.title = "Update the setup above to generate a fresh set of signals.";
   } else {
     button.title = "";
   }
@@ -1429,100 +1428,58 @@ function renderFxResearchDiagnostic(fxResearch) {
   `;
 }
 
-function normaliseFxBulletList(value) {
-  if (Array.isArray(value)) {
-    return value.map(item => String(item || "").trim()).filter(Boolean).slice(0, 3);
-  }
-  return String(value || "")
-    .split(/\n+/)
-    .map(line => line.replace(/^[-•]\s*/, "").trim())
-    .filter(Boolean)
-    .slice(0, 3);
-}
-
-function renderFxBulletSection(title, bullets) {
-  const cleanBullets = normaliseFxBulletList(bullets);
-  if (!cleanBullets.length) return "";
-  return `
-    <section class="fx-analysis-section">
-      <div class="fx-analysis-heading">${escapeHtml(title)}</div>
-      <ul>${cleanBullets.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
-    </section>
-  `;
-}
-
-function renderFxAnalysis(analysis) {
-  if (!analysis) return "";
-
-  if (typeof analysis === "object" && !Array.isArray(analysis)) {
-    const recentDrivers = analysis.recent_drivers || analysis.recentDrivers || analysis.what_has_influenced || [];
-    const nearTermWatch = analysis.near_term_watch || analysis.nearTermWatch || analysis.what_could_move_next || [];
-    const html = [
-      renderFxBulletSection("What has influenced the rate recently", recentDrivers),
-      renderFxBulletSection("What could move the rate next", nearTermWatch)
-    ].filter(Boolean).join("");
-    return html ? `<div class="fx-analysis">${html}</div>` : "";
-  }
-
-  const cleanText = String(analysis || "").trim();
-  if (!cleanText) return "";
-
-  const sections = {
-    recent: [],
-    next: []
-  };
-  let active = "recent";
-
-  cleanText.split(/\n+/).map(line => line.trim()).filter(Boolean).forEach(line => {
-    if (/^(What has influenced the rate recently|Market Observation|Market observation)\s*:?\s*$/i.test(line)) {
-      active = "recent";
-      return;
-    }
-    if (/^(What could move the rate next|Internal Analysis|Internal analysis)\s*:?\s*$/i.test(line)) {
-      active = "next";
-      return;
-    }
-    sections[active].push(line.replace(/^[-•]\s*/, "").trim());
-  });
-
-  const html = [
-    renderFxBulletSection("What has influenced the rate recently", sections.recent),
-    renderFxBulletSection("What could move the rate next", sections.next)
-  ].filter(Boolean).join("");
-
-  return html ? `<div class="fx-analysis">${html}</div>` : "";
-}
-
-function getHistoricalFxSnapshot(series, daysBack) {
+function getFxReferencePoint(series, daysAgo) {
   if (!Array.isArray(series) || !series.length) return null;
-  const latest = series[series.length - 1];
-  const latestDate = new Date(`${latest.date}T00:00:00Z`);
-  const targetTime = latestDate.getTime() - Number(daysBack) * 24 * 60 * 60 * 1000;
+  const latestDate = new Date(series[series.length - 1].date);
+  if (Number.isNaN(latestDate.getTime())) return series[0];
+  const target = new Date(latestDate);
+  target.setUTCDate(target.getUTCDate() - daysAgo);
 
-  let historical = series[0];
-  for (const point of series) {
-    const pointTime = new Date(`${point.date}T00:00:00Z`).getTime();
-    if (pointTime <= targetTime) historical = point;
+  let candidate = series[0];
+  for (const item of series) {
+    const itemDate = new Date(item.date);
+    if (Number.isNaN(itemDate.getTime())) continue;
+    if (itemDate <= target) candidate = item;
     else break;
   }
+  return candidate;
+}
 
-  const changePct = historical.rate
-    ? ((latest.rate - historical.rate) / historical.rate) * 100
-    : null;
+function getChangeToLatest(latest, reference) {
+  if (!latest || !reference || !Number.isFinite(latest.rate) || !Number.isFinite(reference.rate) || reference.rate === 0) return null;
+  return ((latest.rate - reference.rate) / reference.rate) * 100;
+}
 
-  return {
-    ...historical,
-    changePct
-  };
+function renderFxDriverAnalysis(fx) {
+  const analysis = fx?.driver_analysis;
+  if (!analysis) return "";
+  const drivers = Array.isArray(analysis.drivers) ? analysis.drivers : [];
+  const watchItems = Array.isArray(analysis.watch_items) ? analysis.watch_items : [];
+  if (!drivers.length && !watchItems.length) return "";
+
+  const driverHtml = drivers.length ? `
+    <div class="fx-driver-section">
+      <h4>Key drivers</h4>
+      <ul>${drivers.map(item => `<li><strong>${escapeHtml(item.title || "Driver")}:</strong> ${escapeHtml(item.explanation || "")}</li>`).join("")}</ul>
+    </div>
+  ` : "";
+
+  const watchHtml = watchItems.length ? `
+    <div class="fx-driver-section fx-watch-section">
+      <h4>What to watch</h4>
+      <ul>${watchItems.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+    </div>
+  ` : "";
+
+  return `<div class="fx-driver-analysis">${driverHtml}${watchHtml}</div>`;
 }
 
 function renderFx(fxList, fxResearch = null) {
-  const tenor = APP_DEFAULTS.fxChartDays;
   Object.values(fxCharts).forEach(chart => chart?.destroy?.());
   fxCharts = {};
 
   if (!fxList || fxList.length === 0) {
-    fxOutput.innerHTML = `<div>No FX data returned.</div>${renderFxResearchDiagnostic(fxResearch)}`;
+    fxOutput.innerHTML = `<div>No FX data returned.</div>`;
     return;
   }
 
@@ -1530,102 +1487,55 @@ function renderFx(fxList, fxResearch = null) {
   const errors = fxList.filter(fx => fx.error);
 
   if (nonThb.length === 0 && errors.length === 0) {
-    fxOutput.innerHTML = `<div>No non-THB FX selected.</div>${renderFxResearchDiagnostic(fxResearch)}`;
+    fxOutput.innerHTML = "";
     return;
   }
 
-  const chartConfigs = [];
-
-  const fxCards = nonThb.map((fx, index) => {
-    const pair = cleanFxPair(fx.pair, fx.base);
-    const base = String(fx.base || pair.slice(0, 3) || "Currency").toUpperCase();
-    const quote = String(fx.quote || "THB").toUpperCase();
+  const fxCards = nonThb.map(fx => {
     const series = getFxSeries(fx);
-    const latestPoint = series.length ? series[series.length - 1] : null;
-    const latest = latestPoint?.rate ?? Number(fx.latest_rate);
-    const snapshots = [90, 30, 7].map(days => ({ days, snapshot: getHistoricalFxSnapshot(series, days) }));
-    const canvasId = `fxChart${index}`;
-    const axis = getFxChartAxis(series, tenor);
-
-    if (series.length > 1) {
-      chartConfigs.push({ canvasId, pair, series, ...axis });
-    }
-
-    const tableHeaders = Array.from({ length: 3 }, () => `<th>Date</th><th>Rate</th>`).join("");
-    const headlineStats = snapshots.map(({ days, snapshot }) => `
-      <div class="fx-stat">
-        <span>${days} days ago</span>
-        <strong>${formatDisplayRate(snapshot?.rate)}</strong>
-        <em>${snapshot?.date ? `${formatDisplayDate(snapshot.date)} · ` : ""}${formatPercent(snapshot?.changePct)} to latest</em>
-      </div>
-    `).join("");
+    if (!series.length) return "";
+    const latest = series[series.length - 1];
+    const points = [7, 30, 90].map(days => {
+      const reference = getFxReferencePoint(series, days);
+      return { days, reference, change: getChangeToLatest(latest, reference) };
+    });
+    const base = String(fx.base || cleanFxPair(fx.pair, fx.base).replace(/THB$/i, ""));
 
     return `
-      <section class="fx-card-row fx-compact-card">
+      <section class="fx-card-row fx-inline-card">
         <div class="fx-card-topline">
           <div>
-            <div class="fx-title">${escapeHtml(pair)}</div>
-            <div class="fx-subtitle">Quoted as ${escapeHtml(quote)} per 1 ${escapeHtml(base)}. A higher rate means ${escapeHtml(base)} has strengthened against ${escapeHtml(quote)}; a lower rate means it has weakened.</div>
+            <div class="fx-title">THB per ${escapeHtml(base)}</div>
           </div>
         </div>
 
-        <div class="fx-stat-grid fx-compact-stat-grid">
-          <div class="fx-stat fx-stat-latest">
-            <span>Latest rate</span>
-            <strong>${formatDisplayRate(latest)}</strong>
-            <em>${latestPoint?.date ? formatDisplayDate(latestPoint.date) : "Latest available"}</em>
+        <div class="fx-snapshot-row">
+          <div class="fx-snapshot fx-snapshot-latest">
+            <span>Latest</span>
+            <strong>${formatDisplayRate(latest.rate)}</strong>
+            <small>${formatDisplayDate(latest.date)}</small>
           </div>
-          ${headlineStats}
-        </div>
-
-        <details class="fx-detail-toggle" data-canvas-id="${canvasId}">
-          <summary>View 90-day chart and market context</summary>
-          <div class="fx-detail-body">
-            <div class="fx-chart-wrap">
-              ${series.length > 1 ? `<canvas id="${canvasId}" aria-label="${escapeHtml(pair)} 90-day FX trend chart"></canvas>` : `<div class="fx-chart-status">Chart data is not available.</div>`}
+          ${points.map(point => `
+            <div class="fx-snapshot">
+              <span>${point.days}D</span>
+              <strong>${formatPercent(point.change)}</strong>
+              <small>${formatDisplayDate(point.reference?.date)} · ${formatDisplayRate(point.reference?.rate)}</small>
             </div>
+          `).join("")}
+        </div>
 
-            ${renderFxAnalysis(fx.analysis)}
-
-            <details class="fx-table-toggle">
-              <summary>Show daily FX table</summary>
-              <table class="fx-detail-table fx-bloomberg-table">
-                <thead><tr>${tableHeaders}</tr></thead>
-                <tbody>${buildFxTableRows(series, 3)}</tbody>
-              </table>
-            </details>
-          </div>
-        </details>
+        ${renderFxDriverAnalysis(fx)}
       </section>
     `;
   }).join("");
 
   const errorBlocks = errors.map(fx => `
-    <div class="fx-block">
-      <span class="error">${escapeHtml(fx.base)}THB: ${escapeHtml(fx.error)}</span>
-    </div>
+    <div class="fx-block"><span class="error">${escapeHtml(fx.base)}THB: ${escapeHtml(fx.error)}</span></div>
   `).join("");
 
-  fxOutput.innerHTML = `
-    <div class="fx-card-stack">
-      ${fxCards}
-      ${errorBlocks}
-      ${renderFxResearchDiagnostic(fxResearch)}
-    </div>
-  `;
-
-  const configByCanvasId = new Map(chartConfigs.map(config => [config.canvasId, config]));
-  document.querySelectorAll(".fx-detail-toggle[data-canvas-id]").forEach(detail => {
-    detail.addEventListener("toggle", () => {
-      if (!detail.open) return;
-      const canvasId = detail.getAttribute("data-canvas-id");
-      if (!canvasId || fxCharts[canvasId]) return;
-      const config = configByCanvasId.get(canvasId);
-      if (!config) return;
-      requestAnimationFrame(() => renderFxCharts([config]));
-    });
-  });
+  fxOutput.innerHTML = `<div class="fx-card-stack">${fxCards}${errorBlocks}</div>`;
 }
+
 
 function renderSources(sources, noRelevantUpdates = false, fallbackTriggered = false) {
   lastSources = Array.isArray(sources) ? sources : [];
@@ -1642,6 +1552,7 @@ const DEFAULT_VISIBLE_SIGNAL_COUNT = 3;
 let lastConversationCards = [];
 let conversationCardsExpanded = false;
 let conversationBridgeBuilt = false;
+let lastBuiltConversationCards = [];
 let selectedSignalIndexes = new Set();
 let lastSources = [];
 
@@ -1727,21 +1638,18 @@ function normaliseConversationLabel(label) {
   const clean = String(label || "").trim().toLowerCase();
   const labelMap = {
     "comment on context": "Comment on context",
-    "comment": "Comment on context",
-    "useful observation": "Comment on context",
-    "useful observation to offer": "Comment on context",
-    "gentle observation": "Comment on context",
-    "observe": "Comment on context",
+    "context": "Comment on context",
     "what is happening": "Comment on context",
     "link to client": "Link to client",
+    "relevance": "Link to client",
+    "why it may be relevant": "Link to client",
     "plain-english context": "Link to client",
     "plain english context": "Link to client",
-    "background cue": "Link to client",
-    "why this may matter": "Link to client",
-    "why it may be relevant": "Link to client",
-    "client relevance lens": "Link to client",
-    "transaction banking angle": "Link to client",
-    "relate": "Link to client",
+    "background cue": "Relate",
+    "why this may matter": "Relate",
+    "client relevance lens": "Relate",
+    "transaction banking angle": "Relate",
+    "relate": "Relate",
     "keep in mind": "Keep in mind",
     "what could change": "Keep in mind",
     "possible implications": "Keep in mind",
@@ -1753,30 +1661,33 @@ function normaliseConversationLabel(label) {
     "baseline and scenarios": "Keep in mind",
     "scenario frame": "Keep in mind",
     "uncertainty frame": "Keep in mind",
-    "explore lightly": "Explore lightly",
-    "lightly explore": "Explore lightly",
-    "if client engages": "Explore lightly",
-    "if they pick up on it": "Explore lightly",
-    "allow room": "Allow room",
+    "useful observation": "Comment on context",
+    "useful observation to offer": "Comment on context",
+    "gentle observation": "Comment on context",
+    "observe": "Comment on context",
     "soft invitation": "Allow room",
     "leave space": "Allow room",
-    "reaffirm support": "Reaffirm support",
+    "allow room": "Allow room",
+    "if client engages": "Explore lightly",
+    "if they pick up on it": "Explore lightly",
+    "lightly explore": "Explore lightly",
+    "explore lightly": "Explore lightly",
     "bank relevance": "Reaffirm support",
     "bank angle": "Reaffirm support",
     "bank angle / handoff": "Reaffirm support",
     "handoff cue": "Reaffirm support",
     "offer support": "Reaffirm support",
+    "reaffirm support": "Reaffirm support",
     "propose support": "Reaffirm support",
     "propose support path": "Reaffirm support"
   };
-  return labelMap[clean] || label || "Link to client";
+  return labelMap[clean] || label || "Relate";
 }
 
 function conversationSectionClass(label) {
   const normalised = normaliseConversationLabel(label).toLowerCase();
   if (normalised === "comment on context") return "conversation-section hero-observation observe-section";
   if (normalised === "link to client") return "conversation-section background-cue relate-section";
-  if (normalised === "keep in mind") return "conversation-section keep-in-mind-section";
   if (normalised === "explore lightly") return "conversation-section follow-up-path explore-section";
   if (normalised === "allow room") return "conversation-section soft-invitation leave-space-section";
   if (normalised === "reaffirm support") return "conversation-section bank-handoff support-section";
@@ -1784,7 +1695,7 @@ function conversationSectionClass(label) {
 }
 
 function mergeAdjacentConversationSections(sections) {
-  const order = ["Comment on context", "Link to client", "Keep in mind", "Explore lightly", "Allow room", "Reaffirm support"];
+  const order = ["Comment on context", "Link to client", "Explore lightly", "Allow room", "Reaffirm support"];
   const byLabel = new Map();
 
   sections.forEach(section => {
@@ -1815,7 +1726,7 @@ function parseConversationCardBlock(block) {
   const sections = [];
   let tags = [];
   const sourceNumbers = new Set(extractSourceNumbers(block));
-  const sectionPattern = /^(Comment on context|Link to client|Explore lightly|Allow room|Reaffirm support|Observe|Relate|Keep in mind|What could change|Possible implications|Baseline & scenarios|Baseline and scenarios|Baseline scenarios|Scenario frame|Uncertainty frame|Leave Space|Lightly Explore|Offer Support|Propose Support Path|Why this may matter|Why it may be relevant|What is happening|Background cue|Plain-English context|Plain English context|Client relevance lens|Transaction banking angle|Useful observation(?: to offer)?|Gentle observation|Soft invitation|If they pick up on it|If client engages|Bank angle(?: \/ handoff)?|Bank relevance|Handoff cue)\s*:\s*(.*)$/i;
+  const sectionPattern = /^(Comment on context|Context|What is happening|Link to client|Relevance|Why it may be relevant|Explore lightly|Allow room|Reaffirm support|Observe|Relate|Leave Space|Lightly Explore|Offer Support|Propose Support Path|Background cue|Plain-English context|Plain English context|Client relevance lens|Transaction banking angle|Useful observation(?: to offer)?|Gentle observation|Soft invitation|If they pick up on it|If client engages|Bank angle(?: \/ handoff)?|Bank relevance|Handoff cue)\s*:\s*(.*)$/i;
   let current = null;
 
   lines.forEach(line => {
@@ -1940,28 +1851,29 @@ function renderSignalSourceLine(card) {
 
 function resetConversationBridge() {
   conversationBridgeBuilt = false;
+  lastBuiltConversationCards = [];
   if (bridgeOutput) bridgeOutput.innerHTML = "";
   if (bridgePanel) bridgePanel.classList.add("hidden");
 }
 
-function getSignalObservationText(card) {
+function getSignalContextText(card) {
   return stripSourceMarkers(
     getConversationSectionText(card, "Comment on context") ||
     (card.sections || []).map(section => section.text).find(Boolean) ||
-    "A relevant market development has been identified."
+    "A potentially relevant market development was identified"
   );
 }
 
 function getSignalRelevanceText(card) {
   return stripSourceMarkers(
     getConversationSectionText(card, "Link to client") ||
-    "This may be worth discussing in light of the selected client profile."
+    "This may be worth keeping in view for the selected client profile"
   );
 }
 
 function renderSignalSelectionCard(card, index) {
   const cleanHeading = card.heading.replace(/^(Card\s+\d+\s*:\s*)/i, "").trim() || `Signal ${index + 1}`;
-  const observation = getSignalObservationText(card);
+  const context = getSignalContextText(card);
   const relevance = getSignalRelevanceText(card);
   const checked = selectedSignalIndexes.has(index) ? "checked" : "";
 
@@ -1976,10 +1888,10 @@ function renderSignalSelectionCard(card, index) {
         <span class="signal-rank">#${index + 1}</span>
       </div>
       <h3>${escapeHtml(cleanHeading)}</h3>
-      <div class="signal-preview-label">What is happening</div>
-      <p class="signal-preview-text">${escapeHtml(observation)}</p>
-      <div class="signal-preview-label signal-relevance-label">Why it may be relevant</div>
-      <p class="signal-preview-text signal-relevance-text">${escapeHtml(relevance)}</p>
+      <div class="signal-preview-label">Comment on context</div>
+      <p class="signal-preview-text">${escapeHtml(context)}</p>
+      <div class="signal-preview-label signal-link-label">Link to client</div>
+      <p class="signal-preview-text">${escapeHtml(relevance)}</p>
       ${renderSignalSourceLine(card)}
     </div>
   `;
@@ -1987,28 +1899,22 @@ function renderSignalSelectionCard(card, index) {
 
 function renderBridgeCard(card, index) {
   const cleanHeading = card.heading.replace(/^(Card\s+\d+\s*:\s*)/i, "").trim() || `Card ${index + 1}`;
-  const keepInMind = stripSourceMarkers(getConversationSectionText(card, "Keep in mind"));
   const orderedItems = [
-    { label: "Comment on context", marker: "C", move: 1 },
-    { label: "Link to client", marker: "L", move: 2 },
-    { label: "Explore lightly", marker: "E", move: 3 },
-    { label: "Allow room", marker: "A", move: 4 },
-    { label: "Reaffirm support", marker: "R", move: 5 }
+    { label: "Comment on context", move: "C" },
+    { label: "Link to client", move: "L" },
+    { label: "Explore lightly", move: "E" },
+    { label: "Allow room", move: "A" },
+    { label: "Reaffirm support", move: "R" }
   ];
   const sectionHtml = orderedItems.map(item => {
-    const label = item.label;
-    const text = stripSourceMarkers(getConversationSectionText(card, label));
+    const text = stripSourceMarkers(getConversationSectionText(card, item.label));
     if (!text) return "";
-    const keepInMindHtml = label === "Link to client" && keepInMind
-      ? `<div class="keep-in-mind-note"><span>Keep in mind:</span> ${escapeHtml(keepInMind)}</div>`
-      : "";
     return `
-      <div class="${conversationSectionClass(label)} bridge-step bridge-step-${item.move}">
-        <div class="bridge-step-marker">${item.marker}</div>
+      <div class="${conversationSectionClass(item.label)} bridge-step bridge-step-${item.move.toLowerCase()}">
+        <div class="bridge-step-marker">${item.move}</div>
         <div class="bridge-step-body">
-          <div class="conversation-label">${escapeHtml(label)}</div>
+          <div class="conversation-label">${escapeHtml(item.label)}</div>
           <div class="conversation-text">${escapeHtml(text)}</div>
-          ${keepInMindHtml}
         </div>
       </div>
     `;
@@ -2028,20 +1934,99 @@ function renderBridgeCard(card, index) {
 }
 
 function renderSelectedConversationBridge() {
-  const selectedCards = [...selectedSignalIndexes]
-    .sort((a, b) => a - b)
-    .map(index => lastConversationCards[index])
-    .filter(Boolean);
+  const cards = conversationBridgeBuilt && lastBuiltConversationCards.length
+    ? lastBuiltConversationCards
+    : [];
 
-  if (!selectedCards.length) {
-    return `<div class="empty-state bridge-empty">Select at least one signal to plan your client conversation.</div>`;
+  if (!cards.length) {
+    return `<div class="empty-state bridge-empty">Select at least one signal to build your client conversation.</div>`;
   }
 
   return `
     <div class="bridge-output">
-      ${selectedCards.map((card, index) => renderBridgeCard(card, index)).join("")}
+      ${cards.map((card, index) => renderBridgeCard(card, index)).join("")}
     </div>
   `;
+}
+
+function serializeSelectedSignal(card) {
+  return {
+    title: card.heading.replace(/^(Card\s+\d+\s*:\s*)/i, "").trim(),
+    tags: card.tags || [],
+    context: getSignalContextText(card),
+    relevance: getSignalRelevanceText(card),
+    sourceNumbers: card.sourceNumbers || []
+  };
+}
+
+function apiConversationCardToParsed(card, index) {
+  return {
+    heading: `Card ${index + 1}: ${String(card.title || `Signal ${index + 1}`).trim()}`,
+    tags: Array.isArray(card.tags) ? card.tags : [],
+    sourceNumbers: Array.isArray(card.sourceNumbers) ? card.sourceNumbers : [],
+    sections: [
+      { label: "Comment on context", text: String(card.commentOnContext || "").trim() },
+      { label: "Link to client", text: String(card.linkToClient || "").trim() },
+      { label: "Explore lightly", text: String(card.exploreLightly || "").trim() },
+      { label: "Allow room", text: String(card.allowRoom || "").trim() },
+      { label: "Reaffirm support", text: String(card.reaffirmSupport || "").trim() }
+    ].filter(section => section.text)
+  };
+}
+
+async function buildSelectedConversation() {
+  const selected = [...selectedSignalIndexes]
+    .sort((a, b) => a - b)
+    .map(index => lastConversationCards[index])
+    .filter(Boolean);
+  if (!selected.length) return;
+
+  const buildButton = document.getElementById("buildBridgeButton");
+  if (buildButton) {
+    buildButton.disabled = true;
+    buildButton.textContent = "Building conversation…";
+  }
+  if (bridgePanel && bridgeOutput) {
+    bridgePanel.classList.remove("hidden");
+    bridgeOutput.innerHTML = `<span class="loading">Building a CLEAR conversation from the selected signals…</span>`;
+  }
+
+  const tradeFlow = getTradeFlow();
+  const profile = {
+    sector: sectorBox?.value || "",
+    subsector: subsectorBox?.value || "",
+    industry: selectedIsic ? selectedIsic.description : (industryBox?.value || "").trim(),
+    purchaseFlow: tradeFlow.purchase.domestic || tradeFlow.purchase.international
+      ? `${tradeFlow.purchase.domestic ? "Thailand domestic" : ""}${tradeFlow.purchase.domestic && tradeFlow.purchase.international ? "; " : ""}${tradeFlow.purchase.international ? tradeFlow.purchase.countries.map(country => country.name || country.label).join(", ") : ""}`
+      : "",
+    salesFlow: tradeFlow.sales.domestic || tradeFlow.sales.international
+      ? `${tradeFlow.sales.domestic ? "Thailand domestic" : ""}${tradeFlow.sales.domestic && tradeFlow.sales.international ? "; " : ""}${tradeFlow.sales.international ? tradeFlow.sales.countries.map(country => country.name || country.label).join(", ") : ""}`
+      : ""
+  };
+
+  try {
+    const response = await fetch("/api/conversation", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ signals: selected.map(serializeSelectedSignal), profile })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Conversation generation failed");
+    const cards = Array.isArray(data.cards) ? data.cards.map(apiConversationCardToParsed) : [];
+    if (!cards.length) throw new Error("No conversation cards were returned");
+    lastBuiltConversationCards = cards;
+    conversationBridgeBuilt = true;
+    if (bridgeOutput) bridgeOutput.innerHTML = renderSelectedConversationBridge();
+    bridgePanel?.scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (error) {
+    if (bridgeOutput) bridgeOutput.innerHTML = `<span class="error">${escapeHtml(error.message || "Conversation generation failed")}</span>`;
+  } finally {
+    const currentButton = document.getElementById("buildBridgeButton");
+    if (currentButton) {
+      currentButton.disabled = !selectedSignalIndexes.size;
+      currentButton.textContent = `Build client conversation${selectedSignalIndexes.size ? ` (${selectedSignalIndexes.size})` : ""}`;
+    }
+  }
 }
 
 function renderSignalSelectionList() {
@@ -2058,12 +2043,12 @@ function renderSignalSelectionList() {
   ` : "";
 
   analysisOutput.innerHTML = `
-    <div class="signals-summary">Showing ${visibleCards.length} of ${lastConversationCards.length} relevant signal${lastConversationCards.length === 1 ? "" : "s"}. Select the signals you might use in a client conversation.</div>
+    <div class="signals-summary">Showing ${visibleCards.length} of ${lastConversationCards.length} Client Signal${lastConversationCards.length === 1 ? "" : "s"}. Select only the signals you may want to use in a client conversation.</div>
     <div class="signal-selection-list">${cardsHtml}</div>
     <div class="signal-action-row">
       ${toggleHtml}
       <button type="button" class="secondary-action primary-bridge-action" id="buildBridgeButton" ${selectedCount ? "" : "disabled"}>
-        Plan my client conversation${selectedCount ? ` (${selectedCount})` : ""}
+        Build client conversation${selectedCount ? ` (${selectedCount})` : ""}
       </button>
     </div>
   `;
@@ -2094,12 +2079,7 @@ function renderSignalSelectionList() {
     renderSignalSelectionList();
   });
 
-  document.getElementById("buildBridgeButton")?.addEventListener("click", () => {
-    if (!selectedSignalIndexes.size) return;
-    conversationBridgeBuilt = true;
-    renderSignalSelectionList();
-    bridgePanel?.scrollIntoView({ behavior: "smooth", block: "start" });
-  });
+  document.getElementById("buildBridgeButton")?.addEventListener("click", buildSelectedConversation);
 }
 
 function renderConversationCards(text) {
@@ -2113,7 +2093,7 @@ function renderConversationCards(text) {
   lastConversationCards = cardBlocks.map(parseConversationCardBlock);
   conversationCardsExpanded = false;
   resetConversationBridge();
-  selectedSignalIndexes = new Set(lastConversationCards.slice(0, DEFAULT_VISIBLE_SIGNAL_COUNT).map((_, index) => index));
+  selectedSignalIndexes = new Set();
   renderSignalSelectionList();
   return true;
 }
@@ -2244,7 +2224,7 @@ async function fetchMarketIntelligence({ showLoading = false } = {}) {
   const subsector = subsectorBox?.value || "";
   const industry = selectedIsic ? selectedIsic.description : (industryBox?.value || "").trim();
   const isicCode = selectedIsic?.code || "";
-  const fxTenor = APP_DEFAULTS.fxChartDays;
+  const fxTenor = fxTenorBox?.value || "30";
   const tradeRoles = getSelectedTradeRolesFromFlow(tradeFlow);
   const countries = getAllTradeFlowCountries(tradeFlow);
 
@@ -2395,8 +2375,8 @@ button.addEventListener("click", async function () {
   const subsector = subsectorBox.value;
   const industry = selectedIsic ? selectedIsic.description : industryBox.value.trim();
   const isicCode = selectedIsic?.code || "";
-  const timeframe = APP_DEFAULTS.newsLookbackDays;
-  const fxTenor = APP_DEFAULTS.fxChartDays;
+  const timeframe = timeframeBox.value;
+  const fxTenor = fxTenorBox?.value || "30";
   const conversationGoal = "general_check_in";
   const clientProfile = getClientProfile();
   const signalThreads = getSignalThreads();

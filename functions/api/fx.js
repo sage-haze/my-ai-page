@@ -161,8 +161,8 @@ function tradeFlowSummary(tradeFlow) {
   ].join("\n");
 }
 
-async function fetchYahooSeries(pair, rangeDays = 90) {
-  const safeRangeDays = 90;
+async function fetchYahooSeries(pair, rangeDays = 30) {
+  const safeRangeDays = [30, 90].includes(Number(rangeDays)) ? Number(rangeDays) : 30;
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${pair}?interval=1d&range=${safeRangeDays}d`;
 
   const response = await fetch(url, {
@@ -231,7 +231,7 @@ function summarizeFxSeries({ base, pair, series, source }) {
   };
 }
 
-async function fetchYahooFxRate(baseCurrency, rangeDays = 90) {
+async function fetchYahooFxRate(baseCurrency, rangeDays = 30) {
   if (baseCurrency === "THB") {
     return { skip: true, base: "THB" };
   }
@@ -275,7 +275,7 @@ async function fetchYahooFxRate(baseCurrency, rangeDays = 90) {
   });
 }
 
-async function fetchFxRates(currencies, rangeDays = 90) {
+async function fetchFxRates(currencies, rangeDays = 30) {
   const uniqueCurrencies = [...new Set(currencies)];
 
   return Promise.all(
@@ -291,7 +291,7 @@ async function fetchFxRates(currencies, rangeDays = 90) {
 }
 
 
-function calculateFxMetrics(fx, fxTenor = 90) {
+function calculateFxMetrics(fx, fxTenor = 30) {
   const series = Array.isArray(fx?.series) ? fx.series : [];
   if (series.length === 0) return null;
 
@@ -325,7 +325,7 @@ function calculateFxMetrics(fx, fxTenor = 90) {
   }
 
   return {
-    tenor_days: Number(fxTenor) || 90,
+    tenor_days: Number(fxTenor) || 30,
     first_date: firstDate,
     last_date: lastDate,
     first_rate: Number(first.toFixed(4)),
@@ -362,27 +362,17 @@ function extractOutputText(data) {
   return "";
 }
 
-async function analyzeFxRates({ env, fxList, sector = "", subsector = "", industry = "", tradeRoles = [], countries = [], tradeFlow = null, fxTenor = 90 }) {
+async function analyzeFxRates({ env, fxList, sector = "", subsector = "", industry = "", tradeRoles = [], countries = [], tradeFlow = null }) {
   const usableFx = fxList.filter(fx => !fx.skip && !fx.error && Array.isArray(fx.series) && fx.series.length > 0);
 
-  if (usableFx.length === 0) {
-    return { fx: fxList, fxResearch: { attempted: false, found: false, used: false, message: "No usable non-THB FX series, so PDF research was not checked." } };
-  }
-
-  if (!env.OPENAI_API_KEY) {
-    return { fx: fxList, fxResearch: { attempted: false, found: false, used: false, message: "OPENAI_API_KEY is not configured, so PDF research was not checked." } };
+  if (usableFx.length === 0 || !env.OPENAI_API_KEY) {
+    return { fx: fxList, fxResearch: null };
   }
 
   const compactFx = usableFx.map(fx => ({
     pair: fx.pair,
     base: fx.base,
     quote: fx.quote,
-    latest_rate: fx.latest_rate,
-    highest_rate: fx.highest_rate,
-    highest_date: fx.highest_date,
-    lowest_rate: fx.lowest_rate,
-    lowest_date: fx.lowest_date,
-    metrics: calculateFxMetrics(fx, fxTenor),
     recent_series: fx.series
   }));
 
@@ -390,25 +380,11 @@ async function analyzeFxRates({ env, fxList, sector = "", subsector = "", indust
   const currencyList = usableFx.map(fx => fx.base).filter(Boolean);
   const internalFxResearchResult = await getLatestFxResearchPdf(env);
   const internalFxResearchPdf = internalFxResearchResult?.pdf || null;
-  const fxResearchStatus = internalFxResearchResult?.status || {
-    attempted: true,
-    found: false,
-    used: false,
-    bucket_binding: "",
-    key: "",
-    filename: "",
-    size_bytes: 0,
-    message: "FX research PDF status was not available."
-  };
-  const internalFxResearchBlock = internalFxResearchPdf
-    ? `\nInternal weekly FX research PDF attached from R2: ${internalFxResearchPdf.filename}\n`
-    : "\nInternal weekly FX research PDF from R2: Not available for this request.\n";
 
   const prompt = `
-You are preparing concise FX context for junior Thailand-based commercial relationship managers.
+You are preparing concise FX learning notes for relationship managers at a Thailand-based bank.
 
 Client context:
-- Client base: Thailand
 - Sector: ${sector}
 - Subsector: ${subsector}
 - Specific industry: ${industry}
@@ -416,62 +392,38 @@ Client context:
 ${tradeFlow ? tradeFlowSummary(tradeFlow) : `Client trade role: ${tradeRoles.join(", ")}
 Exposure countries / markets: ${countryText}`}
 
-You have two evidence sources:
-1. Structured 90-day FX market statistics from Yahoo Finance.
-2. Internal weekly FX analysis from the attached PDF, if available.
+Use the supplied 90-day FX series and the internal weekly FX research attachment if available.
+For each selected currency, explain the most useful drivers of the observed movement in THB per unit of foreign currency.
 
-For EACH selected FX pair, produce two short bullet lists in plain English.
+Writing standard:
+- Use the neutral heading "Key drivers"
+- Provide 2 to 4 bullets
+- Every bullet must have a short boldable title and one clear explanatory sentence
+- A good bullet looks like: "Higher US interest rates: The Fed kept policy tighter while the Bank of Thailand maintained a more supportive stance, helping the USD hold firm against THB"
+- Be specific about the transmission channel so the banker learns how rates, capital flows, energy costs, trade, risk sentiment, or domestic activity can affect the currency
+- Keep each explanation to one sentence of no more than 32 words
+- Do not use vague filler such as "market uncertainty affected sentiment"
+- Do not describe the internal document, cite internal analysis, or mention a PDF
+- Do not claim a driver unless supported by the supplied research or clearly visible in the market series
+- If evidence for a driver is weak, omit it
+- Add 2 to 3 short "What to watch" items, each under 12 words
+- Do not forecast a precise rate
 
-RECENT DRIVERS
-- Heading meaning: "What has influenced the rate recently".
-- Focus mainly on the past month.
-- Give no more than 3 bullets.
-- Explain the most relevant supported drivers behind the observed movement.
-- Use the price series to describe what happened, but do not treat price movement alone as proof of causation.
-- Use internal analysis only when it directly supports a driver.
-- If causation is uncertain, say so briefly rather than inventing an explanation.
-- Avoid trading jargon, technical indicators, support/resistance language, or detailed market terminology.
-
-NEAR-TERM WATCH
-- Heading meaning: "What could move the rate next".
-- Give no more than 3 bullets.
-- Focus on upcoming policy decisions, macro releases, political or trade developments, and other uncertainties supported by internal analysis.
-- Do not make a precise forecast or imply certainty.
-
-Client discipline:
-- Keep the bullets useful for a junior banker speaking with a client.
-- Do not assume the client has a currency mismatch, hedge need, margin problem, or financing requirement.
-- Do not recommend hedge ratios, products, or market timing.
-- Do not mention the PDF or its filename. Refer to it only as internal analysis when needed.
-
-Return JSON only in this shape:
+Return JSON only:
 {
   "analyses": [
     {
-      "pair": "USDTHB=X",
-      "recent_drivers": [
-        "Plain-English bullet 1",
-        "Plain-English bullet 2"
+      "pair": "USDTHB",
+      "drivers": [
+        { "title": "Higher US interest rates", "explanation": "..." }
       ],
-      "near_term_watch": [
-        "Plain-English bullet 1",
-        "Plain-English bullet 2"
-      ]
+      "watch_items": ["Fed policy signals", "Bank of Thailand guidance"]
     }
-  ],
-  "research_extraction": {
-    "status": "used | not_relevant | not_available",
-    "summary": "One short sentence explaining whether internal analysis was used.",
-    "sections": [
-      { "currency": "USD", "text": "Relevant extracted internal analysis for this currency. If not found, say not found." }
-    ]
-  }
+  ]
 }
 
-For research_extraction.sections, include one entry for each selected currency in this list: ${currencyList.join(", ")}. This is a temporary diagnostic view for testing, so include enough extracted text to verify that the correct section was read, but keep each currency under 900 characters.
-
-${internalFxResearchBlock}
-FX market statistics and recent series:
+Selected currencies: ${currencyList.join(", ")}
+FX series:
 ${JSON.stringify(compactFx, null, 2)}
 `.trim();
 
@@ -496,79 +448,75 @@ ${JSON.stringify(compactFx, null, 2)}
               }] : [])
             ]
           }
-        ]
+        ],
+        text: {
+          format: {
+            type: "json_schema",
+            name: "concise_fx_drivers",
+            strict: true,
+            schema: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                analyses: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      pair: { type: "string" },
+                      drivers: {
+                        type: "array",
+                        minItems: 1,
+                        maxItems: 4,
+                        items: {
+                          type: "object",
+                          additionalProperties: false,
+                          properties: {
+                            title: { type: "string" },
+                            explanation: { type: "string" }
+                          },
+                          required: ["title", "explanation"]
+                        }
+                      },
+                      watch_items: {
+                        type: "array",
+                        minItems: 1,
+                        maxItems: 3,
+                        items: { type: "string" }
+                      }
+                    },
+                    required: ["pair", "drivers", "watch_items"]
+                  }
+                }
+              },
+              required: ["analyses"]
+            }
+          }
+        }
       })
     });
 
     const data = await response.json();
-    if (!response.ok) {
-      return {
-        fx: fxList,
-        fxResearch: {
-          ...fxResearchStatus,
-          openai_status: "failed",
-          message: `${fxResearchStatus.message} OpenAI FX analysis failed.`
-        }
-      };
-    }
+    if (!response.ok) return { fx: fxList, fxResearch: null };
 
     const text = extractOutputText(data);
     const jsonStart = text.indexOf("{");
     const jsonEnd = text.lastIndexOf("}");
-    if (jsonStart === -1 || jsonEnd === -1) {
-      return {
-        fx: fxList,
-        fxResearch: {
-          ...fxResearchStatus,
-          openai_status: "no_json",
-          message: `${fxResearchStatus.message} OpenAI did not return parseable JSON.`
-        }
-      };
-    }
+    if (jsonStart === -1 || jsonEnd === -1) return { fx: fxList, fxResearch: null };
 
     const parsed = JSON.parse(text.slice(jsonStart, jsonEnd + 1));
-    const analysisByPair = new Map(
-      (parsed.analyses || [])
-        .filter(item => item.pair)
-        .map(item => {
-          const recentDrivers = Array.isArray(item.recent_drivers)
-            ? item.recent_drivers.map(value => String(value || "").trim()).filter(Boolean).slice(0, 3)
-            : [];
-          const nearTermWatch = Array.isArray(item.near_term_watch)
-            ? item.near_term_watch.map(value => String(value || "").trim()).filter(Boolean).slice(0, 3)
-            : [];
-          const legacyAnalysis = String(item.analysis || "").trim();
-          const analysis = recentDrivers.length || nearTermWatch.length
-            ? { recent_drivers: recentDrivers, near_term_watch: nearTermWatch }
-            : legacyAnalysis;
-          return [String(item.pair), analysis];
-        })
-        .filter(([, analysis]) => analysis && (typeof analysis === "string" ? analysis : analysis.recent_drivers.length || analysis.near_term_watch.length))
-    );
+    const analysisByPair = new Map((parsed.analyses || []).map(item => [String(item.pair || "").replace(/=X$/i, ""), item]));
 
-    const researchExtraction = parsed.research_extraction || {};
     return {
-      fx: fxList.map(fx => ({
-        ...fx,
-        analysis: analysisByPair.get(fx.pair) || fx.analysis || ""
-      })),
-      fxResearch: {
-        ...fxResearchStatus,
-        openai_status: "ok",
-        extraction_status: researchExtraction.status || (internalFxResearchPdf ? "used" : "not_available"),
-        extraction_summary: researchExtraction.summary || "",
-        extracted_sections: Array.isArray(researchExtraction.sections) ? researchExtraction.sections : []
-      }
+      fx: fxList.map(fx => {
+        const key = String(fx.pair || "").replace(/=X$/i, "");
+        return { ...fx, driver_analysis: analysisByPair.get(key) || null, analysis: "" };
+      }),
+      fxResearch: null
     };
-  } catch (error) {
-    return {
-      fx: fxList,
-      fxResearch: {
-        ...fxResearchStatus,
-        openai_status: "error",
-        message: `${fxResearchStatus.message} FX research extraction failed: ${error.message || "Unknown error"}`
-      }
-    };
+  } catch (_) {
+    return { fx: fxList, fxResearch: null };
   }
 }
 
@@ -599,7 +547,7 @@ export async function onRequestPost(context) {
       return Response.json({ error: `Unsupported currency selected: ${unsupported.join(", ")}` }, { status: 400 });
     }
 
-    const rawFx = await fetchFxRates(currencies, fxTenor);
+    const rawFx = await fetchFxRates(currencies, 90);
     const analyzed = await analyzeFxRates({ env, fxList: rawFx, sector, subsector, industry, tradeRoles, countries, tradeFlow, fxTenor });
 
     return Response.json({ fx: analyzed.fx || rawFx, fxResearch: analyzed.fxResearch || null });

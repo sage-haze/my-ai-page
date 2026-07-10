@@ -1140,7 +1140,8 @@ select.auto-filled {
   font-weight: 800;
 }
 
-.secondary-button {
+.secondary-button,
+#updateFx.secondary-button {
   background: #ffffff;
   color: #0f766e;
   border: 1px solid #99d5cc;
@@ -1912,72 +1913,145 @@ select.auto-filled {
   color: #475569;
 }
 
-/* v21: fixed 60-day research, 90-day FX headlines, and CLEAR flow */
-.five-moves-sidebar .clear-flow-list li::before {
+/* ---------- v15 CLEAR signals and simplified FX ---------- */
+.five-moves-sidebar .clear-moves-list li {
+  grid-template-columns: 24px minmax(0, 1fr);
+  column-gap: 10px;
+}
+
+.five-moves-sidebar .clear-moves-list li::before {
   content: attr(data-letter);
+  width: 22px;
+  height: 22px;
+  font-size: 11px;
 }
 
-#fxOutput .fx-stat-grid.fx-compact-stat-grid,
-.fx-compact-stat-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+.five-moves-sidebar .clear-moves-list strong,
+.five-moves-sidebar .clear-moves-list span {
+  overflow-wrap: anywhere;
 }
 
-.fx-stat-latest {
-  background: #f2fbf8;
-  border-color: #cde9e0;
+.signal-link-label {
+  margin-top: 10px;
 }
 
-.fx-compact-stat-grid .fx-stat strong {
-  font-size: 15px;
+.signal-selection-card {
+  padding: 12px 13px;
 }
 
-.fx-subtitle {
-  max-width: 620px;
-  line-height: 1.45;
+.signal-selection-card h3 {
+  margin: 7px 0;
 }
 
-.fx-analysis {
+.signal-preview-text {
+  line-height: 1.4;
+}
+
+.fx-card-stack {
+  gap: 10px;
+}
+
+.fx-inline-card {
   padding: 12px;
 }
 
-.fx-analysis-section + .fx-analysis-section {
-  margin-top: 14px;
-  padding-top: 12px;
+.fx-inline-card .fx-card-topline {
+  margin-bottom: 8px;
+}
+
+.fx-inline-card .fx-title {
+  font-size: 15px;
+}
+
+.fx-snapshot-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.fx-snapshot {
+  min-width: 0;
+  border: 1px solid #e4eaf1;
+  border-radius: 9px;
+  background: #f8fafc;
+  padding: 8px 9px;
+}
+
+.fx-snapshot-latest {
+  background: #eef9f6;
+  border-color: #c5e5dd;
+}
+
+.fx-snapshot span {
+  display: block;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.fx-snapshot strong {
+  display: block;
+  margin-top: 3px;
+  color: #111827;
+  font-size: 16px;
+  line-height: 1.15;
+}
+
+.fx-snapshot small {
+  display: block;
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 10.5px;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fx-driver-analysis {
+  margin-top: 10px;
+  border: 1px solid #e4e7ec;
+  border-radius: 9px;
+  background: #f8fafc;
+  padding: 10px 11px;
+}
+
+.fx-driver-section + .fx-driver-section {
+  margin-top: 10px;
+  padding-top: 9px;
   border-top: 1px solid #e2e8f0;
 }
 
-.fx-analysis-heading {
+.fx-driver-section h4 {
   margin: 0 0 6px;
+  color: #111827;
+  font-size: 13px;
 }
 
-.fx-analysis ul {
+.fx-driver-section ul {
   margin: 0;
   padding-left: 18px;
 }
 
-.fx-analysis li {
-  margin: 0 0 6px;
+.fx-driver-section li {
+  margin: 0 0 5px;
   color: #334155;
-  font-size: 13.5px;
-  line-height: 1.5;
+  font-size: 12.5px;
+  line-height: 1.42;
 }
 
-.fx-analysis li:last-child {
+.fx-driver-section li:last-child {
   margin-bottom: 0;
 }
 
-.signal-relevance-label {
-  margin-top: 10px;
+.bridge-step-marker {
+  font-size: 11px;
 }
 
-.signal-relevance-text {
-  color: #475569;
-}
-
-@media (max-width: 520px) {
-  #fxOutput .fx-stat-grid.fx-compact-stat-grid,
-  .fx-compact-stat-grid {
-    grid-template-columns: 1fr;
+@media (max-width: 760px) {
+  .fx-snapshot-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
