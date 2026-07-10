@@ -1303,8 +1303,8 @@ function buildGdeltQueries({ industry, tradeFlow, signalThreads = [] }) {
   return queries.filter(item => item.query.length > 0).slice(0, 2);
 }
 
-async function fetchYahooSeries(pair, rangeDays = 30) {
-  const safeRangeDays = [30, 90].includes(Number(rangeDays)) ? Number(rangeDays) : 30;
+async function fetchYahooSeries(pair, rangeDays = 90) {
+  const safeRangeDays = 90;
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${pair}?interval=1d&range=${safeRangeDays}d`;
 
   const response = await fetch(url, {
@@ -1366,7 +1366,7 @@ function summarizeFxSeries({ base, pair, series, source }) {
   };
 }
 
-async function fetchYahooFxRate(baseCurrency, rangeDays = 30) {
+async function fetchYahooFxRate(baseCurrency, rangeDays = 90) {
   if (baseCurrency === "THB") {
     return {
       skip: true,
@@ -1413,7 +1413,7 @@ async function fetchYahooFxRate(baseCurrency, rangeDays = 30) {
   });
 }
 
-async function fetchFxRates(currencies, rangeDays = 30) {
+async function fetchFxRates(currencies, rangeDays = 90) {
   const uniqueCurrencies = [...new Set(currencies)];
 
   return Promise.all(
@@ -1428,7 +1428,7 @@ async function fetchFxRates(currencies, rangeDays = 30) {
   );
 }
 
-async function analyzeFxRates({ env, fxList, sector = "", subsector = "", industry = "", tradeRoles = [], countries = [], tradeFlow = null, fxTenor = 30 }) {
+async function analyzeFxRates({ env, fxList, sector = "", subsector = "", industry = "", tradeRoles = [], countries = [], tradeFlow = null, fxTenor = 90 }) {
   const usableFx = fxList.filter(fx => !fx.skip && !fx.error && Array.isArray(fx.series) && fx.series.length > 0);
 
   if (usableFx.length === 0) return fxList;
@@ -1447,7 +1447,7 @@ async function analyzeFxRates({ env, fxList, sector = "", subsector = "", indust
 
   const countryText = countries.map(country => country.label || country.name || country.code).filter(Boolean).join(", ");
   const prompt = `
-You are writing short FX movement notes for a Thailand-based relationship manager.
+You are writing concise FX context for a junior Thailand-based relationship manager.
 
 Client context:
 - Client base: Thailand
@@ -1455,17 +1455,24 @@ Client context:
 - Subsector: ${subsector}
 - Specific industry / ISIC activity: ${industry}
 - Directional trade flow:
-${tradeFlow ? tradeFlowSummary(tradeFlow) : `Client trade role: ${tradeRoles.join(", ")}\nExposure countries / markets: ${countryText}`}
+${tradeFlow ? tradeFlowSummary(tradeFlow) : `Client trade role: ${tradeRoles.join(", ")}
+Exposure countries / markets: ${countryText}`}
 
-Use only the provided ${fxTenor}-day FX data below. For each pair, write two concise sentences.
-Sentence 1: observed FX movement, latest level versus the ${fxTenor}-day range, and whether the base currency strengthened or weakened against THB.
-Sentence 2: what this could mean for the Thailand-based client in the given import/export context.
-Do not mention news or Tavily sources. Do not give investment advice. Keep each analysis under 45 words.
+Use only the supplied 90-day FX price data. For each pair:
+- Provide up to 3 plain-English bullets under recent_drivers describing the observed movement, with emphasis on the past month.
+- Do not claim a cause that cannot be established from price data alone. State uncertainty rather than inventing a driver.
+- Leave near_term_watch empty because no forward-looking research has been provided in this fallback path.
+- Do not assume any client exposure, problem, hedge requirement, or financing need.
+- Avoid technical trading language and do not give advice.
 
-Return JSON only in this shape:
+Return JSON only:
 {
   "analyses": [
-    { "pair": "USDTHB=X", "analysis": "..." }
+    {
+      "pair": "USDTHB=X",
+      "recent_drivers": ["Plain-English observed movement bullet"],
+      "near_term_watch": []
+    }
   ]
 }
 
@@ -1497,8 +1504,15 @@ ${JSON.stringify(compactFx, null, 2)}
     const parsed = JSON.parse(text.slice(jsonStart, jsonEnd + 1));
     const analysisByPair = new Map(
       (parsed.analyses || [])
-        .filter(item => item.pair && item.analysis)
-        .map(item => [String(item.pair), String(item.analysis).trim()])
+        .filter(item => item.pair)
+        .map(item => [String(item.pair), {
+          recent_drivers: Array.isArray(item.recent_drivers)
+            ? item.recent_drivers.map(value => String(value || "").trim()).filter(Boolean).slice(0, 3)
+            : [],
+          near_term_watch: Array.isArray(item.near_term_watch)
+            ? item.near_term_watch.map(value => String(value || "").trim()).filter(Boolean).slice(0, 3)
+            : []
+        }])
     );
 
     return fxList.map(fx => ({
@@ -1914,42 +1928,56 @@ function formatNewsThemesFromJson(parsed) {
   return cards.map((card, index) => {
     const title = String(card.title || `Card ${index + 1}`).replace(/^(Theme|Card)\s*\d+\s*:\s*/i, "").trim();
 
-    const backgroundCue = String(
-      card.backgroundCue ||
-      card.background_cue ||
+    const commentOnContext = String(
+      card.commentOnContext ||
+      card.comment_on_context ||
+      card.whatIsHappening ||
+      card.what_is_happening ||
+      card.observe ||
+      card.usefulObservation ||
+      card.useful_observation ||
+      card.gentleObservation ||
+      card.gentle_observation ||
+      ""
+    ).trim();
+    const linkToClient = String(
+      card.linkToClient ||
+      card.link_to_client ||
+      card.whyItMayBeRelevant ||
+      card.why_it_may_be_relevant ||
       card.whyThisMayMatter ||
       card.why_this_may_matter ||
+      card.transactionBankingAngle ||
+      card.transaction_banking_angle ||
+      card.relate ||
+      card.backgroundCue ||
+      card.background_cue ||
       card.plainEnglishContext ||
       card.plain_english_context ||
       card.clientRelevanceLens ||
       card.client_relevance_lens ||
-      card.paragraph ||
-      card.explanation ||
       ""
     ).trim();
-    const transactionBankingAngle = String(card.transactionBankingAngle || card.transaction_banking_angle || card.relate || "").trim();
-    const observe = String(card.observe || card.usefulObservation || card.useful_observation || card.gentleObservation || card.gentle_observation || "").trim();
-    const relate = [transactionBankingAngle, backgroundCue].filter(Boolean).join(" ").trim();
-    const keepInMind = formatKeepInMind(card.keepInMind || card.keep_in_mind || card.whatCouldChange || card.what_could_change || card.possibleImplications || card.possible_implications || card.baselineScenarios || card.baseline_scenarios || card.scenarioFrame || card.scenario_frame || card.uncertaintyFrame || card.uncertainty_frame || card.baseCase || card.base_case || "");
-    const leaveSpace = String(card.leaveSpace || card.leave_space || card.softInvitation || card.soft_invitation || "").trim();
-    const lightlyExplore = String(card.lightlyExplore || card.lightly_explore || card.ifTheyPickUp || card.if_they_pick_up || card.ifClientEngages || card.if_client_engages || "").trim();
+    const keepInMind = formatKeepInMind(card.keepInMind || card.keep_in_mind || card.whatCouldChange || card.what_could_change || card.possibleImplications || card.possible_implications || card.scenarioFrame || card.scenario_frame || card.uncertaintyFrame || card.uncertainty_frame || "");
+    const exploreLightly = String(card.exploreLightly || card.explore_lightly || card.lightlyExplore || card.lightly_explore || card.ifClientEngages || card.if_client_engages || "").trim();
+    const allowRoom = String(card.allowRoom || card.allow_room || card.leaveSpace || card.leave_space || card.softInvitation || card.soft_invitation || "").trim();
     const bankAngle = String(card.bankAngle || card.bank_angle || card.bankRelevance || card.bank_relevance || "").trim();
     const handoffCue = String(card.handoffCue || card.handoff_cue || "").trim();
-    const offerSupport = String(card.offerSupport || card.offer_support || [bankAngle, handoffCue].filter(Boolean).join(" ")).trim();
-    const tags = normalizeCardTags(card.tags || card.tag || [], `${title} ${observe} ${relate} ${offerSupport}`);
-    const sourceNumbers = Array.isArray(card.sourceNumbers) ? card.sourceNumbers : extractSourceRefs(`${observe} ${relate} ${keepInMind} ${leaveSpace} ${lightlyExplore} ${offerSupport}`);
+    const reaffirmSupport = String(card.reaffirmSupport || card.reaffirm_support || card.offerSupport || card.offer_support || [bankAngle, handoffCue].filter(Boolean).join(" ")).trim();
+    const tags = normalizeCardTags(card.tags || card.tag || [], `${title} ${commentOnContext} ${linkToClient} ${reaffirmSupport}`);
+    const sourceNumbers = Array.isArray(card.sourceNumbers) ? card.sourceNumbers : extractSourceRefs(`${commentOnContext} ${linkToClient} ${keepInMind} ${exploreLightly} ${allowRoom} ${reaffirmSupport}`);
     const cleanSourceNumbers = [...new Set(sourceNumbers.map(Number).filter(Number.isFinite))].sort((a, b) => a - b);
 
     return [
       `Card ${index + 1}: ${stripInlineSourceRefs(title)}`,
       `Tags: ${tags.join(", ")}`,
       cleanSourceNumbers.length ? `Sources: ${cleanSourceNumbers.map(number => `[${number}]`).join(" ")}` : "",
-      observe ? `Observe: ${stripInlineSourceRefs(observe)}` : "",
-      relate ? `Relate: ${stripInlineSourceRefs(relate)}` : "",
+      commentOnContext ? `Comment on context: ${stripInlineSourceRefs(commentOnContext)}` : "",
+      linkToClient ? `Link to client: ${stripInlineSourceRefs(linkToClient)}` : "",
       keepInMind ? `Keep in mind: ${stripInlineSourceRefs(keepInMind)}` : "",
-      leaveSpace ? `Leave Space: ${stripInlineSourceRefs(leaveSpace)}` : "",
-      lightlyExplore ? `Lightly Explore: ${stripInlineSourceRefs(lightlyExplore)}` : "",
-      offerSupport ? `Offer Support: ${stripInlineSourceRefs(offerSupport)}` : ""
+      exploreLightly ? `Explore lightly: ${stripInlineSourceRefs(exploreLightly)}` : "",
+      allowRoom ? `Allow room: ${stripInlineSourceRefs(allowRoom)}` : "",
+      reaffirmSupport ? `Reaffirm support: ${stripInlineSourceRefs(reaffirmSupport)}` : ""
     ].filter(Boolean).join("\n");
   }).filter(Boolean).join("\n\n");
 }
@@ -1962,14 +1990,14 @@ function formatStructuralNoNewsCard({ timeframe, industry, tradeFlow, conversati
   const currencyText = currencies.length ? currencies.join("/") : "selected currencies";
 
   return [
-    `Card 1: Structural conversation angle when no strong recent news is found`,
+    `Card 1: Evergreen client check-in when recent news is quiet`,
     `Tags: Working capital, Payments, Trade`,
-    `Observe: We are not seeing a strong recent headline for this profile, but for companies with purchases from ${purchaseMarkets} and sales to ${salesMarkets}, the practical treasury conversation often starts with payment timing, cash buffers, and whether working capital still fits the operating cycle.`,
-    `Relate: For a Thailand-based ${industry} client, the discussion can still connect to supplier and buyer payment timing, cash visibility, and recurring ${currencyText} flows. This is structural context, not a news-based signal.`,
-    `Keep in mind: External news is quiet, so treat this as a structural conversation angle rather than a forecast. If conditions change, the practical issue is whether payment timing, supplier terms, liquidity buffers, or currency mismatch become more visible.`,
-    `Leave Space: I am not sure whether that is relevant for your business right now, but it is a useful area to keep in view when external news is quiet.`,
-    `Lightly Explore: If the client opens up, explore whether the issue is mainly supplier terms, receivables timing, inventory buffers, or currency mismatch.`,
-    `Offer Support: Possible relevance to cash forecasting, liquidity structure, trade lines, receivables/payables flows, and FX process discipline. Bring in FX, trade, cash management, or credit specialists if the client asks for specific hedge levels, facility sizing, structure, legal, sanctions, or credit advice.`
+    `Comment on context: We are not seeing a strong recent headline for this profile within the last ${timeframe} days.`,
+    `Link to client: A gentle check-in could still relate to how a Thailand-based ${industry} business manages supplier payments from ${purchaseMarkets}, customer receipts from ${salesMarkets}, and recurring ${currencyText} flows. This is structural context rather than a news-based signal.`,
+    `Keep in mind: Keep the discussion broad and let the client identify which part, if any, is relevant.`,
+    `Explore lightly: Have you noticed any changes in how payment timing or trade flows are working across your main markets?`,
+    `Allow room: Give the client time to respond and follow the part they choose to pick up.`,
+    `Reaffirm support: Reflect what you heard and offer to bring in the right cash, trade, or FX colleague only where a more detailed review would be useful.`
   ].join("\n");
 }
 
@@ -2080,75 +2108,78 @@ Customer profile:
 - Directional trade flow:
 ${tradeFlow ? tradeFlowSummary(tradeFlow) : `Client trade role: ${tradeRoles.join(", ")}
 Countries / markets relevant to the client: ${countryText}`}
-- Timeframe for news search: last ${timeframe} days
+- News search period: last ${timeframe} days
 - Enabled signal threads: ${signalThreadText(signalThreads)}
-- Search mode: Conversation-card signal scan
+- Search mode: factual signal scan followed by a CLEAR conversation bridge
 - Search queries used: ${plannedQueries.map(plan => `${plan.label}: ${plan.query}`).join(" | ")}
 
 Task:
-Create evidence-grounded relevant signal cards from the provided sources. Rank the cards from most useful to least useful for a junior transaction banker. Each card should help the banker build a conversation bridge, not recite a market view. Evidence can include recent articles and periodic official datasets.
+Create evidence-grounded signal cards from the provided sources and rank them from most useful to least useful for a junior transaction banker.
 ${cardCountInstruction()}
 
-Conversation standard:
-- The output should help the RM think and speak better; do not give a polished monologue to recite.
-- Translate external developments into cash, trade, payments, FX flows, working capital, liquidity, operational resilience, and specialist handoff. Use purchase/sales markets and purchase/sales currencies as the main client-specific anchors.
-- Separate purchase-side cost/supplier implications from sales-side revenue/demand implications when the sources support that distinction.
-- Treat purchase countries as supplier/source markets and sales countries as buyer/revenue markets. Do not cross-combine countries randomly.
-- Prefer direct Thailand, selected purchase-market, selected sales-market, or selected-currency relevance.
-- Make each card follow the five moves: Observe, Relate, Leave Space, Lightly Explore, Offer Support. The observation should be the main banker-ready line. Do not interrogate the client with blunt questions.
-- For Lightly Explore, ask about patterns before problems. Use nuanced, client-safe wording that lets the client answer at an industry/process level before revealing anything sensitive.
-- Add one compact keepInMind line so the junior banker can lead the conversation despite uncertainty without pretending to predict the market. This should be a subtle coaching note, not a major scenario section. Avoid "upside/downside" unless the client position makes it obvious. Prefer wording such as "If this develops further...", "If conditions change...", or "The practical issue is whether...".
-- Broader sector news may be used only when the bridge to this client profile is clear. If the article is not specific to the selected ISIC activity, say so plainly.
+The initial signal-selection view will show only the title, Comment on context, and Link to client. These fields must therefore make it immediately clear what the news is about and why it may be worth discussing. The remaining CLEAR fields will appear only after the banker selects a signal.
 
-Grounding rules:
-- Use ONLY the provided sources.
+CLEAR conversation flow:
+- Comment on context: Begin with a simple, factual observation about what is happening. Use one or two short sentences. This should be the main content of the initial signal card.
+- Link to client: Relate it gently to the client's known business profile in one concise sentence. Use "may", "could", or "may be worth discussing" where relevance is inferred. Do not claim the client is affected.
+- Explore lightly: Invite the client to share their perspective with one open, low-pressure question. Ask about patterns or changes before problems.
+- Allow room: Give a short coaching cue that reminds the banker to listen and follow what feels relevant to the client. Do not add another question.
+- Reaffirm support: Reflect the likely conversation posture and offer a helpful next step only where useful. Do not jump directly to a product pitch.
+
+Conversation standard:
+- Help the RM think and speak better; do not produce a polished monologue to recite.
+- Translate external developments into possible relevance for cash, trade, payments, FX flows, working capital, liquidity, and operational resilience only when the evidence and known client profile support the connection.
+- Use purchase markets as supplier/source markets and sales markets as buyer/revenue markets. Do not cross-combine countries randomly.
+- Separate purchase-side and sales-side relevance only where the sources support the distinction.
+- Prefer direct Thailand, selected purchase-market, selected sales-market, selected-currency, or selected-industry relevance.
+- Add one compact keepInMind line to preserve nuance and uncertainty. It should not forecast or invent a client problem.
+
+Grounding and restraint:
+- Use ONLY the provided sources for factual claims.
 - Do NOT add unstated facts, general industry knowledge, background assumptions, or evergreen commentary as if sourced.
-- Do NOT imply that an article specifically discusses the client's product, market, currency, or trade flow unless the source explicitly does.
-- You may draw cautious implications, but clearly distinguish direct evidence from inferred relevance.
-- Do not cite a source unless it directly supports the statement being made.
-- Every card must include at least one source number in the sourceNumbers array. Official datasets may be used as context, but do not describe them as recent news unless the date supports it.
-- Do not put [1] or [2] inline inside the observe, relate, keepInMind, leaveSpace, lightlyExplore, or offerSupport text. Put source references only in sourceNumbers.
-- If the sources do not contain meaningful evidence relevant to this Thailand-based client context, return JSON with "status": "NO_NEWS" and an empty cards array. If only official data is available, make the card clearly about local/regional context rather than breaking news.
-- If there is at least one useful news-based card, return JSON with "status": "OK". Do NOT include the string NO_NEWS anywhere in titles, paragraphs, or bullets.
+- Do NOT imply that an article specifically discusses the client's product, market, currency, or trade flow unless it does.
+- Do NOT assume margin pressure, working-capital pressure, delayed collections, supplier disruption, financing needs, hedge needs, or any other client circumstance that was not provided.
+- Do NOT turn every development into a banking opportunity.
+- You may draw cautious implications, but clearly distinguish direct evidence from possible relevance.
+- Do not cite a source unless it directly supports the factual observation.
+- Every card must include at least one source number in sourceNumbers.
+- Do not put [1] or [2] inside the text fields. Put references only in sourceNumbers.
+- Do NOT assume a named company in an article is the bank's client. Frame it as a sector, buyer, supplier, competitor, or market development.
+- Do NOT repeat standalone FX-rate commentary. Mention FX only when the source directly supports it or when the selected currencies create an obvious, cautiously stated connection.
+- If the sources do not contain meaningful evidence relevant to this profile, return NO_NEWS with an empty cards array.
 
 Relevance discipline:
-- Do not force weakly related articles into high-confidence cards.
-- Do not use numeric scores, signal strength labels, or evidence grades.
-- Do not use prefixes such as "Primary Market Signal" or "Secondary Global Context".
-- Prefer fewer, stronger cards over many isolated source summaries.
-- If a development is only useful as a light conversation opener, frame it as a small-talk / awareness point rather than a risk or sales opportunity.
-- Not every card needs a risk, opportunity, or RM angle. Only include those when genuinely supported.
-- Avoid recommendations such as financing a specific expansion, acquisition, or project unless the source clearly supports it for the selected client profile.
-- Do NOT assume a named company in an article is the bank's client or the user's client. Frame it as a sector signal, competitor signal, buyer/supplier signal, or market development.
-- Do NOT repeat the standalone FX rate commentary. Mention FX only when a source directly supports an implication, or when selected purchase/sales currencies create an obvious directional crosswind that is clearly presented as an inference.
+- Prefer fewer, stronger cards over many weak summaries.
+- Do not use numeric scores, signal-strength labels, evidence grades, or prefixes such as "Primary Market Signal".
+- Broader sector news may be used only when the bridge to this client profile is clear; say plainly when the link is broad rather than direct.
+- If a development is only a useful awareness point, present it as such rather than manufacturing a risk or opportunity.
 
 Writing style:
-- Use practical, banker-friendly titles. Avoid generic titles such as "Supply Chain Risk" or "Market Update".
-- Keep each paragraph short and calibrated.
-- When relevance is indirect, use cautious wording such as "may", "could", "worth monitoring", or "conversation opener".
-- Avoid overly promotional language.
+- Use practical, specific titles that describe the actual development.
+- Keep every field short, plain-English, factual, and calm.
+- Avoid jargon, dramatic claims, promotional language, and overconfident causality.
 
 Return JSON only in this exact shape:
 {
   "status": "OK",
   "cards": [
     {
-      "title": "Specific practical title without scoring or signal prefixes",
-      "tags": ["FX", "Trade"],
-      "observe": "A gentle, evidence-grounded observation the banker can offer without assuming the client has a problem.",
-      "relate": "Connect the signal to the client’s likely operating flows: cash, trade, payments, FX, working capital, liquidity, or resilience.",
-      "keepInMind": "One concise, uncertainty-aware sentence. It should not forecast or force a clean opportunity/risk split. It should explain what could change and why that might matter differently depending on the client’s flows, currencies, or cash cycle.",
-      "leaveSpace": "A low-pressure phrase that lets the client respond without forcing disclosure.",
-      "lightlyExplore": "One non-invasive follow-up path only if the client shows interest. Make this indirect, optional, and client-safe. Prefer asking about market patterns, variation by buyer/supplier, or process changes; avoid asking clients to directly admit business loss, cash pressure, late collections, or credit weakness.",
-      "offerSupport": "A practical support angle and any specialist handoff cue. Include where to bring in FX, markets, trade, cash, compliance, sanctions, legal, tax, credit, or sector specialists.",
+      "title": "Specific factual title describing the development",
+      "tags": ["Trade", "Supply chain"],
+      "commentOnContext": "One or two short, evidence-grounded sentences explaining what is happening.",
+      "linkToClient": "One cautious sentence on why this may be relevant to the known client profile, without assuming impact.",
+      "keepInMind": "One concise uncertainty-aware note that prevents overstatement.",
+      "exploreLightly": "One open, low-pressure question inviting the client's perspective.",
+      "allowRoom": "A short coaching cue to listen and follow what the client chooses to discuss.",
+      "reaffirmSupport": "A measured way to reflect what was heard and offer a helpful next step or specialist support where appropriate.",
       "sourceNumbers": [1, 2]
     }
   ]
 }
 
-Allowed tags: FX, Trade, Working capital, Payments, Supply chain, Liquidity, Geopolitics, Rates, Commodities, Sector. Use one to three tags per card. Prefer transaction-banking relevance tags over generic macro labels.
+Allowed tags: FX, Trade, Working capital, Payments, Supply chain, Liquidity, Geopolitics, Rates, Commodities, Sector. Use one to three tags per card.
 
-If not relevant, return exactly this JSON:
+If not relevant, return exactly:
 {
   "status": "NO_NEWS",
   "cards": []
@@ -2375,8 +2406,8 @@ export async function onRequestPost(context) {
     const sector = (body.sector || "").trim();
     const subsector = (body.subsector || "").trim();
     let industry = (body.industry || "").trim();
-    const timeframe = (body.timeframe || "30").trim();
-    const fxTenor = [30, 90].includes(Number(body.fxTenor)) ? Number(body.fxTenor) : 30;
+    const timeframe = "60";
+    const fxTenor = 90;
     const isicCode = (body.isicCode || "").trim();
     if (isicCode && industry && !industry.includes(isicCode)) industry = `${isicCode} - ${industry}`;
     const legacyCurrencies = Array.isArray(body.currencies) ? body.currencies.map(c => String(c).toUpperCase()) : [];

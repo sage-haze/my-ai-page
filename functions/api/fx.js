@@ -161,8 +161,8 @@ function tradeFlowSummary(tradeFlow) {
   ].join("\n");
 }
 
-async function fetchYahooSeries(pair, rangeDays = 30) {
-  const safeRangeDays = [30, 90].includes(Number(rangeDays)) ? Number(rangeDays) : 30;
+async function fetchYahooSeries(pair, rangeDays = 90) {
+  const safeRangeDays = 90;
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${pair}?interval=1d&range=${safeRangeDays}d`;
 
   const response = await fetch(url, {
@@ -231,7 +231,7 @@ function summarizeFxSeries({ base, pair, series, source }) {
   };
 }
 
-async function fetchYahooFxRate(baseCurrency, rangeDays = 30) {
+async function fetchYahooFxRate(baseCurrency, rangeDays = 90) {
   if (baseCurrency === "THB") {
     return { skip: true, base: "THB" };
   }
@@ -275,7 +275,7 @@ async function fetchYahooFxRate(baseCurrency, rangeDays = 30) {
   });
 }
 
-async function fetchFxRates(currencies, rangeDays = 30) {
+async function fetchFxRates(currencies, rangeDays = 90) {
   const uniqueCurrencies = [...new Set(currencies)];
 
   return Promise.all(
@@ -291,7 +291,7 @@ async function fetchFxRates(currencies, rangeDays = 30) {
 }
 
 
-function calculateFxMetrics(fx, fxTenor = 30) {
+function calculateFxMetrics(fx, fxTenor = 90) {
   const series = Array.isArray(fx?.series) ? fx.series : [];
   if (series.length === 0) return null;
 
@@ -325,7 +325,7 @@ function calculateFxMetrics(fx, fxTenor = 30) {
   }
 
   return {
-    tenor_days: Number(fxTenor) || 30,
+    tenor_days: Number(fxTenor) || 90,
     first_date: firstDate,
     last_date: lastDate,
     first_rate: Number(first.toFixed(4)),
@@ -362,7 +362,7 @@ function extractOutputText(data) {
   return "";
 }
 
-async function analyzeFxRates({ env, fxList, sector = "", subsector = "", industry = "", tradeRoles = [], countries = [], tradeFlow = null, fxTenor = 30 }) {
+async function analyzeFxRates({ env, fxList, sector = "", subsector = "", industry = "", tradeRoles = [], countries = [], tradeFlow = null, fxTenor = 90 }) {
   const usableFx = fxList.filter(fx => !fx.skip && !fx.error && Array.isArray(fx.series) && fx.series.length > 0);
 
   if (usableFx.length === 0) {
@@ -405,7 +405,7 @@ async function analyzeFxRates({ env, fxList, sector = "", subsector = "", indust
     : "\nInternal weekly FX research PDF from R2: Not available for this request.\n";
 
   const prompt = `
-You are preparing FX briefing notes for Thailand-based commercial relationship managers.
+You are preparing concise FX context for junior Thailand-based commercial relationship managers.
 
 Client context:
 - Client base: Thailand
@@ -417,38 +417,46 @@ ${tradeFlow ? tradeFlowSummary(tradeFlow) : `Client trade role: ${tradeRoles.joi
 Exposure countries / markets: ${countryText}`}
 
 You have two evidence sources:
-1. Structured ${fxTenor}-day FX market statistics from Yahoo Finance.
-2. An internal weekly FX research extract from the attached PDF, if available.
+1. Structured 90-day FX market statistics from Yahoo Finance.
+2. Internal weekly FX analysis from the attached PDF, if available.
 
-For EACH selected FX pair, produce TWO clearly separated sections.
+For EACH selected FX pair, produce two short bullet lists in plain English.
 
-MARKET OBSERVATION
-Use ONLY the supplied FX market statistics and recent series.
-Describe the observed range, latest level versus the range, directional movement, volatility/range behaviour, and whether momentum looks like continuation, fading, or reversal.
-This section must be objective and backward-looking.
-Do NOT forecast in this section.
-Keep to 2-4 sentences.
+RECENT DRIVERS
+- Heading meaning: "What has influenced the rate recently".
+- Focus mainly on the past month.
+- Give no more than 3 bullets.
+- Explain the most relevant supported drivers behind the observed movement.
+- Use the price series to describe what happened, but do not treat price movement alone as proof of causation.
+- Use internal analysis only when it directly supports a driver.
+- If causation is uncertain, say so briefly rather than inventing an explanation.
+- Avoid trading jargon, technical indicators, support/resistance language, or detailed market terminology.
 
-INTERNAL ANALYSIS
-Use the internal research extract only as institutional support / house view for the upcoming week.
-Summarize the expected directional bias, key macro drivers, central bank expectations, upcoming risks/events, or support/resistance colour if available.
-Do not call it a PDF or mention the document/file name. Refer to it only as "internal analysis".
-If internal analysis is not directly relevant to the selected currency, say that no direct internal view was found and avoid inventing one.
-Keep to 2-4 sentences.
+NEAR-TERM WATCH
+- Heading meaning: "What could move the rate next".
+- Give no more than 3 bullets.
+- Focus on upcoming policy decisions, macro releases, political or trade developments, and other uncertainties supported by internal analysis.
+- Do not make a precise forecast or imply certainty.
 
-Client implication discipline:
-- Where useful, connect the FX view to the purchase/sales currency context.
-- Do not pretend to know hedge ratios, exposure sizing, settlement timing, or net positions that were not provided.
-- Do not give investment advice.
-- Do not mention Tavily or external news sources.
+Client discipline:
+- Keep the bullets useful for a junior banker speaking with a client.
+- Do not assume the client has a currency mismatch, hedge need, margin problem, or financing requirement.
+- Do not recommend hedge ratios, products, or market timing.
+- Do not mention the PDF or its filename. Refer to it only as internal analysis when needed.
 
 Return JSON only in this shape:
 {
   "analyses": [
     {
       "pair": "USDTHB=X",
-      "market_observation": "Objective observed movement based only on market data.",
-      "internal_analysis": "Forward-looking support based on internal analysis, or say no direct internal view was found."
+      "recent_drivers": [
+        "Plain-English bullet 1",
+        "Plain-English bullet 2"
+      ],
+      "near_term_watch": [
+        "Plain-English bullet 1",
+        "Plain-English bullet 2"
+      ]
     }
   ],
   "research_extraction": {
@@ -460,7 +468,7 @@ Return JSON only in this shape:
   }
 }
 
-For research_extraction.sections, include one entry for each selected currency in this list: ${currencyList.join(", ")}. This is a temporary diagnostic view for the user, so include enough extracted text to verify the right section was read, but keep each currency under 900 characters.
+For research_extraction.sections, include one entry for each selected currency in this list: ${currencyList.join(", ")}. This is a temporary diagnostic view for testing, so include enough extracted text to verify that the correct section was read, but keep each currency under 900 characters.
 
 ${internalFxResearchBlock}
 FX market statistics and recent series:
@@ -523,18 +531,19 @@ ${JSON.stringify(compactFx, null, 2)}
       (parsed.analyses || [])
         .filter(item => item.pair)
         .map(item => {
-          const marketObservation = String(item.market_observation || "").trim();
-          const internalAnalysis = String(item.internal_analysis || "").trim();
+          const recentDrivers = Array.isArray(item.recent_drivers)
+            ? item.recent_drivers.map(value => String(value || "").trim()).filter(Boolean).slice(0, 3)
+            : [];
+          const nearTermWatch = Array.isArray(item.near_term_watch)
+            ? item.near_term_watch.map(value => String(value || "").trim()).filter(Boolean).slice(0, 3)
+            : [];
           const legacyAnalysis = String(item.analysis || "").trim();
-          const combined = marketObservation || internalAnalysis
-            ? [
-                marketObservation ? `Market Observation\n${marketObservation}` : "",
-                internalAnalysis ? `Internal Analysis\n${internalAnalysis}` : ""
-              ].filter(Boolean).join("\n\n")
+          const analysis = recentDrivers.length || nearTermWatch.length
+            ? { recent_drivers: recentDrivers, near_term_watch: nearTermWatch }
             : legacyAnalysis;
-          return [String(item.pair), combined];
+          return [String(item.pair), analysis];
         })
-        .filter(([, analysis]) => analysis)
+        .filter(([, analysis]) => analysis && (typeof analysis === "string" ? analysis : analysis.recent_drivers.length || analysis.near_term_watch.length))
     );
 
     const researchExtraction = parsed.research_extraction || {};
@@ -579,7 +588,7 @@ export async function onRequestPost(context) {
       ? body.tradeRoles.map(role => String(role).toLowerCase()).filter(role => ["importer", "exporter"].includes(role))
       : [];
     const countries = normalizeCountryList([...tradeFlow.purchase.countries, ...tradeFlow.sales.countries, ...tradeFlow.legacyCountries]);
-    const fxTenor = [30, 90].includes(Number(body.fxTenor)) ? Number(body.fxTenor) : 30;
+    const fxTenor = 90;
 
     if (currencies.length === 0) {
       return Response.json({ error: "Please select at least one currency." }, { status: 400 });

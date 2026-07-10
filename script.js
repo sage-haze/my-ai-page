@@ -1,11 +1,12 @@
 const button = document.getElementById("send");
-const updateFxButton = document.getElementById("updateFx");
 
+const APP_DEFAULTS = Object.freeze({
+  newsLookbackDays: "60",
+  fxChartDays: 90
+});
 const sectorBox = document.getElementById("sector");
 const subsectorBox = document.getElementById("subsector");
 const industryBox = document.getElementById("industry");
-const timeframeBox = document.getElementById("timeframe");
-const fxTenorBox = document.getElementById("fxTenor");
 const conversationGoalBox = document.getElementById("conversationGoal");
 const relationshipContextBox = document.getElementById("relationshipContext");
 const cashPositionBox = document.getElementById("cashPosition");
@@ -48,7 +49,7 @@ function updateGenerateSignalsButtonState() {
   if (signalRequestInFlight) {
     button.title = "";
   } else if (signalRunLocked) {
-    button.title = "Update the setup above to generate a fresh set of signals.";
+    button.title = "Update the client profile to generate a fresh set of signals.";
   } else {
     button.title = "";
   }
@@ -1428,36 +1429,100 @@ function renderFxResearchDiagnostic(fxResearch) {
   `;
 }
 
-function renderFxAnalysis(text) {
-  const cleanText = String(text || "").trim();
+function normaliseFxBulletList(value) {
+  if (Array.isArray(value)) {
+    return value.map(item => String(item || "").trim()).filter(Boolean).slice(0, 3);
+  }
+  return String(value || "")
+    .split(/\n+/)
+    .map(line => line.replace(/^[-•]\s*/, "").trim())
+    .filter(Boolean)
+    .slice(0, 3);
+}
+
+function renderFxBulletSection(title, bullets) {
+  const cleanBullets = normaliseFxBulletList(bullets);
+  if (!cleanBullets.length) return "";
+  return `
+    <section class="fx-analysis-section">
+      <div class="fx-analysis-heading">${escapeHtml(title)}</div>
+      <ul>${cleanBullets.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+    </section>
+  `;
+}
+
+function renderFxAnalysis(analysis) {
+  if (!analysis) return "";
+
+  if (typeof analysis === "object" && !Array.isArray(analysis)) {
+    const recentDrivers = analysis.recent_drivers || analysis.recentDrivers || analysis.what_has_influenced || [];
+    const nearTermWatch = analysis.near_term_watch || analysis.nearTermWatch || analysis.what_could_move_next || [];
+    const html = [
+      renderFxBulletSection("What has influenced the rate recently", recentDrivers),
+      renderFxBulletSection("What could move the rate next", nearTermWatch)
+    ].filter(Boolean).join("");
+    return html ? `<div class="fx-analysis">${html}</div>` : "";
+  }
+
+  const cleanText = String(analysis || "").trim();
   if (!cleanText) return "";
 
-  const lines = cleanText.split(/\n+/).map(line => line.trim()).filter(Boolean);
-  const html = lines.map(line => {
-    const inlineHeading = line.match(/^(Market Observation|Market observation|Internal Analysis|Internal analysis)\s*:?\s*(.*)$/i);
-    if (inlineHeading) {
-      const normalisedHeading = inlineHeading[1].toLowerCase().startsWith("market")
-        ? "Market Observation"
-        : "Internal Analysis";
-      const remainder = inlineHeading[2]?.trim();
-      return `
-        <div class="fx-analysis-heading">${escapeHtml(normalisedHeading)}</div>
-        ${remainder ? `<p>${escapeHtml(remainder)}</p>` : ""}
-      `;
-    }
-    return `<p>${escapeHtml(line)}</p>`;
-  }).join("");
+  const sections = {
+    recent: [],
+    next: []
+  };
+  let active = "recent";
 
-  return `<div class="fx-analysis">${html}</div>`;
+  cleanText.split(/\n+/).map(line => line.trim()).filter(Boolean).forEach(line => {
+    if (/^(What has influenced the rate recently|Market Observation|Market observation)\s*:?\s*$/i.test(line)) {
+      active = "recent";
+      return;
+    }
+    if (/^(What could move the rate next|Internal Analysis|Internal analysis)\s*:?\s*$/i.test(line)) {
+      active = "next";
+      return;
+    }
+    sections[active].push(line.replace(/^[-•]\s*/, "").trim());
+  });
+
+  const html = [
+    renderFxBulletSection("What has influenced the rate recently", sections.recent),
+    renderFxBulletSection("What could move the rate next", sections.next)
+  ].filter(Boolean).join("");
+
+  return html ? `<div class="fx-analysis">${html}</div>` : "";
+}
+
+function getHistoricalFxSnapshot(series, daysBack) {
+  if (!Array.isArray(series) || !series.length) return null;
+  const latest = series[series.length - 1];
+  const latestDate = new Date(`${latest.date}T00:00:00Z`);
+  const targetTime = latestDate.getTime() - Number(daysBack) * 24 * 60 * 60 * 1000;
+
+  let historical = series[0];
+  for (const point of series) {
+    const pointTime = new Date(`${point.date}T00:00:00Z`).getTime();
+    if (pointTime <= targetTime) historical = point;
+    else break;
+  }
+
+  const changePct = historical.rate
+    ? ((latest.rate - historical.rate) / historical.rate) * 100
+    : null;
+
+  return {
+    ...historical,
+    changePct
+  };
 }
 
 function renderFx(fxList, fxResearch = null) {
-  const tenor = fxTenorBox?.value || "30";
+  const tenor = APP_DEFAULTS.fxChartDays;
   Object.values(fxCharts).forEach(chart => chart?.destroy?.());
   fxCharts = {};
 
   if (!fxList || fxList.length === 0) {
-    fxOutput.innerHTML = `${renderFxResearchDiagnostic(fxResearch)}<div>No FX data returned.</div>`;
+    fxOutput.innerHTML = `<div>No FX data returned.</div>${renderFxResearchDiagnostic(fxResearch)}`;
     return;
   }
 
@@ -1465,7 +1530,7 @@ function renderFx(fxList, fxResearch = null) {
   const errors = fxList.filter(fx => fx.error);
 
   if (nonThb.length === 0 && errors.length === 0) {
-    fxOutput.innerHTML = `${renderFxResearchDiagnostic(fxResearch)}<div>No non-THB FX selected.</div>`;
+    fxOutput.innerHTML = `<div>No non-THB FX selected.</div>${renderFxResearchDiagnostic(fxResearch)}`;
     return;
   }
 
@@ -1473,11 +1538,12 @@ function renderFx(fxList, fxResearch = null) {
 
   const fxCards = nonThb.map((fx, index) => {
     const pair = cleanFxPair(fx.pair, fx.base);
+    const base = String(fx.base || pair.slice(0, 3) || "Currency").toUpperCase();
+    const quote = String(fx.quote || "THB").toUpperCase();
     const series = getFxSeries(fx);
-    const latest = series.length ? series[series.length - 1].rate : fx.latest_rate;
-    const highDate = formatDisplayDate(fx.highest_date || fx.high_date);
-    const lowDate = formatDisplayDate(fx.lowest_date || fx.low_date);
-    const change = getRateChange(series);
+    const latestPoint = series.length ? series[series.length - 1] : null;
+    const latest = latestPoint?.rate ?? Number(fx.latest_rate);
+    const snapshots = [90, 30, 7].map(days => ({ days, snapshot: getHistoricalFxSnapshot(series, days) }));
     const canvasId = `fxChart${index}`;
     const axis = getFxChartAxis(series, tenor);
 
@@ -1486,28 +1552,37 @@ function renderFx(fxList, fxResearch = null) {
     }
 
     const tableHeaders = Array.from({ length: 3 }, () => `<th>Date</th><th>Rate</th>`).join("");
+    const headlineStats = snapshots.map(({ days, snapshot }) => `
+      <div class="fx-stat">
+        <span>${days} days ago</span>
+        <strong>${formatDisplayRate(snapshot?.rate)}</strong>
+        <em>${snapshot?.date ? `${formatDisplayDate(snapshot.date)} · ` : ""}${formatPercent(snapshot?.changePct)} to latest</em>
+      </div>
+    `).join("");
 
     return `
       <section class="fx-card-row fx-compact-card">
         <div class="fx-card-topline">
           <div>
-            <div class="fx-title">${pair}</div>
-            <div class="fx-subtitle">${tenor}-day trend against THB</div>
+            <div class="fx-title">${escapeHtml(pair)}</div>
+            <div class="fx-subtitle">Quoted as ${escapeHtml(quote)} per 1 ${escapeHtml(base)}. A higher rate means ${escapeHtml(base)} has strengthened against ${escapeHtml(quote)}; a lower rate means it has weakened.</div>
           </div>
         </div>
 
         <div class="fx-stat-grid fx-compact-stat-grid">
-          <div class="fx-stat"><span>Latest</span><strong>${formatDisplayRate(latest)}</strong></div>
-          <div class="fx-stat"><span>${tenor}D change</span><strong>${formatPercent(change)}</strong></div>
-          <div class="fx-stat"><span>${tenor}D high</span><strong>${formatDisplayRate(fx.highest_rate)}</strong><em>${highDate}</em></div>
-          <div class="fx-stat"><span>${tenor}D low</span><strong>${formatDisplayRate(fx.lowest_rate)}</strong><em>${lowDate}</em></div>
+          <div class="fx-stat fx-stat-latest">
+            <span>Latest rate</span>
+            <strong>${formatDisplayRate(latest)}</strong>
+            <em>${latestPoint?.date ? formatDisplayDate(latestPoint.date) : "Latest available"}</em>
+          </div>
+          ${headlineStats}
         </div>
 
         <details class="fx-detail-toggle" data-canvas-id="${canvasId}">
-          <summary>Show trend and commentary</summary>
+          <summary>View 90-day chart and market context</summary>
           <div class="fx-detail-body">
             <div class="fx-chart-wrap">
-              ${series.length > 1 ? `<canvas id="${canvasId}" aria-label="${pair} FX trend chart"></canvas>` : `<div class="fx-chart-status">Not enough daily data to plot a chart.</div>`}
+              ${series.length > 1 ? `<canvas id="${canvasId}" aria-label="${escapeHtml(pair)} 90-day FX trend chart"></canvas>` : `<div class="fx-chart-status">Chart data is not available.</div>`}
             </div>
 
             ${renderFxAnalysis(fx.analysis)}
@@ -1533,9 +1608,9 @@ function renderFx(fxList, fxResearch = null) {
 
   fxOutput.innerHTML = `
     <div class="fx-card-stack">
-      ${renderFxResearchDiagnostic(fxResearch)}
       ${fxCards}
       ${errorBlocks}
+      ${renderFxResearchDiagnostic(fxResearch)}
     </div>
   `;
 
@@ -1651,13 +1726,22 @@ function parseTagsFromLine(line) {
 function normaliseConversationLabel(label) {
   const clean = String(label || "").trim().toLowerCase();
   const labelMap = {
-    "plain-english context": "Relate",
-    "plain english context": "Relate",
-    "background cue": "Relate",
-    "why this may matter": "Relate",
-    "client relevance lens": "Relate",
-    "transaction banking angle": "Relate",
-    "relate": "Relate",
+    "comment on context": "Comment on context",
+    "comment": "Comment on context",
+    "useful observation": "Comment on context",
+    "useful observation to offer": "Comment on context",
+    "gentle observation": "Comment on context",
+    "observe": "Comment on context",
+    "what is happening": "Comment on context",
+    "link to client": "Link to client",
+    "plain-english context": "Link to client",
+    "plain english context": "Link to client",
+    "background cue": "Link to client",
+    "why this may matter": "Link to client",
+    "why it may be relevant": "Link to client",
+    "client relevance lens": "Link to client",
+    "transaction banking angle": "Link to client",
+    "relate": "Link to client",
     "keep in mind": "Keep in mind",
     "what could change": "Keep in mind",
     "possible implications": "Keep in mind",
@@ -1669,39 +1753,38 @@ function normaliseConversationLabel(label) {
     "baseline and scenarios": "Keep in mind",
     "scenario frame": "Keep in mind",
     "uncertainty frame": "Keep in mind",
-    "useful observation": "Observe",
-    "useful observation to offer": "Observe",
-    "gentle observation": "Observe",
-    "observe": "Observe",
-    "soft invitation": "Leave Space",
-    "leave space": "Leave Space",
-    "if client engages": "Lightly Explore",
-    "if they pick up on it": "Lightly Explore",
-    "lightly explore": "Lightly Explore",
-    "bank relevance": "Offer Support",
-    "bank angle": "Offer Support",
-    "bank angle / handoff": "Offer Support",
-    "handoff cue": "Offer Support",
-    "offer support": "Offer Support",
-    "propose support": "Offer Support",
-    "propose support path": "Offer Support"
+    "explore lightly": "Explore lightly",
+    "lightly explore": "Explore lightly",
+    "if client engages": "Explore lightly",
+    "if they pick up on it": "Explore lightly",
+    "allow room": "Allow room",
+    "soft invitation": "Allow room",
+    "leave space": "Allow room",
+    "reaffirm support": "Reaffirm support",
+    "bank relevance": "Reaffirm support",
+    "bank angle": "Reaffirm support",
+    "bank angle / handoff": "Reaffirm support",
+    "handoff cue": "Reaffirm support",
+    "offer support": "Reaffirm support",
+    "propose support": "Reaffirm support",
+    "propose support path": "Reaffirm support"
   };
-  return labelMap[clean] || label || "Relate";
+  return labelMap[clean] || label || "Link to client";
 }
 
 function conversationSectionClass(label) {
   const normalised = normaliseConversationLabel(label).toLowerCase();
-  if (normalised === "observe") return "conversation-section hero-observation observe-section";
-  if (normalised === "relate") return "conversation-section background-cue relate-section";
+  if (normalised === "comment on context") return "conversation-section hero-observation observe-section";
+  if (normalised === "link to client") return "conversation-section background-cue relate-section";
   if (normalised === "keep in mind") return "conversation-section keep-in-mind-section";
-  if (normalised === "leave space") return "conversation-section soft-invitation leave-space-section";
-  if (normalised === "lightly explore") return "conversation-section follow-up-path explore-section";
-  if (normalised === "offer support") return "conversation-section bank-handoff support-section";
+  if (normalised === "explore lightly") return "conversation-section follow-up-path explore-section";
+  if (normalised === "allow room") return "conversation-section soft-invitation leave-space-section";
+  if (normalised === "reaffirm support") return "conversation-section bank-handoff support-section";
   return "conversation-section";
 }
 
 function mergeAdjacentConversationSections(sections) {
-  const order = ["Observe", "Relate", "Keep in mind", "Leave Space", "Lightly Explore", "Offer Support"];
+  const order = ["Comment on context", "Link to client", "Keep in mind", "Explore lightly", "Allow room", "Reaffirm support"];
   const byLabel = new Map();
 
   sections.forEach(section => {
@@ -1732,7 +1815,7 @@ function parseConversationCardBlock(block) {
   const sections = [];
   let tags = [];
   const sourceNumbers = new Set(extractSourceNumbers(block));
-  const sectionPattern = /^(Observe|Relate|Keep in mind|What could change|Possible implications|Baseline & scenarios|Baseline and scenarios|Baseline scenarios|Scenario frame|Uncertainty frame|Leave Space|Lightly Explore|Offer Support|Propose Support Path|Why this may matter|Background cue|Plain-English context|Plain English context|Client relevance lens|Transaction banking angle|Useful observation(?: to offer)?|Gentle observation|Soft invitation|If they pick up on it|If client engages|Bank angle(?: \/ handoff)?|Bank relevance|Handoff cue)\s*:\s*(.*)$/i;
+  const sectionPattern = /^(Comment on context|Link to client|Explore lightly|Allow room|Reaffirm support|Observe|Relate|Keep in mind|What could change|Possible implications|Baseline & scenarios|Baseline and scenarios|Baseline scenarios|Scenario frame|Uncertainty frame|Leave Space|Lightly Explore|Offer Support|Propose Support Path|Why this may matter|Why it may be relevant|What is happening|Background cue|Plain-English context|Plain English context|Client relevance lens|Transaction banking angle|Useful observation(?: to offer)?|Gentle observation|Soft invitation|If they pick up on it|If client engages|Bank angle(?: \/ handoff)?|Bank relevance|Handoff cue)\s*:\s*(.*)$/i;
   let current = null;
 
   lines.forEach(line => {
@@ -1760,7 +1843,7 @@ function parseConversationCardBlock(block) {
     } else if (current) {
       current.text = stripSourceMarkers(`${current.text} ${line}`);
     } else {
-      sections.push({ label: "Relate", text: stripSourceMarkers(line) });
+      sections.push({ label: "Link to client", text: stripSourceMarkers(line) });
     }
   });
 
@@ -1861,18 +1944,25 @@ function resetConversationBridge() {
   if (bridgePanel) bridgePanel.classList.add("hidden");
 }
 
-function getSignalPreviewText(card) {
+function getSignalObservationText(card) {
   return stripSourceMarkers(
-    getConversationSectionText(card, "Relate") ||
-    getConversationSectionText(card, "Observe") ||
+    getConversationSectionText(card, "Comment on context") ||
     (card.sections || []).map(section => section.text).find(Boolean) ||
-    "This signal may be relevant to the selected client profile."
+    "A relevant market development has been identified."
+  );
+}
+
+function getSignalRelevanceText(card) {
+  return stripSourceMarkers(
+    getConversationSectionText(card, "Link to client") ||
+    "This may be worth discussing in light of the selected client profile."
   );
 }
 
 function renderSignalSelectionCard(card, index) {
   const cleanHeading = card.heading.replace(/^(Card\s+\d+\s*:\s*)/i, "").trim() || `Signal ${index + 1}`;
-  const preview = getSignalPreviewText(card);
+  const observation = getSignalObservationText(card);
+  const relevance = getSignalRelevanceText(card);
   const checked = selectedSignalIndexes.has(index) ? "checked" : "";
 
   return `
@@ -1886,8 +1976,10 @@ function renderSignalSelectionCard(card, index) {
         <span class="signal-rank">#${index + 1}</span>
       </div>
       <h3>${escapeHtml(cleanHeading)}</h3>
-      <div class="signal-preview-label">Why it may be relevant</div>
-      <p class="signal-preview-text">${escapeHtml(preview)}</p>
+      <div class="signal-preview-label">What is happening</div>
+      <p class="signal-preview-text">${escapeHtml(observation)}</p>
+      <div class="signal-preview-label signal-relevance-label">Why it may be relevant</div>
+      <p class="signal-preview-text signal-relevance-text">${escapeHtml(relevance)}</p>
       ${renderSignalSourceLine(card)}
     </div>
   `;
@@ -1897,22 +1989,22 @@ function renderBridgeCard(card, index) {
   const cleanHeading = card.heading.replace(/^(Card\s+\d+\s*:\s*)/i, "").trim() || `Card ${index + 1}`;
   const keepInMind = stripSourceMarkers(getConversationSectionText(card, "Keep in mind"));
   const orderedItems = [
-    { label: "Observe", move: 1 },
-    { label: "Relate", move: 2 },
-    { label: "Leave Space", move: 3 },
-    { label: "Lightly Explore", move: 4 },
-    { label: "Offer Support", move: 5 }
+    { label: "Comment on context", marker: "C", move: 1 },
+    { label: "Link to client", marker: "L", move: 2 },
+    { label: "Explore lightly", marker: "E", move: 3 },
+    { label: "Allow room", marker: "A", move: 4 },
+    { label: "Reaffirm support", marker: "R", move: 5 }
   ];
   const sectionHtml = orderedItems.map(item => {
     const label = item.label;
     const text = stripSourceMarkers(getConversationSectionText(card, label));
     if (!text) return "";
-    const keepInMindHtml = label === "Relate" && keepInMind
+    const keepInMindHtml = label === "Link to client" && keepInMind
       ? `<div class="keep-in-mind-note"><span>Keep in mind:</span> ${escapeHtml(keepInMind)}</div>`
       : "";
     return `
       <div class="${conversationSectionClass(label)} bridge-step bridge-step-${item.move}">
-        <div class="bridge-step-marker">${item.move}</div>
+        <div class="bridge-step-marker">${item.marker}</div>
         <div class="bridge-step-body">
           <div class="conversation-label">${escapeHtml(label)}</div>
           <div class="conversation-text">${escapeHtml(text)}</div>
@@ -2152,7 +2244,7 @@ async function fetchMarketIntelligence({ showLoading = false } = {}) {
   const subsector = subsectorBox?.value || "";
   const industry = selectedIsic ? selectedIsic.description : (industryBox?.value || "").trim();
   const isicCode = selectedIsic?.code || "";
-  const fxTenor = fxTenorBox?.value || "30";
+  const fxTenor = APP_DEFAULTS.fxChartDays;
   const tradeRoles = getSelectedTradeRolesFromFlow(tradeFlow);
   const countries = getAllTradeFlowCountries(tradeFlow);
 
@@ -2303,8 +2395,8 @@ button.addEventListener("click", async function () {
   const subsector = subsectorBox.value;
   const industry = selectedIsic ? selectedIsic.description : industryBox.value.trim();
   const isicCode = selectedIsic?.code || "";
-  const timeframe = timeframeBox.value;
-  const fxTenor = fxTenorBox?.value || "30";
+  const timeframe = APP_DEFAULTS.newsLookbackDays;
+  const fxTenor = APP_DEFAULTS.fxChartDays;
   const conversationGoal = "general_check_in";
   const clientProfile = getClientProfile();
   const signalThreads = getSignalThreads();

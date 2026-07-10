@@ -1140,8 +1140,7 @@ select.auto-filled {
   font-weight: 800;
 }
 
-.secondary-button,
-#updateFx.secondary-button {
+.secondary-button {
   background: #ffffff;
   color: #0f766e;
   border: 1px solid #99d5cc;
@@ -1911,4 +1910,74 @@ select.auto-filled {
   font-weight: 700;
   font-style: normal;
   color: #475569;
+}
+
+/* v21: fixed 60-day research, 90-day FX headlines, and CLEAR flow */
+.five-moves-sidebar .clear-flow-list li::before {
+  content: attr(data-letter);
+}
+
+#fxOutput .fx-stat-grid.fx-compact-stat-grid,
+.fx-compact-stat-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.fx-stat-latest {
+  background: #f2fbf8;
+  border-color: #cde9e0;
+}
+
+.fx-compact-stat-grid .fx-stat strong {
+  font-size: 15px;
+}
+
+.fx-subtitle {
+  max-width: 620px;
+  line-height: 1.45;
+}
+
+.fx-analysis {
+  padding: 12px;
+}
+
+.fx-analysis-section + .fx-analysis-section {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.fx-analysis-heading {
+  margin: 0 0 6px;
+}
+
+.fx-analysis ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.fx-analysis li {
+  margin: 0 0 6px;
+  color: #334155;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.fx-analysis li:last-child {
+  margin-bottom: 0;
+}
+
+.signal-relevance-label {
+  margin-top: 10px;
+}
+
+.signal-relevance-text {
+  color: #475569;
+}
+
+@media (max-width: 520px) {
+  #fxOutput .fx-stat-grid.fx-compact-stat-grid,
+  .fx-compact-stat-grid {
+    grid-template-columns: 1fr;
+  }
 }
