@@ -1495,9 +1495,15 @@ function renderFxResearchReference(fx, fxResearch) {
 }
 
 function renderFxDerivationNote(fx) {
-  const contextNote = String(fx?.market_context_note || "").trim();
-  if (!contextNote) return "";
-  return `<div class="fx-derivation-note">${escapeHtml(contextNote)}</div>`;
+  const base = String(fx?.base || cleanFxPair(fx?.pair, fx?.base).replace(/THB$/i, "")).toUpperCase();
+  const currencySide = {
+    CNY: "Renminbi",
+    EUR: "Euro",
+    JPY: "Yen"
+  }[base];
+
+  if (!currencySide) return "";
+  return `<div class="fx-derivation-note">Movement reflects both Baht-side and ${escapeHtml(currencySide)}-side factors</div>`;
 }
 
 function renderFx(fxList, fxResearch = null) {
@@ -1976,6 +1982,53 @@ function normalizeSectionLabel(label) {
     .trim();
 }
 
+function renderExploreItems(items) {
+  if (!items.length) return "";
+  return `
+    <div class="conversation-guidance">If the client seems interested, choose a question that feels natural</div>
+    <div class="conversation-question-list">
+      ${items.map(item => `
+        <div class="conversation-question-item">
+          <div class="conversation-question">${escapeHtml(item.question)}</div>
+          ${item.whyAsk ? `<div class="conversation-note"><strong>Why ask</strong><span>${escapeHtml(item.whyAsk)}</span></div>` : ""}
+          ${item.listenFor ? `<div class="conversation-note"><strong>Listen for</strong><span>${escapeHtml(item.listenFor)}</span></div>` : ""}
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderAllowItems(items) {
+  if (!items.length) return "";
+  return `
+    <div class="conversation-guidance">Listen for where the client places the emphasis</div>
+    <div class="conversation-cue-list">
+      ${items.map(item => `
+        <div class="conversation-cue-item">
+          <strong>${escapeHtml(item.focus)}</strong>
+          ${item.meaning ? `<span>${escapeHtml(item.meaning)}</span>` : ""}
+          ${item.followLead ? `<small>${escapeHtml(item.followLead)}</small>` : ""}
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderSupportItems(items) {
+  if (!items.length) return "";
+  return `
+    <div class="conversation-guidance">If a clear need emerges, reflect it back and offer a proportionate next step</div>
+    <div class="conversation-support-list">
+      ${items.map(item => `
+        <div class="conversation-support-item">
+          <strong>${escapeHtml(item.when)}</strong>
+          ${item.response ? `<span>${escapeHtml(item.response)}</span>` : ""}
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
 function renderBridgeCard(card, index) {
   const cleanHeading = card.heading.replace(/^(Card\s+\d+\s*:\s*)/i, "").trim() || `Card ${index + 1}`;
   const orderedItems = [
@@ -1985,21 +2038,26 @@ function renderBridgeCard(card, index) {
     { label: "Allow room", move: "A" },
     { label: "Reaffirm support", move: "R" }
   ];
+
   const sectionHtml = orderedItems.map(item => {
     const section = (card.sections || []).find(entry => normalizeSectionLabel(entry.label) === normalizeSectionLabel(item.label));
-    const text = stripSourceMarkers(section?.text || "");
-    const listItems = Array.isArray(section?.items) ? section.items.map(stripSourceMarkers).filter(Boolean) : [];
-    if (!text && !listItems.length) return "";
-    const sectionIntro = item.label === "Explore lightly"
-      ? "If the client seems interested, these are a few gentle ways to explore the topic"
-      : item.label === "Allow room"
-        ? "Listen for where the client places the emphasis"
-        : item.label === "Reaffirm support"
-          ? "If the client highlights a specific need, reflect it back before offering support"
-          : "";
-    const contentHtml = listItems.length
-      ? `${sectionIntro ? `<div class="conversation-guidance">${escapeHtml(sectionIntro)}</div>` : ""}<ul class="conversation-points">${listItems.map(point => `<li>${escapeHtml(point)}</li>`).join("")}</ul>`
-      : `<div class="conversation-text">${escapeHtml(text)}</div>`;
+    if (!section) return "";
+
+    const text = stripSourceMarkers(section.text || "");
+    let contentHtml = "";
+
+    if (item.label === "Explore lightly") {
+      contentHtml = renderExploreItems(section.exploreItems || []);
+    } else if (item.label === "Allow room") {
+      contentHtml = renderAllowItems(section.allowItems || []);
+    } else if (item.label === "Reaffirm support") {
+      contentHtml = renderSupportItems(section.supportItems || []);
+    } else if (text) {
+      contentHtml = `<div class="conversation-text">${escapeHtml(text)}</div>`;
+    }
+
+    if (!contentHtml) return "";
+
     return `
       <div class="${conversationSectionClass(item.label)} bridge-step bridge-step-${item.move.toLowerCase()}">
         <div class="bridge-step-marker">${item.move}</div>
@@ -2057,6 +2115,56 @@ function normalizeConversationList(value) {
   return text.split(/\n+/).map(item => item.replace(/^[•\-*]\s*/, "").trim()).filter(Boolean);
 }
 
+function normalizeExploreItems(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map(item => {
+    if (typeof item === "string") {
+      const text = item.trim();
+      return text ? { question: text, whyAsk: "", listenFor: "" } : null;
+    }
+    const question = String(item?.question || "").trim();
+    if (!question) return null;
+    return {
+      question,
+      whyAsk: String(item?.whyAsk || item?.why || "").trim(),
+      listenFor: String(item?.listenFor || item?.listen || "").trim()
+    };
+  }).filter(Boolean);
+}
+
+function normalizeAllowItems(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map(item => {
+    if (typeof item === "string") {
+      const text = item.trim();
+      return text ? { focus: text, meaning: "", followLead: "" } : null;
+    }
+    const focus = String(item?.focus || item?.cue || "").trim();
+    if (!focus) return null;
+    return {
+      focus,
+      meaning: String(item?.meaning || item?.mayIndicate || "").trim(),
+      followLead: String(item?.followLead || item?.followUp || "").trim()
+    };
+  }).filter(Boolean);
+}
+
+function normalizeSupportItems(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map(item => {
+    if (typeof item === "string") {
+      const text = item.trim();
+      return text ? { when: text, response: "" } : null;
+    }
+    const when = String(item?.when || item?.clientRaises || "").trim();
+    if (!when) return null;
+    return {
+      when,
+      response: String(item?.response || item?.support || "").trim()
+    };
+  }).filter(Boolean);
+}
+
 function apiConversationCardToParsed(card, index) {
   return {
     heading: `Card ${index + 1}: ${String(card.title || `Signal ${index + 1}`).trim()}`,
@@ -2065,10 +2173,10 @@ function apiConversationCardToParsed(card, index) {
     sections: [
       { label: "Comment on context", text: String(card.commentOnContext || "").trim() },
       { label: "Link to client", text: String(card.linkToClient || "").trim() },
-      { label: "Explore lightly", items: normalizeConversationList(card.exploreLightly) },
-      { label: "Allow room", items: normalizeConversationList(card.allowRoom) },
-      { label: "Reaffirm support", items: normalizeConversationList(card.reaffirmSupport) }
-    ].filter(section => section.text || (section.items && section.items.length))
+      { label: "Explore lightly", exploreItems: normalizeExploreItems(card.exploreLightly) },
+      { label: "Allow room", allowItems: normalizeAllowItems(card.allowRoom) },
+      { label: "Reaffirm support", supportItems: normalizeSupportItems(card.reaffirmSupport) }
+    ].filter(section => section.text || section.exploreItems?.length || section.allowItems?.length || section.supportItems?.length)
   };
 }
 

@@ -2384,3 +2384,250 @@ select.auto-filled {
   font-size: 12.5px;
   line-height: 1.42;
 }
+
+/* ---------- v8 contained FX details and lighter CLEAR guidance ---------- */
+#fxOutput,
+#fxOutput .fx-card-stack,
+#fxOutput .fx-inline-card {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+#fxOutput .fx-inline-card {
+  overflow: hidden;
+}
+
+#fxOutput .fx-more-details,
+#fxOutput .fx-subdetails,
+#fxOutput .fx-research-reference {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
+  margin-left: 0;
+  margin-right: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+#fxOutput .fx-more-details > summary,
+#fxOutput .fx-subdetails > summary,
+#fxOutput .fx-research-reference > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 7px 2px;
+  box-sizing: border-box;
+  list-style: none;
+  overflow: hidden;
+}
+
+#fxOutput .fx-more-details > summary::-webkit-details-marker,
+#fxOutput .fx-subdetails > summary::-webkit-details-marker,
+#fxOutput .fx-research-reference > summary::-webkit-details-marker {
+  display: none;
+}
+
+#fxOutput .fx-more-details > summary::before,
+#fxOutput .fx-subdetails > summary::before,
+#fxOutput .fx-research-reference > summary::before {
+  content: "›";
+  flex: 0 0 12px;
+  color: #24506f;
+  font-size: 15px;
+  line-height: 1;
+  transform: rotate(0deg);
+  transform-origin: center;
+  transition: transform 0.14s ease;
+}
+
+#fxOutput .fx-more-details[open] > summary::before,
+#fxOutput .fx-subdetails[open] > summary::before,
+#fxOutput .fx-research-reference[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+#fxOutput .fx-more-details-body {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin: 8px 0 0;
+  padding: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+#fxOutput .fx-chart-panel-full {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 10px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+#fxOutput .fx-chart-panel-full .fx-chart-wrap {
+  position: relative;
+  display: block;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0;
+  height: 240px;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+#fxOutput .fx-chart-panel-full canvas {
+  display: block !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  height: 100% !important;
+  box-sizing: border-box;
+}
+
+#fxOutput .fx-rate-table-panel,
+#fxOutput .fx-research-reference-body {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.bridge-panel .bridge-card,
+.bridge-panel .bridge-card * {
+  box-sizing: border-box;
+  font-family: Arial, sans-serif;
+}
+
+.bridge-panel .bridge-step {
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+  padding: 9px 10px;
+}
+
+.bridge-panel .bridge-step-marker {
+  width: 21px;
+  height: 21px;
+  margin-top: 1px;
+  font-size: 10.5px;
+  line-height: 1;
+}
+
+.bridge-panel .bridge-step-body {
+  min-width: 0;
+  padding: 0;
+}
+
+.bridge-panel .bridge-step-body .conversation-label,
+.bridge-panel .bridge-step-body .conversation-text,
+.bridge-panel .conversation-guidance,
+.bridge-panel .conversation-question,
+.bridge-panel .conversation-note,
+.bridge-panel .conversation-cue-item,
+.bridge-panel .conversation-support-item {
+  font-size: 12px;
+  line-height: 1.42;
+}
+
+.bridge-panel .bridge-step-body .conversation-label {
+  margin: 0 0 4px;
+  font-weight: 700;
+}
+
+.bridge-panel .bridge-step-body .conversation-text,
+.bridge-panel .conversation-guidance {
+  margin: 0;
+  color: #25384a;
+  font-weight: 400;
+}
+
+.bridge-panel .conversation-guidance {
+  margin-bottom: 6px;
+  color: #52677a;
+}
+
+.conversation-question-list,
+.conversation-cue-list,
+.conversation-support-list {
+  display: grid;
+  gap: 7px;
+}
+
+.conversation-question-item,
+.conversation-cue-item,
+.conversation-support-item {
+  min-width: 0;
+  border: 1px solid #e4eaf1;
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px 9px;
+  color: #25384a;
+}
+
+.conversation-question {
+  margin: 0 0 5px;
+  color: #17364f;
+  font-weight: 700;
+}
+
+.conversation-note {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  gap: 5px;
+  margin-top: 3px;
+  color: #52677a;
+}
+
+.conversation-note strong {
+  color: #35536b;
+  font-weight: 700;
+}
+
+.conversation-cue-item,
+.conversation-support-item {
+  display: grid;
+  gap: 2px;
+}
+
+.conversation-cue-item strong,
+.conversation-support-item strong {
+  color: #17364f;
+  font-weight: 700;
+}
+
+.conversation-cue-item span,
+.conversation-support-item span {
+  color: #3f5568;
+}
+
+.conversation-cue-item small {
+  color: #66798a;
+  font-size: 11.5px;
+  line-height: 1.38;
+}
+
+.bridge-step-e,
+.bridge-step-a,
+.bridge-step-r {
+  background: #f8fafc;
+}
+
+@media (max-width: 760px) {
+  #fxOutput .fx-chart-panel-full .fx-chart-wrap {
+    height: 210px;
+  }
+
+  .conversation-note {
+    grid-template-columns: 1fr;
+    gap: 1px;
+  }
+}

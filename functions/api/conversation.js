@@ -48,7 +48,7 @@ export async function onRequestPost(context) {
     const prompt = `
 You are a transaction banking conversation coach supporting a junior relationship manager at a Thailand-based bank.
 
-Create one detailed but practical CLEAR conversation card for each selected Client Signal. Use only the selected signal content below. Do not search the web and do not add new market facts.
+Create one concise, practical CLEAR conversation card for each selected Client Signal. Use only the selected signal content below. Do not search the web and do not add new market facts.
 
 Client profile:
 - Sector: ${String(profile.sector || "")}
@@ -58,11 +58,11 @@ Client profile:
 - Sales flow: ${String(profile.salesFlow || "")}
 
 CLEAR structure:
-- Comment on context: summarise the underlying article or development with enough detail for the banker to understand what changed, why it matters in the market, and which facts are most useful. Use 2 to 3 concise sentences.
-- Link to client: preserve and strengthen the specific client relevance already present in the selected signal. Explain plausible links to the client's purchase flows, sales flows, supplier or buyer dynamics, documents, payment timing, FX, cash conversion cycle, or working capital. Use 2 to 3 concise sentences and do not assert that the client is affected.
-- Explore lightly: begin from the idea that the banker should only ask if the client seems interested. Provide 2 to 3 gentle, open-ended questions. Each item must include the question, why the banker might ask it, and what different answers may indicate. Keep the explanation practical and brief so the banker can choose the question they feel comfortable using.
-- Allow room: start from "Listen for where the client places the emphasis". Provide 2 to 4 concise listening cues. Each cue must explain what that emphasis may indicate and one sensible way the banker could follow the client's lead. Do not simply list risks.
-- Reaffirm support: provide 2 to 3 conditional examples showing how support could look in action. Each example should start with the client signal or concern that would justify the response, then offer a proportionate next step. Do not prescribe the same close regardless of how the conversation develops.
+- Comment on context: summarise the development in 2 concise sentences. Include the most useful facts and enough market context for the banker to understand the signal.
+- Link to client: preserve and strengthen the selected signal's client relevance. Use 2 concise sentences. State direct effects confidently only when supported; present second-order effects conditionally using phrases such as "if orders take longer to confirm" or "if buyers change terms".
+- Explore lightly: provide exactly 2 gentle, open-ended questions the banker can choose from if the client is interested. For each question, add one short reason for asking and one short phrase describing what to listen for. Each supporting phrase should be no more than 18 words.
+- Allow room: provide 2 or 3 compact listening cues. Each cue should name the client's possible emphasis, say briefly what it may indicate, and give one short way to follow the client's lead. Do not repeat "Listen for where the client places the emphasis" in every item.
+- Reaffirm support: provide exactly 2 conditional examples. Each should show how the banker can reflect what the client raised and then offer a proportionate next step. Keep each example to one short sentence and avoid a compulsory product pitch.
 
 Rules:
 - Use calm, plain English
@@ -82,16 +82,27 @@ Return JSON only:
     {
       "title": "Signal title",
       "tags": ["Trade"],
-      "commentOnContext": "Two or three concise sentences",
-      "linkToClient": "Two or three concise sentences",
+      "commentOnContext": "Two concise sentences",
+      "linkToClient": "Two concise sentences",
       "exploreLightly": [
-        "Question? — Why ask: brief reason. What to listen for: what a yes, no, or qualified answer may indicate"
+        {
+          "question": "Gentle open-ended question?",
+          "whyAsk": "Short reason for asking",
+          "listenFor": "Short indication from the answer"
+        }
       ],
       "allowRoom": [
-        "Client emphasis — What it may indicate; how the banker can follow the client's lead"
+        {
+          "focus": "Competition or pricing",
+          "meaning": "May indicate pressure in buyer negotiations",
+          "followLead": "Stay with the buyers, products, or markets the client identifies"
+        }
       ],
       "reaffirmSupport": [
-        "If the client highlights X: reflect it back and offer Y"
+        {
+          "when": "If the client raises payment-timing pressure",
+          "response": "Reflect the concern and offer to review the relevant order-to-cash steps"
+        }
       ],
       "sourceNumbers": [1]
     }
@@ -132,9 +143,50 @@ ${JSON.stringify(signals, null, 2)}
                       tags: { type: "array", items: { type: "string" }, maxItems: 3 },
                       commentOnContext: { type: "string" },
                       linkToClient: { type: "string" },
-                      exploreLightly: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 3 },
-                      allowRoom: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 4 },
-                      reaffirmSupport: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 3 },
+                      exploreLightly: {
+                        type: "array",
+                        minItems: 2,
+                        maxItems: 2,
+                        items: {
+                          type: "object",
+                          additionalProperties: false,
+                          properties: {
+                            question: { type: "string" },
+                            whyAsk: { type: "string" },
+                            listenFor: { type: "string" }
+                          },
+                          required: ["question", "whyAsk", "listenFor"]
+                        }
+                      },
+                      allowRoom: {
+                        type: "array",
+                        minItems: 2,
+                        maxItems: 3,
+                        items: {
+                          type: "object",
+                          additionalProperties: false,
+                          properties: {
+                            focus: { type: "string" },
+                            meaning: { type: "string" },
+                            followLead: { type: "string" }
+                          },
+                          required: ["focus", "meaning", "followLead"]
+                        }
+                      },
+                      reaffirmSupport: {
+                        type: "array",
+                        minItems: 2,
+                        maxItems: 2,
+                        items: {
+                          type: "object",
+                          additionalProperties: false,
+                          properties: {
+                            when: { type: "string" },
+                            response: { type: "string" }
+                          },
+                          required: ["when", "response"]
+                        }
+                      },
                       sourceNumbers: { type: "array", items: { type: "integer" }, maxItems: 6 }
                     },
                     required: ["title", "tags", "commentOnContext", "linkToClient", "exploreLightly", "allowRoom", "reaffirmSupport", "sourceNumbers"]
