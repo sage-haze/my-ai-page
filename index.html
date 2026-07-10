@@ -114,33 +114,7 @@
             </div>
           </section>
 
-          <section class="setup-card market-setup-card">
-            <div class="section-heading-row">
-              <div>
-                <h2>Market Setup</h2>
-              </div>
-            </div>
-            <div class="form-grid market-fields-grid">
-              <div class="form-group">
-                <label for="timeframe">News lookback timeframe</label>
-                <select id="timeframe">
-                  <option value="30">Last 30 days</option>
-                  <option value="60">Last 60 days</option>
-                  <option value="90">Last 90 days</option>
-                  <option value="180">Last 180 days</option>
-                  <option value="360">Last 360 days</option>
-                </select>
-              </div>
-
-              <div class="form-group">
-                <label for="fxTenor">FX tenor</label>
-                <select id="fxTenor">
-                  <option value="30" selected>Last 30 days</option>
-                  <option value="90">Last 90 days</option>
-                </select>
-              </div>
-            </div>
-          </section>
+          <input id="timeframe" type="hidden" value="60">
 
           <div class="form-group developer-focus hidden">
             <label for="defaultPrompt">Custom Focus (Optional)</label>
@@ -155,15 +129,15 @@
         <aside class="setup-card five-moves-card five-moves-sidebar" aria-label="A simple conversation flow">
           <div class="section-heading-row">
             <div>
-              <h2>A Simple Conversation Flow</h2>
+              <h2>A CLEAR Conversation Flow</h2>
             </div>
           </div>
-          <ol class="five-moves-list">
-            <li><strong>Observe</strong><span>A gentle observation about market trends.</span></li>
-            <li><strong>Relate</strong><span>Connect the trend to the client’s business.</span></li>
-            <li><strong>Leave Space</strong><span>A soft invitation to respond.</span></li>
-            <li><strong>Lightly Explore</strong><span>A non-invasive clarifying question.</span></li>
-            <li><strong>Offer Support</strong><span>A practical, relevant next step.</span></li>
+          <ol class="five-moves-list clear-moves-list">
+            <li data-letter="C"><strong>Comment on context</strong><span>Begin with a simple observation</span></li>
+            <li data-letter="L"><strong>Link to client</strong><span>Relate it gently to the client’s business</span></li>
+            <li data-letter="E"><strong>Explore lightly</strong><span>Invite the client to share their perspective</span></li>
+            <li data-letter="A"><strong>Allow room</strong><span>Listen to what feels relevant to them</span></li>
+            <li data-letter="R"><strong>Reaffirm support</strong><span>Reflect and offer a helpful next step</span></li>
           </ol>
         </aside>
       </div>
@@ -171,7 +145,7 @@
       <section class="outputs-layout">
         <div class="result-card signals-panel">
           <div class="result-card-header">
-            <h2>Top Relevant Signals</h2>
+            <h2>Client Signals</h2>
           </div>
           <div id="analysisOutput">Relevant signals will appear here.</div>
         </div>
@@ -186,7 +160,7 @@
 
       <section class="result-card bridge-panel hidden" id="bridgePanel">
         <div class="result-card-header">
-          <h2>Conversation Cards</h2>
+          <h2>Client Conversation</h2>
         </div>
         <div id="bridgeOutput"></div>
       </section>

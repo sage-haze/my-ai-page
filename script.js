@@ -1428,36 +1428,103 @@ function renderFxResearchDiagnostic(fxResearch) {
   `;
 }
 
-function renderFxAnalysis(text) {
-  const cleanText = String(text || "").trim();
-  if (!cleanText) return "";
+function getFxReferencePoint(series, daysAgo) {
+  if (!Array.isArray(series) || !series.length) return null;
+  const latestDate = new Date(series[series.length - 1].date);
+  if (Number.isNaN(latestDate.getTime())) return series[0];
+  const target = new Date(latestDate);
+  target.setUTCDate(target.getUTCDate() - daysAgo);
 
-  const lines = cleanText.split(/\n+/).map(line => line.trim()).filter(Boolean);
-  const html = lines.map(line => {
-    const inlineHeading = line.match(/^(Market Observation|Market observation|Internal Analysis|Internal analysis)\s*:?\s*(.*)$/i);
-    if (inlineHeading) {
-      const normalisedHeading = inlineHeading[1].toLowerCase().startsWith("market")
-        ? "Market Observation"
-        : "Internal Analysis";
-      const remainder = inlineHeading[2]?.trim();
-      return `
-        <div class="fx-analysis-heading">${escapeHtml(normalisedHeading)}</div>
-        ${remainder ? `<p>${escapeHtml(remainder)}</p>` : ""}
-      `;
-    }
-    return `<p>${escapeHtml(line)}</p>`;
-  }).join("");
+  let candidate = series[0];
+  for (const item of series) {
+    const itemDate = new Date(item.date);
+    if (Number.isNaN(itemDate.getTime())) continue;
+    if (itemDate <= target) candidate = item;
+    else break;
+  }
+  return candidate;
+}
 
-  return `<div class="fx-analysis">${html}</div>`;
+function getChangeToLatest(latest, reference) {
+  if (!latest || !reference || !Number.isFinite(latest.rate) || !Number.isFinite(reference.rate) || reference.rate === 0) return null;
+  return ((latest.rate - reference.rate) / reference.rate) * 100;
+}
+
+function cleanFxBulletTitle(value, fallback) {
+  const cleaned = String(value || "")
+    .replace(/^key\s+drivers?\s*[:\-–—]\s*/i, "")
+    .replace(/^what\s+to\s+watch\s*[:\-–—]\s*/i, "")
+    .replace(/^drivers?\s*[:\-–—]\s*/i, "")
+    .trim();
+  return cleaned || fallback;
+}
+
+function renderFxDriverAnalysis(fx) {
+  const analysis = fx?.driver_analysis;
+  if (!analysis) return "";
+  const drivers = Array.isArray(analysis.drivers) ? analysis.drivers : [];
+  const watchItems = Array.isArray(analysis.watch_items) ? analysis.watch_items : [];
+  if (!drivers.length && !watchItems.length) return "";
+
+  const driverHtml = drivers.length ? `
+    <div class="fx-driver-section">
+      <h4>Key drivers</h4>
+      <ul>${drivers.map(item => {
+        const title = cleanFxBulletTitle(item?.title, "Market factor");
+        const explanation = String(item?.explanation || "").trim();
+        return `<li><strong>${escapeHtml(title)}${explanation ? ":" : ""}</strong>${explanation ? ` ${escapeHtml(explanation)}` : ""}</li>`;
+      }).join("")}</ul>
+    </div>
+  ` : "";
+
+  const watchHtml = watchItems.length ? `
+    <div class="fx-driver-section fx-watch-section">
+      <h4>What to watch</h4>
+      <ul>${watchItems.map(item => {
+        if (typeof item === "string") return `<li>${escapeHtml(item)}</li>`;
+        const title = cleanFxBulletTitle(item?.title, "Watch item");
+        const explanation = String(item?.explanation || item?.detail || "").trim();
+        return `<li><strong>${escapeHtml(title)}${explanation ? ":" : ""}</strong>${explanation ? ` ${escapeHtml(explanation)}` : ""}</li>`;
+      }).join("")}</ul>
+    </div>
+  ` : "";
+
+  return `<div class="fx-driver-analysis">${driverHtml}${watchHtml}</div>`;
+}
+
+function renderFxResearchReference(fx, fxResearch) {
+  if (!fxResearch?.used || !fxResearch?.url) return "";
+  const pair = String(fx?.pair || "").replace(/=X$/i, "");
+  const excerpt = (fxResearch.excerpts || []).find(item => String(item.pair || "") === pair)?.excerpt || "";
+  return `
+    <details class="fx-research-reference">
+      <summary>Internal analysis reference</summary>
+      <div class="fx-research-reference-body">
+        <a href="${escapeHtml(fxResearch.url)}" target="_blank" rel="noopener noreferrer">Open ${escapeHtml(fxResearch.filename || "weekly FX analysis")}</a>
+        ${excerpt ? `<p>${escapeHtml(excerpt)}</p>` : `<p>No pair-specific excerpt was extracted.</p>`}
+      </div>
+    </details>
+  `;
+}
+
+function renderFxDerivationNote(fx) {
+  const base = String(fx?.base || cleanFxPair(fx?.pair, fx?.base).replace(/THB$/i, "")).toUpperCase();
+  const currencySide = {
+    CNY: "Renminbi",
+    EUR: "Euro",
+    JPY: "Yen"
+  }[base];
+
+  if (!currencySide) return "";
+  return `<div class="fx-derivation-note">Movement reflects both Baht-side and ${escapeHtml(currencySide)}-side factors</div>`;
 }
 
 function renderFx(fxList, fxResearch = null) {
-  const tenor = fxTenorBox?.value || "30";
   Object.values(fxCharts).forEach(chart => chart?.destroy?.());
   fxCharts = {};
 
   if (!fxList || fxList.length === 0) {
-    fxOutput.innerHTML = `${renderFxResearchDiagnostic(fxResearch)}<div>No FX data returned.</div>`;
+    fxOutput.innerHTML = `<div>No FX data returned.</div>`;
     return;
   }
 
@@ -1465,60 +1532,75 @@ function renderFx(fxList, fxResearch = null) {
   const errors = fxList.filter(fx => fx.error);
 
   if (nonThb.length === 0 && errors.length === 0) {
-    fxOutput.innerHTML = `${renderFxResearchDiagnostic(fxResearch)}<div>No non-THB FX selected.</div>`;
+    fxOutput.innerHTML = "";
     return;
   }
 
   const chartConfigs = [];
-
   const fxCards = nonThb.map((fx, index) => {
-    const pair = cleanFxPair(fx.pair, fx.base);
     const series = getFxSeries(fx);
-    const latest = series.length ? series[series.length - 1].rate : fx.latest_rate;
-    const highDate = formatDisplayDate(fx.highest_date || fx.high_date);
-    const lowDate = formatDisplayDate(fx.lowest_date || fx.low_date);
-    const change = getRateChange(series);
-    const canvasId = `fxChart${index}`;
-    const axis = getFxChartAxis(series, tenor);
-
-    if (series.length > 1) {
-      chartConfigs.push({ canvasId, pair, series, ...axis });
-    }
-
-    const tableHeaders = Array.from({ length: 3 }, () => `<th>Date</th><th>Rate</th>`).join("");
+    if (!series.length) return "";
+    const latest = series[series.length - 1];
+    const points = [7, 30, 90].map(days => {
+      const reference = getFxReferencePoint(series, days);
+      return { days, reference, change: getChangeToLatest(latest, reference) };
+    });
+    const base = String(fx.base || cleanFxPair(fx.pair, fx.base).replace(/THB$/i, ""));
+    const pair = cleanFxPair(fx.pair, fx.base);
+    const canvasId = `fxChart-${index}-${pair.replace(/[^A-Za-z0-9]/g, "")}`;
+    const axis = getFxChartAxis(series, 90);
+    chartConfigs.push({ canvasId, pair, series, ...axis });
 
     return `
-      <section class="fx-card-row fx-compact-card">
+      <section class="fx-card-row fx-inline-card">
         <div class="fx-card-topline">
           <div>
-            <div class="fx-title">${pair}</div>
-            <div class="fx-subtitle">${tenor}-day trend against THB</div>
+            <div class="fx-title">THB per ${escapeHtml(base)}</div>
+            ${renderFxDerivationNote(fx)}
           </div>
         </div>
 
-        <div class="fx-stat-grid fx-compact-stat-grid">
-          <div class="fx-stat"><span>Latest</span><strong>${formatDisplayRate(latest)}</strong></div>
-          <div class="fx-stat"><span>${tenor}D change</span><strong>${formatPercent(change)}</strong></div>
-          <div class="fx-stat"><span>${tenor}D high</span><strong>${formatDisplayRate(fx.highest_rate)}</strong><em>${highDate}</em></div>
-          <div class="fx-stat"><span>${tenor}D low</span><strong>${formatDisplayRate(fx.lowest_rate)}</strong><em>${lowDate}</em></div>
+        <div class="fx-snapshot-row">
+          <div class="fx-snapshot fx-snapshot-latest">
+            <span>Latest</span>
+            <strong>${formatDisplayRate(latest.rate)}</strong>
+            <small>${formatDisplayDate(latest.date)}</small>
+          </div>
+          ${points.map(point => `
+            <div class="fx-snapshot">
+              <span>${point.days}D</span>
+              <strong>${formatPercent(point.change)}</strong>
+              <small>${formatDisplayDate(point.reference?.date)} · ${formatDisplayRate(point.reference?.rate)}</small>
+            </div>
+          `).join("")}
         </div>
 
-        <details class="fx-detail-toggle" data-canvas-id="${canvasId}">
-          <summary>Show trend and commentary</summary>
-          <div class="fx-detail-body">
-            <div class="fx-chart-wrap">
-              ${series.length > 1 ? `<canvas id="${canvasId}" aria-label="${pair} FX trend chart"></canvas>` : `<div class="fx-chart-status">Not enough daily data to plot a chart.</div>`}
+        <details class="fx-more-details">
+          <summary>See more details</summary>
+          <div class="fx-more-details-body">
+            <div class="fx-chart-panel fx-chart-panel-full">
+              <div class="fx-history-heading">90-day movement</div>
+              <div class="fx-chart-wrap">
+                <canvas id="${canvasId}"></canvas>
+                <div class="fx-chart-status"></div>
+              </div>
             </div>
 
-            ${renderFxAnalysis(fx.analysis)}
+            ${renderFxDriverAnalysis(fx)}
 
-            <details class="fx-table-toggle">
-              <summary>Show daily FX table</summary>
-              <table class="fx-detail-table fx-bloomberg-table">
-                <thead><tr>${tableHeaders}</tr></thead>
-                <tbody>${buildFxTableRows(series, 3)}</tbody>
-              </table>
+            <details class="fx-subdetails fx-full-rates">
+              <summary>View full rates</summary>
+              <div class="fx-rate-table-panel">
+                <div class="fx-table-scroll">
+                  <table class="fx-rate-history-table">
+                    <thead><tr><th>Date</th><th>Rate</th><th>Date</th><th>Rate</th><th>Date</th><th>Rate</th></tr></thead>
+                    <tbody>${buildFxTableRows(series, 3)}</tbody>
+                  </table>
+                </div>
+              </div>
             </details>
+
+            ${renderFxResearchReference(fx, fxResearch)}
           </div>
         </details>
       </section>
@@ -1526,28 +1608,22 @@ function renderFx(fxList, fxResearch = null) {
   }).join("");
 
   const errorBlocks = errors.map(fx => `
-    <div class="fx-block">
-      <span class="error">${escapeHtml(fx.base)}THB: ${escapeHtml(fx.error)}</span>
-    </div>
+    <div class="fx-block"><span class="error">${escapeHtml(fx.base)}THB: ${escapeHtml(fx.error)}</span></div>
   `).join("");
 
-  fxOutput.innerHTML = `
-    <div class="fx-card-stack">
-      ${renderFxResearchDiagnostic(fxResearch)}
-      ${fxCards}
-      ${errorBlocks}
-    </div>
-  `;
-
-  const configByCanvasId = new Map(chartConfigs.map(config => [config.canvasId, config]));
-  document.querySelectorAll(".fx-detail-toggle[data-canvas-id]").forEach(detail => {
-    detail.addEventListener("toggle", () => {
-      if (!detail.open) return;
-      const canvasId = detail.getAttribute("data-canvas-id");
-      if (!canvasId || fxCharts[canvasId]) return;
-      const config = configByCanvasId.get(canvasId);
-      if (!config) return;
-      requestAnimationFrame(() => renderFxCharts([config]));
+  fxOutput.innerHTML = `<div class="fx-card-stack">${fxCards}${errorBlocks}</div>`;
+  requestAnimationFrame(() => {
+    renderFxCharts(chartConfigs);
+    document.querySelectorAll(".fx-more-details").forEach(details => {
+      details.addEventListener("toggle", () => {
+        if (!details.open) return;
+        requestAnimationFrame(() => {
+          Object.values(fxCharts).forEach(chart => {
+            chart?.resize?.();
+            chart?.update?.("none");
+          });
+        });
+      });
     });
   });
 }
@@ -1567,6 +1643,7 @@ const DEFAULT_VISIBLE_SIGNAL_COUNT = 3;
 let lastConversationCards = [];
 let conversationCardsExpanded = false;
 let conversationBridgeBuilt = false;
+let lastBuiltConversationCards = [];
 let selectedSignalIndexes = new Set();
 let lastSources = [];
 
@@ -1651,8 +1728,14 @@ function parseTagsFromLine(line) {
 function normaliseConversationLabel(label) {
   const clean = String(label || "").trim().toLowerCase();
   const labelMap = {
-    "plain-english context": "Relate",
-    "plain english context": "Relate",
+    "comment on context": "Comment on context",
+    "context": "Comment on context",
+    "what is happening": "Comment on context",
+    "link to client": "Link to client",
+    "relevance": "Link to client",
+    "why it may be relevant": "Link to client",
+    "plain-english context": "Link to client",
+    "plain english context": "Link to client",
     "background cue": "Relate",
     "why this may matter": "Relate",
     "client relevance lens": "Relate",
@@ -1669,39 +1752,41 @@ function normaliseConversationLabel(label) {
     "baseline and scenarios": "Keep in mind",
     "scenario frame": "Keep in mind",
     "uncertainty frame": "Keep in mind",
-    "useful observation": "Observe",
-    "useful observation to offer": "Observe",
-    "gentle observation": "Observe",
-    "observe": "Observe",
-    "soft invitation": "Leave Space",
-    "leave space": "Leave Space",
-    "if client engages": "Lightly Explore",
-    "if they pick up on it": "Lightly Explore",
-    "lightly explore": "Lightly Explore",
-    "bank relevance": "Offer Support",
-    "bank angle": "Offer Support",
-    "bank angle / handoff": "Offer Support",
-    "handoff cue": "Offer Support",
-    "offer support": "Offer Support",
-    "propose support": "Offer Support",
-    "propose support path": "Offer Support"
+    "useful observation": "Comment on context",
+    "useful observation to offer": "Comment on context",
+    "gentle observation": "Comment on context",
+    "observe": "Comment on context",
+    "soft invitation": "Allow room",
+    "leave space": "Allow room",
+    "allow room": "Allow room",
+    "if client engages": "Explore lightly",
+    "if they pick up on it": "Explore lightly",
+    "lightly explore": "Explore lightly",
+    "explore lightly": "Explore lightly",
+    "bank relevance": "Reaffirm support",
+    "bank angle": "Reaffirm support",
+    "bank angle / handoff": "Reaffirm support",
+    "handoff cue": "Reaffirm support",
+    "offer support": "Reaffirm support",
+    "reaffirm support": "Reaffirm support",
+    "propose support": "Reaffirm support",
+    "propose support path": "Reaffirm support"
   };
   return labelMap[clean] || label || "Relate";
 }
 
 function conversationSectionClass(label) {
   const normalised = normaliseConversationLabel(label).toLowerCase();
-  if (normalised === "observe") return "conversation-section hero-observation observe-section";
-  if (normalised === "relate") return "conversation-section background-cue relate-section";
-  if (normalised === "keep in mind") return "conversation-section keep-in-mind-section";
-  if (normalised === "leave space") return "conversation-section soft-invitation leave-space-section";
-  if (normalised === "lightly explore") return "conversation-section follow-up-path explore-section";
-  if (normalised === "offer support") return "conversation-section bank-handoff support-section";
+  if (normalised === "comment on context") return "conversation-section hero-observation observe-section";
+  if (normalised === "link to client") return "conversation-section background-cue relate-section";
+  if (normalised === "explore lightly") return "conversation-section follow-up-path explore-section";
+  if (normalised === "allow room") return "conversation-section soft-invitation leave-space-section";
+  if (normalised === "reaffirm support") return "conversation-section bank-handoff support-section";
   return "conversation-section";
 }
 
 function mergeAdjacentConversationSections(sections) {
-  const order = ["Observe", "Relate", "Keep in mind", "Leave Space", "Lightly Explore", "Offer Support"];
+  const order = ["Comment on context", "Link to client", "Explore lightly", "Allow room", "Reaffirm support"];
   const byLabel = new Map();
 
   sections.forEach(section => {
@@ -1732,7 +1817,7 @@ function parseConversationCardBlock(block) {
   const sections = [];
   let tags = [];
   const sourceNumbers = new Set(extractSourceNumbers(block));
-  const sectionPattern = /^(Observe|Relate|Keep in mind|What could change|Possible implications|Baseline & scenarios|Baseline and scenarios|Baseline scenarios|Scenario frame|Uncertainty frame|Leave Space|Lightly Explore|Offer Support|Propose Support Path|Why this may matter|Background cue|Plain-English context|Plain English context|Client relevance lens|Transaction banking angle|Useful observation(?: to offer)?|Gentle observation|Soft invitation|If they pick up on it|If client engages|Bank angle(?: \/ handoff)?|Bank relevance|Handoff cue)\s*:\s*(.*)$/i;
+  const sectionPattern = /^(Comment on context|Context|What is happening|Link to client|Relevance|Why it may be relevant|Explore lightly|Allow room|Reaffirm support|Observe|Relate|Leave Space|Lightly Explore|Offer Support|Propose Support Path|Background cue|Plain-English context|Plain English context|Client relevance lens|Transaction banking angle|Useful observation(?: to offer)?|Gentle observation|Soft invitation|If they pick up on it|If client engages|Bank angle(?: \/ handoff)?|Bank relevance|Handoff cue)\s*:\s*(.*)$/i;
   let current = null;
 
   lines.forEach(line => {
@@ -1760,7 +1845,7 @@ function parseConversationCardBlock(block) {
     } else if (current) {
       current.text = stripSourceMarkers(`${current.text} ${line}`);
     } else {
-      sections.push({ label: "Relate", text: stripSourceMarkers(line) });
+      sections.push({ label: "Link to client", text: stripSourceMarkers(line) });
     }
   });
 
@@ -1857,22 +1942,30 @@ function renderSignalSourceLine(card) {
 
 function resetConversationBridge() {
   conversationBridgeBuilt = false;
+  lastBuiltConversationCards = [];
   if (bridgeOutput) bridgeOutput.innerHTML = "";
   if (bridgePanel) bridgePanel.classList.add("hidden");
 }
 
-function getSignalPreviewText(card) {
+function getSignalContextText(card) {
   return stripSourceMarkers(
-    getConversationSectionText(card, "Relate") ||
-    getConversationSectionText(card, "Observe") ||
+    getConversationSectionText(card, "Comment on context") ||
     (card.sections || []).map(section => section.text).find(Boolean) ||
-    "This signal may be relevant to the selected client profile."
+    "A potentially relevant market development was identified"
+  );
+}
+
+function getSignalRelevanceText(card) {
+  return stripSourceMarkers(
+    getConversationSectionText(card, "Link to client") ||
+    "This may be worth keeping in view for the selected client profile"
   );
 }
 
 function renderSignalSelectionCard(card, index) {
   const cleanHeading = card.heading.replace(/^(Card\s+\d+\s*:\s*)/i, "").trim() || `Signal ${index + 1}`;
-  const preview = getSignalPreviewText(card);
+  const context = getSignalContextText(card);
+  const relevance = getSignalRelevanceText(card);
   const checked = selectedSignalIndexes.has(index) ? "checked" : "";
 
   return `
@@ -1886,37 +1979,104 @@ function renderSignalSelectionCard(card, index) {
         <span class="signal-rank">#${index + 1}</span>
       </div>
       <h3>${escapeHtml(cleanHeading)}</h3>
-      <div class="signal-preview-label">Why it may be relevant</div>
-      <p class="signal-preview-text">${escapeHtml(preview)}</p>
+      <div class="signal-preview-label">Comment on context</div>
+      <p class="signal-preview-text">${escapeHtml(context)}</p>
+      <div class="signal-preview-label signal-link-label">Link to client</div>
+      <p class="signal-preview-text">${escapeHtml(relevance)}</p>
       ${renderSignalSourceLine(card)}
+    </div>
+  `;
+}
+
+function normalizeSectionLabel(label) {
+  return String(label || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function renderExploreItems(items) {
+  if (!items.length) return "";
+  return `
+    <div class="conversation-guidance">If the client seems interested, choose a gentle invitation that feels natural</div>
+    <div class="conversation-question-list">
+      ${items.map(item => `
+        <div class="conversation-question-item">
+          <div class="conversation-question">${escapeHtml(item.question)}</div>
+          ${item.whyAsk ? `<div class="conversation-note"><strong>Why ask</strong><span>${escapeHtml(item.whyAsk)}</span></div>` : ""}
+          ${item.listenFor ? `<div class="conversation-note"><strong>Listen for</strong><span>${escapeHtml(item.listenFor)}</span></div>` : ""}
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderAllowItems(items) {
+  if (!items.length) return "";
+  return `
+    <div class="conversation-guidance">Listen for where the client places the emphasis</div>
+    <div class="conversation-cue-list">
+      ${items.map(item => `
+        <div class="conversation-cue-item">
+          <strong>${escapeHtml(item.focus)}</strong>
+          ${item.meaning ? `<span>${escapeHtml(item.meaning)}</span>` : ""}
+          ${item.followLead ? `<small>${escapeHtml(item.followLead)}</small>` : ""}
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderSupportItems(items) {
+  if (!items.length) return "";
+  return `
+    <div class="conversation-guidance">If a clear need emerges, reflect it back and offer a proportionate next step</div>
+    <div class="conversation-support-list">
+      ${items.map(item => `
+        <div class="conversation-support-item">
+          <strong>${escapeHtml(item.when)}</strong>
+          ${item.response ? `<span>${escapeHtml(item.response)}</span>` : ""}
+        </div>
+      `).join("")}
     </div>
   `;
 }
 
 function renderBridgeCard(card, index) {
   const cleanHeading = card.heading.replace(/^(Card\s+\d+\s*:\s*)/i, "").trim() || `Card ${index + 1}`;
-  const keepInMind = stripSourceMarkers(getConversationSectionText(card, "Keep in mind"));
   const orderedItems = [
-    { label: "Observe", move: 1 },
-    { label: "Relate", move: 2 },
-    { label: "Leave Space", move: 3 },
-    { label: "Lightly Explore", move: 4 },
-    { label: "Offer Support", move: 5 }
+    { label: "Comment on context", move: "C" },
+    { label: "Link to client", move: "L" },
+    { label: "Explore lightly", move: "E" },
+    { label: "Allow room", move: "A" },
+    { label: "Reaffirm support", move: "R" }
   ];
+
   const sectionHtml = orderedItems.map(item => {
-    const label = item.label;
-    const text = stripSourceMarkers(getConversationSectionText(card, label));
-    if (!text) return "";
-    const keepInMindHtml = label === "Relate" && keepInMind
-      ? `<div class="keep-in-mind-note"><span>Keep in mind:</span> ${escapeHtml(keepInMind)}</div>`
-      : "";
+    const section = (card.sections || []).find(entry => normalizeSectionLabel(entry.label) === normalizeSectionLabel(item.label));
+    if (!section) return "";
+
+    const text = stripSourceMarkers(section.text || "");
+    let contentHtml = "";
+
+    if (item.label === "Explore lightly") {
+      contentHtml = renderExploreItems(section.exploreItems || []);
+    } else if (item.label === "Allow room") {
+      contentHtml = renderAllowItems(section.allowItems || []);
+    } else if (item.label === "Reaffirm support") {
+      contentHtml = renderSupportItems(section.supportItems || []);
+    } else if (text) {
+      contentHtml = `<div class="conversation-text">${escapeHtml(text)}</div>`;
+    }
+
+    if (!contentHtml) return "";
+
     return `
-      <div class="${conversationSectionClass(label)} bridge-step bridge-step-${item.move}">
+      <div class="${conversationSectionClass(item.label)} bridge-step bridge-step-${item.move.toLowerCase()}">
         <div class="bridge-step-marker">${item.move}</div>
         <div class="bridge-step-body">
-          <div class="conversation-label">${escapeHtml(label)}</div>
-          <div class="conversation-text">${escapeHtml(text)}</div>
-          ${keepInMindHtml}
+          <div class="conversation-label">${escapeHtml(item.label)}</div>
+          ${contentHtml}
         </div>
       </div>
     `;
@@ -1936,20 +2096,156 @@ function renderBridgeCard(card, index) {
 }
 
 function renderSelectedConversationBridge() {
-  const selectedCards = [...selectedSignalIndexes]
-    .sort((a, b) => a - b)
-    .map(index => lastConversationCards[index])
-    .filter(Boolean);
+  const cards = conversationBridgeBuilt && lastBuiltConversationCards.length
+    ? lastBuiltConversationCards
+    : [];
 
-  if (!selectedCards.length) {
-    return `<div class="empty-state bridge-empty">Select at least one signal to plan your client conversation.</div>`;
+  if (!cards.length) {
+    return `<div class="empty-state bridge-empty">Select at least one signal to build your client conversation.</div>`;
   }
 
   return `
     <div class="bridge-output">
-      ${selectedCards.map((card, index) => renderBridgeCard(card, index)).join("")}
+      ${cards.map((card, index) => renderBridgeCard(card, index)).join("")}
     </div>
   `;
+}
+
+function serializeSelectedSignal(card) {
+  return {
+    title: card.heading.replace(/^(Card\s+\d+\s*:\s*)/i, "").trim(),
+    tags: card.tags || [],
+    context: getSignalContextText(card),
+    relevance: getSignalRelevanceText(card),
+    sourceNumbers: card.sourceNumbers || []
+  };
+}
+
+function normalizeConversationList(value) {
+  if (Array.isArray(value)) return value.map(item => String(item || "").trim()).filter(Boolean);
+  const text = String(value || "").trim();
+  if (!text) return [];
+  return text.split(/\n+/).map(item => item.replace(/^[•\-*]\s*/, "").trim()).filter(Boolean);
+}
+
+function normalizeExploreItems(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map(item => {
+    if (typeof item === "string") {
+      const text = item.trim();
+      return text ? { question: text, whyAsk: "", listenFor: "" } : null;
+    }
+    const question = String(item?.question || "").trim();
+    if (!question) return null;
+    return {
+      question,
+      whyAsk: String(item?.whyAsk || item?.why || "").trim(),
+      listenFor: String(item?.listenFor || item?.listen || "").trim()
+    };
+  }).filter(Boolean);
+}
+
+function normalizeAllowItems(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map(item => {
+    if (typeof item === "string") {
+      const text = item.trim();
+      return text ? { focus: text, meaning: "", followLead: "" } : null;
+    }
+    const focus = String(item?.focus || item?.cue || "").trim();
+    if (!focus) return null;
+    return {
+      focus,
+      meaning: String(item?.meaning || item?.mayIndicate || "").trim(),
+      followLead: String(item?.followLead || item?.followUp || "").trim()
+    };
+  }).filter(Boolean);
+}
+
+function normalizeSupportItems(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map(item => {
+    if (typeof item === "string") {
+      const text = item.trim();
+      return text ? { when: text, response: "" } : null;
+    }
+    const when = String(item?.when || item?.clientRaises || "").trim();
+    if (!when) return null;
+    return {
+      when,
+      response: String(item?.response || item?.support || "").trim()
+    };
+  }).filter(Boolean);
+}
+
+function apiConversationCardToParsed(card, index) {
+  return {
+    heading: `Card ${index + 1}: ${String(card.title || `Signal ${index + 1}`).trim()}`,
+    tags: Array.isArray(card.tags) ? card.tags : [],
+    sourceNumbers: Array.isArray(card.sourceNumbers) ? card.sourceNumbers : [],
+    sections: [
+      { label: "Comment on context", text: String(card.commentOnContext || "").trim() },
+      { label: "Link to client", text: String(card.linkToClient || "").trim() },
+      { label: "Explore lightly", exploreItems: normalizeExploreItems(card.exploreLightly) },
+      { label: "Allow room", allowItems: normalizeAllowItems(card.allowRoom) },
+      { label: "Reaffirm support", supportItems: normalizeSupportItems(card.reaffirmSupport) }
+    ].filter(section => section.text || section.exploreItems?.length || section.allowItems?.length || section.supportItems?.length)
+  };
+}
+
+async function buildSelectedConversation() {
+  const selected = [...selectedSignalIndexes]
+    .sort((a, b) => a - b)
+    .map(index => lastConversationCards[index])
+    .filter(Boolean);
+  if (!selected.length) return;
+
+  const buildButton = document.getElementById("buildBridgeButton");
+  if (buildButton) {
+    buildButton.disabled = true;
+    buildButton.textContent = "Building conversation…";
+  }
+  if (bridgePanel && bridgeOutput) {
+    bridgePanel.classList.remove("hidden");
+    bridgeOutput.innerHTML = `<span class="loading">Building a CLEAR conversation from the selected signals…</span>`;
+  }
+
+  const tradeFlow = getTradeFlow();
+  const profile = {
+    sector: sectorBox?.value || "",
+    subsector: subsectorBox?.value || "",
+    industry: selectedIsic ? selectedIsic.description : (industryBox?.value || "").trim(),
+    purchaseFlow: tradeFlow.purchase.domestic || tradeFlow.purchase.international
+      ? `${tradeFlow.purchase.domestic ? "Thailand domestic" : ""}${tradeFlow.purchase.domestic && tradeFlow.purchase.international ? "; " : ""}${tradeFlow.purchase.international ? tradeFlow.purchase.countries.map(country => country.name || country.label).join(", ") : ""}`
+      : "",
+    salesFlow: tradeFlow.sales.domestic || tradeFlow.sales.international
+      ? `${tradeFlow.sales.domestic ? "Thailand domestic" : ""}${tradeFlow.sales.domestic && tradeFlow.sales.international ? "; " : ""}${tradeFlow.sales.international ? tradeFlow.sales.countries.map(country => country.name || country.label).join(", ") : ""}`
+      : ""
+  };
+
+  try {
+    const response = await fetch("/api/conversation", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ signals: selected.map(serializeSelectedSignal), profile })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Conversation generation failed");
+    const cards = Array.isArray(data.cards) ? data.cards.map(apiConversationCardToParsed) : [];
+    if (!cards.length) throw new Error("No conversation cards were returned");
+    lastBuiltConversationCards = cards;
+    conversationBridgeBuilt = true;
+    if (bridgeOutput) bridgeOutput.innerHTML = renderSelectedConversationBridge();
+    bridgePanel?.scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (error) {
+    if (bridgeOutput) bridgeOutput.innerHTML = `<span class="error">${escapeHtml(error.message || "Conversation generation failed")}</span>`;
+  } finally {
+    const currentButton = document.getElementById("buildBridgeButton");
+    if (currentButton) {
+      currentButton.disabled = !selectedSignalIndexes.size;
+      currentButton.textContent = `Build client conversation${selectedSignalIndexes.size ? ` (${selectedSignalIndexes.size})` : ""}`;
+    }
+  }
 }
 
 function renderSignalSelectionList() {
@@ -1966,12 +2262,12 @@ function renderSignalSelectionList() {
   ` : "";
 
   analysisOutput.innerHTML = `
-    <div class="signals-summary">Showing ${visibleCards.length} of ${lastConversationCards.length} relevant signal${lastConversationCards.length === 1 ? "" : "s"}. Select the signals you might use in a client conversation.</div>
+    <div class="signals-summary">Showing ${visibleCards.length} of ${lastConversationCards.length} Client Signal${lastConversationCards.length === 1 ? "" : "s"}. Select only the signals you may want to use in a client conversation.</div>
     <div class="signal-selection-list">${cardsHtml}</div>
     <div class="signal-action-row">
       ${toggleHtml}
       <button type="button" class="secondary-action primary-bridge-action" id="buildBridgeButton" ${selectedCount ? "" : "disabled"}>
-        Plan my client conversation${selectedCount ? ` (${selectedCount})` : ""}
+        Build client conversation${selectedCount ? ` (${selectedCount})` : ""}
       </button>
     </div>
   `;
@@ -2002,12 +2298,7 @@ function renderSignalSelectionList() {
     renderSignalSelectionList();
   });
 
-  document.getElementById("buildBridgeButton")?.addEventListener("click", () => {
-    if (!selectedSignalIndexes.size) return;
-    conversationBridgeBuilt = true;
-    renderSignalSelectionList();
-    bridgePanel?.scrollIntoView({ behavior: "smooth", block: "start" });
-  });
+  document.getElementById("buildBridgeButton")?.addEventListener("click", buildSelectedConversation);
 }
 
 function renderConversationCards(text) {
@@ -2021,7 +2312,7 @@ function renderConversationCards(text) {
   lastConversationCards = cardBlocks.map(parseConversationCardBlock);
   conversationCardsExpanded = false;
   resetConversationBridge();
-  selectedSignalIndexes = new Set(lastConversationCards.slice(0, DEFAULT_VISIBLE_SIGNAL_COUNT).map((_, index) => index));
+  selectedSignalIndexes = new Set();
   renderSignalSelectionList();
   return true;
 }

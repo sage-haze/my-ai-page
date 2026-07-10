@@ -1398,26 +1398,45 @@ async function fetchYahooFxRate(baseCurrency, rangeDays = 30) {
       base: "CNY",
       pair: "CNYTHB",
       series: derivedSeries,
-      source: "Yahoo Finance prototype: USDTHB ÷ USDCNY"
+      source: "Yahoo Finance prototype: USDTHB ÷ USDCNY",
+      derivation: "Cross rate derived as USDTHB ÷ USDCNY",
+      market_context_note: "Movement reflects both Baht-side and Renminbi-side factors"
     });
   }
 
   const pair = `${baseCurrency}THB=X`;
   const series = await fetchYahooSeries(pair, rangeDays);
 
-  return summarizeFxSeries({
+  const result = summarizeFxSeries({
     base: baseCurrency,
     pair,
     series,
     source: "Yahoo Finance (prototype)"
   });
+
+  if (["EUR", "JPY"].includes(baseCurrency)) {
+    result.market_context_note = `Movement reflects both Baht-side and ${baseCurrency === "JPY" ? "Yen" : "Euro"}-side factors`;
+  }
+
+  return result;
+}
+
+function expandFxCurrencies(currencies) {
+  const requested = [...new Set((currencies || []).map(currency => String(currency).toUpperCase()))];
+  const needsUsdReference = requested.some(currency => ["CNY", "EUR", "JPY"].includes(currency));
+
+  if (needsUsdReference && !requested.includes("USD")) {
+    return ["USD", ...requested];
+  }
+
+  return requested;
 }
 
 async function fetchFxRates(currencies, rangeDays = 30) {
-  const uniqueCurrencies = [...new Set(currencies)];
+  const expandedCurrencies = expandFxCurrencies(currencies);
 
   return Promise.all(
-    uniqueCurrencies.map(currency =>
+    expandedCurrencies.map(currency =>
       fetchYahooFxRate(currency, rangeDays).catch(error => ({
         skip: false,
         base: currency,
@@ -1913,63 +1932,34 @@ function formatNewsThemesFromJson(parsed) {
 
   return cards.map((card, index) => {
     const title = String(card.title || `Card ${index + 1}`).replace(/^(Theme|Card)\s*\d+\s*:\s*/i, "").trim();
-
-    const backgroundCue = String(
-      card.backgroundCue ||
-      card.background_cue ||
-      card.whyThisMayMatter ||
-      card.why_this_may_matter ||
-      card.plainEnglishContext ||
-      card.plain_english_context ||
-      card.clientRelevanceLens ||
-      card.client_relevance_lens ||
-      card.paragraph ||
-      card.explanation ||
-      ""
-    ).trim();
-    const transactionBankingAngle = String(card.transactionBankingAngle || card.transaction_banking_angle || card.relate || "").trim();
-    const observe = String(card.observe || card.usefulObservation || card.useful_observation || card.gentleObservation || card.gentle_observation || "").trim();
-    const relate = [transactionBankingAngle, backgroundCue].filter(Boolean).join(" ").trim();
-    const keepInMind = formatKeepInMind(card.keepInMind || card.keep_in_mind || card.whatCouldChange || card.what_could_change || card.possibleImplications || card.possible_implications || card.baselineScenarios || card.baseline_scenarios || card.scenarioFrame || card.scenario_frame || card.uncertaintyFrame || card.uncertainty_frame || card.baseCase || card.base_case || "");
-    const leaveSpace = String(card.leaveSpace || card.leave_space || card.softInvitation || card.soft_invitation || "").trim();
-    const lightlyExplore = String(card.lightlyExplore || card.lightly_explore || card.ifTheyPickUp || card.if_they_pick_up || card.ifClientEngages || card.if_client_engages || "").trim();
-    const bankAngle = String(card.bankAngle || card.bank_angle || card.bankRelevance || card.bank_relevance || "").trim();
-    const handoffCue = String(card.handoffCue || card.handoff_cue || "").trim();
-    const offerSupport = String(card.offerSupport || card.offer_support || [bankAngle, handoffCue].filter(Boolean).join(" ")).trim();
-    const tags = normalizeCardTags(card.tags || card.tag || [], `${title} ${observe} ${relate} ${offerSupport}`);
-    const sourceNumbers = Array.isArray(card.sourceNumbers) ? card.sourceNumbers : extractSourceRefs(`${observe} ${relate} ${keepInMind} ${leaveSpace} ${lightlyExplore} ${offerSupport}`);
+    const context = String(card.context || card.commentOnContext || card.comment_on_context || card.whatIsHappening || card.what_is_happening || card.observe || "").trim();
+    const relevance = String(card.relevance || card.linkToClient || card.link_to_client || card.whyRelevant || card.why_relevant || card.relate || "").trim();
+    const tags = normalizeCardTags(card.tags || card.tag || [], `${title} ${context} ${relevance}`);
+    const sourceNumbers = Array.isArray(card.sourceNumbers) ? card.sourceNumbers : extractSourceRefs(`${context} ${relevance}`);
     const cleanSourceNumbers = [...new Set(sourceNumbers.map(Number).filter(Number.isFinite))].sort((a, b) => a - b);
 
     return [
       `Card ${index + 1}: ${stripInlineSourceRefs(title)}`,
       `Tags: ${tags.join(", ")}`,
       cleanSourceNumbers.length ? `Sources: ${cleanSourceNumbers.map(number => `[${number}]`).join(" ")}` : "",
-      observe ? `Observe: ${stripInlineSourceRefs(observe)}` : "",
-      relate ? `Relate: ${stripInlineSourceRefs(relate)}` : "",
-      keepInMind ? `Keep in mind: ${stripInlineSourceRefs(keepInMind)}` : "",
-      leaveSpace ? `Leave Space: ${stripInlineSourceRefs(leaveSpace)}` : "",
-      lightlyExplore ? `Lightly Explore: ${stripInlineSourceRefs(lightlyExplore)}` : "",
-      offerSupport ? `Offer Support: ${stripInlineSourceRefs(offerSupport)}` : ""
+      context ? `Comment on context: ${stripInlineSourceRefs(context)}` : "",
+      relevance ? `Link to client: ${stripInlineSourceRefs(relevance)}` : ""
     ].filter(Boolean).join("\n");
   }).filter(Boolean).join("\n\n");
 }
 
 
-function formatStructuralNoNewsCard({ timeframe, industry, tradeFlow, conversationGoal, clientProfile = {} }) {
+function formatStructuralNoNewsCard({ timeframe, industry, tradeFlow }) {
   const currencies = getAllTradeFlowCurrencies(tradeFlow, []);
   const purchaseMarkets = listCountries(tradeFlow?.purchase?.countries, 3) || "domestic suppliers";
   const salesMarkets = listCountries(tradeFlow?.sales?.countries, 3) || "domestic customers";
   const currencyText = currencies.length ? currencies.join("/") : "selected currencies";
 
   return [
-    `Card 1: Structural conversation angle when no strong recent news is found`,
+    `Card 1: Structural client signal when recent news is limited`,
     `Tags: Working capital, Payments, Trade`,
-    `Observe: We are not seeing a strong recent headline for this profile, but for companies with purchases from ${purchaseMarkets} and sales to ${salesMarkets}, the practical treasury conversation often starts with payment timing, cash buffers, and whether working capital still fits the operating cycle.`,
-    `Relate: For a Thailand-based ${industry} client, the discussion can still connect to supplier and buyer payment timing, cash visibility, and recurring ${currencyText} flows. This is structural context, not a news-based signal.`,
-    `Keep in mind: External news is quiet, so treat this as a structural conversation angle rather than a forecast. If conditions change, the practical issue is whether payment timing, supplier terms, liquidity buffers, or currency mismatch become more visible.`,
-    `Leave Space: I am not sure whether that is relevant for your business right now, but it is a useful area to keep in view when external news is quiet.`,
-    `Lightly Explore: If the client opens up, explore whether the issue is mainly supplier terms, receivables timing, inventory buffers, or currency mismatch.`,
-    `Offer Support: Possible relevance to cash forecasting, liquidity structure, trade lines, receivables/payables flows, and FX process discipline. Bring in FX, trade, cash management, or credit specialists if the client asks for specific hedge levels, facility sizing, structure, legal, sanctions, or credit advice.`
+    `Comment on context: No strong recent headline was identified for this profile in the selected ${timeframe}-day period`,
+    `Link to client: For a Thailand-based ${industry} business purchasing from ${purchaseMarkets} and selling to ${salesMarkets}, payment timing, supplier and buyer terms, cash buffers, and recurring ${currencyText} flows remain useful structural areas to keep in view`
   ].join("\n");
 }
 
@@ -2086,19 +2076,27 @@ Countries / markets relevant to the client: ${countryText}`}
 - Search queries used: ${plannedQueries.map(plan => `${plan.label}: ${plan.query}`).join(" | ")}
 
 Task:
-Create evidence-grounded relevant signal cards from the provided sources. Rank the cards from most useful to least useful for a junior transaction banker. Each card should help the banker build a conversation bridge, not recite a market view. Evidence can include recent articles and periodic official datasets.
+Create evidence-grounded Client Signals from the provided sources. Rank them from most useful to least useful for a junior transaction banker. At this stage, generate signals only — do not generate questions, invitations, recommendations, or a full conversation flow.
 ${cardCountInstruction()}
 
-Conversation standard:
-- The output should help the RM think and speak better; do not give a polished monologue to recite.
-- Translate external developments into cash, trade, payments, FX flows, working capital, liquidity, operational resilience, and specialist handoff. Use purchase/sales markets and purchase/sales currencies as the main client-specific anchors.
-- Separate purchase-side cost/supplier implications from sales-side revenue/demand implications when the sources support that distinction.
-- Treat purchase countries as supplier/source markets and sales countries as buyer/revenue markets. Do not cross-combine countries randomly.
-- Prefer direct Thailand, selected purchase-market, selected sales-market, or selected-currency relevance.
-- Make each card follow the five moves: Observe, Relate, Leave Space, Lightly Explore, Offer Support. The observation should be the main banker-ready line. Do not interrogate the client with blunt questions.
-- For Lightly Explore, ask about patterns before problems. Use nuanced, client-safe wording that lets the client answer at an industry/process level before revealing anything sensitive.
-- Add one compact keepInMind line so the junior banker can lead the conversation despite uncertainty without pretending to predict the market. This should be a subtle coaching note, not a major scenario section. Avoid "upside/downside" unless the client position makes it obvious. Prefer wording such as "If this develops further...", "If conditions change...", or "The practical issue is whether...".
-- Broader sector news may be used only when the bridge to this client profile is clear. If the article is not specific to the selected ISIC activity, say so plainly.
+Signal coverage:
+- Include direct client signals where supported: Thailand, selected supplier markets, selected buyer markets, the client's broad currency exposure, and the specific ISIC activity
+- Also include useful general-market signals where they may affect upstream suppliers, downstream buyers, regional demand, input costs, logistics, trade policy, countries, or the wider industry
+- General-market signals must still have a clear and cautious bridge to the selected client profile
+- Separate purchase-side cost/supplier implications from sales-side revenue/demand implications when the evidence supports that distinction
+- Treat purchase countries as supplier/source markets and sales countries as buyer/revenue markets; do not cross-combine countries randomly
+- Translate developments through cash, trade, payments, FX flows, working capital, liquidity, and operating resilience
+
+Card standard:
+- Each card has only two sections: Comment on context and Link to client
+- Comment on context: one concise, plain-English statement of what the sources show
+- Link to client: one concise sentence explaining a possible connection to the client profile without asserting that the client is affected
+- Separate the directly supported first-order link from any second-order implication. Use conditional wording such as "if orders take longer to confirm" or "if buyers change payment terms" before mentioning receivable timing, inventory holding, packing costs, liquidity, or working-capital effects
+- Do not claim slower collections, higher inventory, delayed payments, or greater cash tied up unless the source directly supports that outcome. When it is only a plausible transmission channel, make the condition explicit
+- Do not generate a question or next step in this first stage
+- Prefer a concrete commercial transmission channel over generic wording
+- Avoid ambiguous contrasts or corrective phrases such as "rather than", "instead of", "not necessarily", "without assuming", "despite", or "although" unless the source itself clearly supports the contrast
+- Never imply that the user or client made an assumption that was not stated
 
 Grounding rules:
 - Use ONLY the provided sources.
@@ -2120,6 +2118,8 @@ Relevance discipline:
 - Not every card needs a risk, opportunity, or RM angle. Only include those when genuinely supported.
 - Avoid recommendations such as financing a specific expansion, acquisition, or project unless the source clearly supports it for the selected client profile.
 - Do NOT assume a named company in an article is the bank's client or the user's client. Frame it as a sector signal, competitor signal, buyer/supplier signal, or market development.
+- Do not infer invoice, settlement, or proceeds currency from a selected country or market.
+- Do not name a specific currency in a country-specific Link to client sentence unless the source explicitly discusses that currency and the client profile explicitly maps it to the relevant transaction flow. Otherwise use neutral wording such as sales proceeds, payment timing, FX exposure, buyer terms, or receivable timing.
 - Do NOT repeat the standalone FX rate commentary. Mention FX only when a source directly supports an implication, or when selected purchase/sales currencies create an obvious directional crosswind that is clearly presented as an inference.
 
 Writing style:
@@ -2133,14 +2133,10 @@ Return JSON only in this exact shape:
   "status": "OK",
   "cards": [
     {
-      "title": "Specific practical title without scoring or signal prefixes",
-      "tags": ["FX", "Trade"],
-      "observe": "A gentle, evidence-grounded observation the banker can offer without assuming the client has a problem.",
-      "relate": "Connect the signal to the client’s likely operating flows: cash, trade, payments, FX, working capital, liquidity, or resilience.",
-      "keepInMind": "One concise, uncertainty-aware sentence. It should not forecast or force a clean opportunity/risk split. It should explain what could change and why that might matter differently depending on the client’s flows, currencies, or cash cycle.",
-      "leaveSpace": "A low-pressure phrase that lets the client respond without forcing disclosure.",
-      "lightlyExplore": "One non-invasive follow-up path only if the client shows interest. Make this indirect, optional, and client-safe. Prefer asking about market patterns, variation by buyer/supplier, or process changes; avoid asking clients to directly admit business loss, cash pressure, late collections, or credit weakness.",
-      "offerSupport": "A practical support angle and any specialist handoff cue. Include where to bring in FX, markets, trade, cash, compliance, sanctions, legal, tax, credit, or sector specialists.",
+      "title": "Specific practical signal title",
+      "tags": ["Trade", "Supply chain"],
+      "context": "One concise, evidence-grounded statement of what is happening",
+      "relevance": "One concise, cautious link to the selected client profile and a clear cash, trade, payments, FX, working-capital, liquidity, supplier, buyer, or market transmission channel",
       "sourceNumbers": [1, 2]
     }
   ]
@@ -2431,7 +2427,7 @@ export async function onRequestPost(context) {
     const searchDepth = "advanced";
     const gdeltQueries = buildGdeltQueries({ industry, tradeFlow, signalThreads });
 
-    const [tavilyBatches, gdeltBatches, noKeyOfficialEvidence, credentialedOfficialEvidence, rawFxResults] = await Promise.all([
+    const [tavilyBatches, gdeltBatches, noKeyOfficialEvidence, credentialedOfficialEvidence] = await Promise.all([
       Promise.all(plannedQueries.map(plan =>
         tavilySearch({
           apiKey: env.TAVILY_API_KEY,
@@ -2451,13 +2447,11 @@ export async function onRequestPost(context) {
         }).then(results => normalizeGdeltResults(results, plan.label)).catch(() => [])
       )),
       fetchNoKeyOfficialEvidence({ tradeFlow, signalThreads }),
-      fetchCredentialedOfficialEvidence({ env, tradeFlow, currencies, signalThreads }),
-      fetchFxRates(currencies, fxTenor)
+      fetchCredentialedOfficialEvidence({ env, tradeFlow, currencies, signalThreads })
     ]);
 
     const officialEvidence = [...noKeyOfficialEvidence, ...credentialedOfficialEvidence];
-
-    const fxResults = await analyzeFxRates({ env, fxList: rawFxResults, sector, subsector, industry, tradeRoles, countries, tradeFlow, fxTenor });
+    const fxResults = [];
 
     const primaryCandidateSources = prepareCandidateSources({
       sources: [...tavilyBatches.flat(), ...gdeltBatches.flat(), ...officialEvidence]

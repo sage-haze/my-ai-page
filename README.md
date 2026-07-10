@@ -99,3 +99,12 @@ Official datasets are treated as periodic context rather than breaking news. The
 - Clicking Build Conversation Bridge expands only the selected signals into Observe, Relate, Leave Space, Lightly Explore, and Offer Support.
 
 V18 update: default signal scan now includes commodities/input costs and macro indicators, and conversation cards include a compact Baseline & scenarios frame to help RMs discuss uncertainty without forecasting.
+
+## v8 updates
+
+- Keeps all FX disclosure controls and the 90-day chart inside the Market Intelligence card using contained details styling and an in-line chevron.
+- Replaces technical cross-rate subtitles with plain-language wording such as “Movement reflects both Baht-side and Yen-side factors.”
+- Makes Explore lightly, Allow room, and Reaffirm support more scannable through structured, compact fields rather than long compound bullets.
+- Explore lightly now returns two selectable questions with short “Why ask” and “Listen for” support.
+- Allow room now returns two or three compact emphasis cues with a clear implication and follow-the-client path.
+- Reaffirm support now returns two conditional examples rather than a fixed closing statement.
