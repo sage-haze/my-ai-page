@@ -117,9 +117,9 @@ Selection rules:
 
 CLEAR structure:
 - Comment on context — Begin with a simple observation: summarise the development in 2 concise sentences. Include the most useful facts and enough market context for the banker to understand the signal.
-- Link to client — Relate it gently to the client’s business in 2 concise sentences. Sentence 1 should name the broad part of the business that could be affected. Sentence 2 should explain the possible change in timing, cost, volume, reliability, complexity, commercial terms, cash flow, or decision-making. Use conditional language and do not claim the client is affected.
-- Explore lightly — Do not ask a question. Articulate what Link to client is trying to say in one or two short, natural sentences that the RM can offer aloud. Use language such as “Some of our clients might see…” or “For some businesses, this can show up in…”. Mention only one or two closely related effects within the selected segment. Keep it easy to say and free of banking jargon.
-- Allow room — Ask exactly one short, gentle, open question that hands the conversation to the client. Prefer simple wording such as “How is it for your business?”, “How are you seeing this?”, or “Does any of this feel relevant for you?”. Do not combine multiple questions. Add one very short neutral listening cue, but do not prescribe a diagnostic path.
+- Link to client — Relate the development gently to the client’s business in 1 or 2 concise sentences. Identify the broad client-understanding segment and the specific part of the business that may be affected. Keep this section directional rather than explanatory; the fuller talking support belongs in Explore lightly. Use conditional language and do not claim the client is affected.
+- Explore lightly — Do not ask a question. Give the RM enough grounded, plain-English content to explain the topic confidently without making up facts. Write 2 to 4 concise sentences, normally 45 to 80 words. Start from the specific business mechanism identified in Link to client, then explain: (1) what some comparable businesses may be seeing, (2) why it could matter operationally, and (3) at most one closely connected downstream effect. Use natural spoken language such as “Some of our clients might see…” or “For some businesses, this can show up in…”. Every point must be supported by the selected signal or be clearly framed as a cautious transmission channel. Do not add market facts, forecasts, product recommendations, technical banking language, or a list of unrelated implications.
+- Allow room — Ask exactly one short, gentle, open question that hands the conversation to the client. The question should connect naturally to Explore lightly but stay easy to answer. Prefer simple wording such as “Has any of this started to show up for your business?”, “How is this playing out for you?”, or “Does any of this feel relevant for your business?”. Do not combine multiple questions. Add one very short neutral listening cue, but do not prescribe a diagnostic path.
 - Reaffirm support — Reflect and offer a helpful next step: provide exactly 2 conditional examples tied to the paths in Allow room. Each should first reflect what the client raised and then offer a proportionate next step. Keep each example to one short sentence and avoid a compulsory product pitch.
 
 Rules:
@@ -130,7 +130,7 @@ Rules:
 - Do not turn Link to client into a list of transaction-banking products
 - Do not infer invoice, settlement, or proceeds currency from a country or market. Name a specific currency only when it is explicitly present in the selected signal and supported by the client profile; otherwise use neutral wording such as sales proceeds, payment timing, FX exposure, or receivable timing
 - Avoid ambiguous contrasts such as “rather than”, “instead of”, “without assuming”, “despite”, and “although” unless directly necessary and supported
-- Explore lightly must be a short articulation, not a question or diagnostic checklist
+- Explore lightly must be a useful spoken explanation, not a question or diagnostic checklist; target 2 to 4 concise sentences and roughly 45 to 80 words
 - Allow room must contain one simple question that is comfortable to answer
 - Do not combine several operational questions into one sentence
 - The client should be able to answer comfortably with “not really” or “no change” without feeling challenged
@@ -154,14 +154,14 @@ Return JSON only:
       "linkToClient": "Two concise sentences",
       "exploreLightly": [
         {
-          "question": "Some of our clients might see this through changing supplier terms or less flexibility around orders.",
+          "question": "Some of our clients might see buyers taking longer to confirm orders or asking for more flexibility on price and volume. Even where demand remains, less certainty around orders can make harvest, packing or delivery plans harder to coordinate. If that uncertainty continues, the timing of expected sales proceeds may also become less predictable.",
           "whyAsk": "",
           "listenFor": ""
         }
       ],
       "allowRoom": [
         {
-          "focus": "How is it for your business?",
+          "focus": "Has any of this started to show up for your business?",
           "meaning": "Listen for the part of the relationship the client chooses to discuss",
           "followLead": ""
         }
