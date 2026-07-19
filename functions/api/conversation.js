@@ -66,8 +66,8 @@ Use this sequence:
 4. Identify the specific part of the business within those areas that may be affected.
 5. Use that focus consistently in Link to client, Explore lightly, Allow room, and Reaffirm support.
 
-The four client-understanding areas are:
-A. Business model and operating activities
+The four client-understanding segments, which must also be used as the card tags, are:
+A. Business model
 - sourcing and purchasing
 - receiving goods, inventory and warehousing
 - production or service capacity
@@ -78,7 +78,7 @@ A. Business model and operating activities
 - reconciliation and administration
 - investment, expansion and operating continuity
 
-B. Supplier and buyer relationships
+B. Supply & demand
 - concentration and dependency
 - bargaining power and availability of alternatives
 - trust and relationship maturity
@@ -88,7 +88,7 @@ B. Supplier and buyer relationships
 - payment and collection terms
 - trade methods and documentation responsibilities
 
-C. Working capital and financial management
+C. Financial management
 - timing of payments and collections
 - inventory, debtor and creditor cycles
 - seasonal or lumpy cash requirements
@@ -98,7 +98,7 @@ C. Working capital and financial management
 - payment and collection currencies
 - natural offsets, currency mismatch and conversion timing
 
-D. Business decisions, policies and developments
+D. Other business areas
 - ownership and group structure
 - decision-making authority and treasury autonomy
 - management preferences and risk appetite
@@ -113,13 +113,13 @@ Selection rules:
 - Use the client profile to make the route relevant, but never invent operating details that are not provided.
 - Treat all client effects as possibilities unless directly established by the selected signal and profile.
 - Do not jump directly from news to a banking product.
-- The selected area defines the territory of the conversation. Explore lightly lets the client choose the path within it.
+- The selected tag defines the broad territory. Link to client drills down into the specific affected part. Explore lightly articulates the possible client experience. Allow room then lets the client choose the path.
 
 CLEAR structure:
 - Comment on context — Begin with a simple observation: summarise the development in 2 concise sentences. Include the most useful facts and enough market context for the banker to understand the signal.
 - Link to client — Relate it gently to the client’s business in 2 concise sentences. Sentence 1 should name the broad part of the business that could be affected. Sentence 2 should explain the possible change in timing, cost, volume, reliability, complexity, commercial terms, cash flow, or decision-making. Use conditional language and do not claim the client is affected.
-- Explore lightly — Invite the client to share their perspective: provide exactly 2 broad, gentle invitations the banker can choose from. Both invitations must stay within the client-understanding area established in Link to client. One should invite the client to identify where, if anywhere, the development is showing up. The other should invite the client to describe whether anything has changed in that part of the business. For each invitation, add one short reason for asking and one short, neutral phrase describing what to listen for. Each supporting phrase should be no more than 18 words.
-- Allow room — Listen to what feels relevant to them: provide 2 or 3 compact listening cues drawn from plausible paths within the selected client-understanding area. Each cue should name the client's possible emphasis, say briefly what it may indicate, and give one short way to follow the client's lead. Do not introduce an unrelated topic.
+- Explore lightly — Do not ask a question. Articulate what Link to client is trying to say in one or two short, natural sentences that the RM can offer aloud. Use language such as “Some of our clients might see…” or “For some businesses, this can show up in…”. Mention only one or two closely related effects within the selected segment. Keep it easy to say and free of banking jargon.
+- Allow room — Ask exactly one short, gentle, open question that hands the conversation to the client. Prefer simple wording such as “How is it for your business?”, “How are you seeing this?”, or “Does any of this feel relevant for you?”. Do not combine multiple questions. Add one very short neutral listening cue, but do not prescribe a diagnostic path.
 - Reaffirm support — Reflect and offer a helpful next step: provide exactly 2 conditional examples tied to the paths in Allow room. Each should first reflect what the client raised and then offer a proportionate next step. Keep each example to one short sentence and avoid a compulsory product pitch.
 
 Rules:
@@ -130,8 +130,8 @@ Rules:
 - Do not turn Link to client into a list of transaction-banking products
 - Do not infer invoice, settlement, or proceeds currency from a country or market. Name a specific currency only when it is explicitly present in the selected signal and supported by the client profile; otherwise use neutral wording such as sales proceeds, payment timing, FX exposure, or receivable timing
 - Avoid ambiguous contrasts such as “rather than”, “instead of”, “without assuming”, “despite”, and “although” unless directly necessary and supported
-- Explore lightly should feel like an invitation, not an interview or diagnostic checklist
-- Prefer openings such as “How are you seeing…”, “What, if anything, has changed…”, “Where, if anywhere, are you noticing…”, or “Does any of this feel relevant…”
+- Explore lightly must be a short articulation, not a question or diagnostic checklist
+- Allow room must contain one simple question that is comfortable to answer
 - Do not combine several operational questions into one sentence
 - The client should be able to answer comfortably with “not really” or “no change” without feeling challenged
 - Questions must not force disclosure of loss, cash stress, late payment, or credit weakness
@@ -143,10 +143,10 @@ Return JSON only:
   "cards": [
     {
       "title": "Signal title",
-      "tags": ["Trade"],
+      "tags": ["Supply & demand"],
       "clientUnderstanding": {
-        "primaryArea": "Business model and operating activities",
-        "secondaryArea": "Supplier and buyer relationships",
+        "primaryArea": "Supply & demand",
+        "secondaryArea": "Business model",
         "affectedPart": "Purchasing lead times, inventory planning and supplier payment timing",
         "conversationDirection": "Understand where the changed timing is being felt across the operating cycle"
       },
@@ -154,21 +154,16 @@ Return JSON only:
       "linkToClient": "Two concise sentences",
       "exploreLightly": [
         {
-          "question": "Where, if anywhere, are you noticing this across your purchasing or inventory cycle?",
-          "whyAsk": "To let the client identify the relevant stage",
-          "listenFor": "The operating step they choose to emphasise"
-        },
-        {
-          "question": "What, if anything, has changed in how those activities are being managed?",
-          "whyAsk": "To understand whether existing arrangements have shifted",
-          "listenFor": "Changes in timing, terms, volume or responsibility"
+          "question": "Some of our clients might see this through changing supplier terms or less flexibility around orders.",
+          "whyAsk": "",
+          "listenFor": ""
         }
       ],
       "allowRoom": [
         {
-          "focus": "Longer purchasing lead times",
-          "meaning": "May affect when orders and cash commitments are made",
-          "followLead": "Stay with the stage and counterparties the client identifies"
+          "focus": "How is it for your business?",
+          "meaning": "Listen for the part of the relationship the client chooses to discuss",
+          "followLead": ""
         }
       ],
       "reaffirmSupport": [
@@ -221,20 +216,20 @@ ${JSON.stringify(signals, null, 2)}
                           primaryArea: {
                             type: "string",
                             enum: [
-                              "Business model and operating activities",
-                              "Supplier and buyer relationships",
-                              "Working capital and financial management",
-                              "Business decisions, policies and developments"
+                              "Business model",
+                              "Supply & demand",
+                              "Financial management",
+                              "Other business areas"
                             ]
                           },
                           secondaryArea: {
                             type: "string",
                             enum: [
                               "None",
-                              "Business model and operating activities",
-                              "Supplier and buyer relationships",
-                              "Working capital and financial management",
-                              "Business decisions, policies and developments"
+                              "Business model",
+                              "Supply & demand",
+                              "Financial management",
+                              "Other business areas"
                             ]
                           },
                           affectedPart: { type: "string" },
@@ -246,7 +241,7 @@ ${JSON.stringify(signals, null, 2)}
                       linkToClient: { type: "string" },
                       exploreLightly: {
                         type: "array",
-                        minItems: 2,
+                        minItems: 1,
                         maxItems: 2,
                         items: {
                           type: "object",
@@ -261,8 +256,8 @@ ${JSON.stringify(signals, null, 2)}
                       },
                       allowRoom: {
                         type: "array",
-                        minItems: 2,
-                        maxItems: 3,
+                        minItems: 1,
+                        maxItems: 1,
                         items: {
                           type: "object",
                           additionalProperties: false,

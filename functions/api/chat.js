@@ -1874,36 +1874,40 @@ function normalizeNoNewsText(timeframe) {
 }
 
 function normalizeCardTags(tags = [], fallbackText = "") {
-  const allowed = new Set(["FX", "Trade", "Working capital", "Payments", "Supply chain", "Liquidity", "Geopolitics", "Rates", "Commodities", "Sector"]);
+  const allowed = new Set(["Business model", "Supply & demand", "Financial management", "Other business areas"]);
   const map = {
-    fx: "FX",
-    currency: "FX",
-    currencies: "FX",
-    rates: "Rates",
-    rate: "Rates",
-    interest: "Rates",
-    trade: "Trade",
-    "trade finance": "Trade",
-    workingcapital: "Working capital",
-    "working capital": "Working capital",
-    payments: "Payments",
-    payment: "Payments",
-    collections: "Payments",
-    collection: "Payments",
-    "supply chain": "Supply chain",
-    supplychain: "Supply chain",
-    logistics: "Supply chain",
-    shipping: "Supply chain",
-    liquidity: "Liquidity",
-    cash: "Liquidity",
-    geopolitical: "Geopolitics",
-    geopolitics: "Geopolitics",
-    policy: "Geopolitics",
-    commodities: "Commodities",
-    commodity: "Commodities",
-    sector: "Sector",
-    industry: "Sector",
-    market: "Sector"
+    "business model": "Business model",
+    "business model and operating activities": "Business model",
+    operations: "Business model",
+    operational: "Business model",
+    production: "Business model",
+    logistics: "Business model",
+    inventory: "Business model",
+    "supply & demand": "Supply & demand",
+    "supply and demand": "Supply & demand",
+    supplier: "Supply & demand",
+    suppliers: "Supply & demand",
+    buyer: "Supply & demand",
+    buyers: "Supply & demand",
+    demand: "Supply & demand",
+    "supplier and buyer relationships": "Supply & demand",
+    "financial management": "Financial management",
+    "working capital": "Financial management",
+    liquidity: "Financial management",
+    payments: "Financial management",
+    payment: "Financial management",
+    collections: "Financial management",
+    collection: "Financial management",
+    fx: "Financial management",
+    rates: "Financial management",
+    "working capital and financial management": "Financial management",
+    "other business areas": "Other business areas",
+    geopolitics: "Other business areas",
+    policy: "Other business areas",
+    regulation: "Other business areas",
+    strategy: "Other business areas",
+    management: "Other business areas",
+    "business decisions, policies and developments": "Other business areas"
   };
 
   const cleanTags = (Array.isArray(tags) ? tags : String(tags || "").split(/[,|/]+/))
@@ -1912,19 +1916,14 @@ function normalizeCardTags(tags = [], fallbackText = "") {
 
   if (!cleanTags.length && fallbackText) {
     const text = String(fallbackText).toLowerCase();
-    if (/\b(fx|currency|currencies|usd|eur|cny|jpy|thb|hedg)/i.test(text)) cleanTags.push("FX");
-    if (/\b(rate|rates|interest|borrowing|funding cost|yield)\b/i.test(text)) cleanTags.push("Rates");
-    if (/\b(trade|letter of credit|lc\b|guarantee|documentary|supplier payment|buyer risk)\b/i.test(text)) cleanTags.push("Trade");
-    if (/\b(working capital|cash conversion|receivable|receivables|payable|payables|inventory|cash cycle)\b/i.test(text)) cleanTags.push("Working capital");
-    if (/\b(payment|payments|collection|collections|settlement|reconciliation|fraud|routing)\b/i.test(text)) cleanTags.push("Payments");
-    if (/\b(supply chain|supplier|shipping|logistics|port|freight|route|inventory buffer)\b/i.test(text)) cleanTags.push("Supply chain");
-    if (/\b(liquidity|cash visibility|cash buffer|cash forecasting|deposit|surplus cash|trapped cash)\b/i.test(text)) cleanTags.push("Liquidity");
-    if (/\b(geopolitic|sanction|tariff|policy|election|border|conflict|war|compliance)\b/i.test(text)) cleanTags.push("Geopolitics");
-    if (/\b(commodity|commodities|oil|gas|energy|metal|food prices|input cost)\b/i.test(text)) cleanTags.push("Commodities");
+    if (/(supplier|buyer|customer demand|bargaining|counterpart|commercial terms|order volume|minimum order|prepayment)/i.test(text)) cleanTags.push("Supply & demand");
+    if (/(working capital|cash|liquidity|payment|collection|receivable|payable|funding|currency|fx|rate|hedg)/i.test(text)) cleanTags.push("Financial management");
+    if (/(management|ownership|group structure|policy|regulation|geopolit|new market|new factory|strategy|risk appetite)/i.test(text)) cleanTags.push("Other business areas");
+    if (/(purchasing|sourcing|inventory|production|capacity|delivery|logistics|invoice|reconciliation|operations|operating cycle)/i.test(text)) cleanTags.push("Business model");
   }
 
   const unique = [...new Set(cleanTags)];
-  return (unique.length ? unique : ["Sector"]).slice(0, 3);
+  return (unique.length ? unique : ["Business model"]).slice(0, 2);
 }
 
 function formatNewsThemesFromJson(parsed) {
@@ -1957,7 +1956,7 @@ function formatStructuralNoNewsCard({ timeframe, industry, tradeFlow }) {
 
   return [
     `Card 1: Structural client signal when recent news is limited`,
-    `Tags: Working capital, Payments, Trade`,
+    `Tags: Financial management, Business model`,
     `Comment on context: No strong recent headline was identified for this profile in the selected ${timeframe}-day period`,
     `Link to client: For a Thailand-based ${industry} business purchasing from ${purchaseMarkets} and selling to ${salesMarkets}, payment timing, supplier and buyer terms, cash buffers, and recurring ${currencyText} flows remain useful structural areas to keep in view`
   ].join("\n");
@@ -2090,7 +2089,7 @@ Signal coverage:
 Card standard:
 - Each card has only two sections: Comment on context and Link to client
 - Comment on context: one concise, plain-English statement of what the sources show
-- Link to client: one concise sentence explaining a possible connection to the client profile without asserting that the client is affected
+- Link to client: one concise sentence that starts from the selected broad client-understanding tag, then drills down to the specific business mechanism that may be affected without asserting that the client is affected
 - Separate the directly supported first-order link from any second-order implication. Use conditional wording such as "if orders take longer to confirm" or "if buyers change payment terms" before mentioning receivable timing, inventory holding, packing costs, liquidity, or working-capital effects
 - Do not claim slower collections, higher inventory, delayed payments, or greater cash tied up unless the source directly supports that outcome. When it is only a plausible transmission channel, make the condition explicit
 - Do not generate a question or next step in this first stage
@@ -2134,7 +2133,7 @@ Return JSON only in this exact shape:
   "cards": [
     {
       "title": "Specific practical signal title",
-      "tags": ["Trade", "Supply chain"],
+      "tags": ["Business model", "Supply & demand"],
       "context": "One concise, evidence-grounded statement of what is happening",
       "relevance": "One concise, cautious link to the selected client profile and a clear cash, trade, payments, FX, working-capital, liquidity, supplier, buyer, or market transmission channel",
       "sourceNumbers": [1, 2]
@@ -2142,7 +2141,13 @@ Return JSON only in this exact shape:
   ]
 }
 
-Allowed tags: FX, Trade, Working capital, Payments, Supply chain, Liquidity, Geopolitics, Rates, Commodities, Sector. Use one to three tags per card. Prefer transaction-banking relevance tags over generic macro labels.
+Allowed tags: Business model, Supply & demand, Financial management, Other business areas. Use one primary tag and at most one secondary tag per card.
+Tag logic:
+- Business model: how the client buys, sells, produces, stores, delivers, invoices, pays, collects or reconciles.
+- Supply & demand: supplier/buyer relationships, business risks, demand conditions, dependency, bargaining power, reliability, concentration and commercial terms.
+- Financial management: working capital, payment/collection timing, liquidity, funding, cash visibility, currency exposure and financial risk management.
+- Other business areas: management policy, ownership/group decisions, risk appetite, regulation, geopolitical triggers, expansion or strategic change.
+The tag should identify the broad client-understanding segment. Link to client should then drill down into the specific affected part within that segment.
 
 If not relevant, return exactly this JSON:
 {
