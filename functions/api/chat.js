@@ -9,6 +9,12 @@ const PREFERRED_NEWS_DOMAINS = [
   "spglobal.com"
 ];
 
+// Sources that should never be used as news evidence.
+// Keep this separate from preferred-source scoring so exclusions remain explicit and easy to maintain.
+const EXCLUDED_NEWS_DOMAINS = [
+  "linkedin.com"
+];
+
 const MIN_RAW_ARTICLE_WORDS = 120;
 const MAX_TAVILY_RESULTS_PER_QUERY = 10;
 const MAX_FINAL_NEWS_SOURCES = 10;
@@ -438,6 +444,7 @@ function buildFallbackQueries({ sector, subsector, industry, isicCode, tradeFlow
 
 function prepareCandidateSources({ sources }) {
   const allCandidateSources = dedupeSources(sources)
+    .filter(source => !isExcludedNewsSource(source))
     .filter(source => hasSufficientArticleContent(source))
     .sort((a, b) => {
       const aThai = isThailandRelatedSource(a) ? 1 : 0;
@@ -697,7 +704,7 @@ function dedupeSources(items) {
   return deduped;
 }
 
-async function tavilySearch({ apiKey, query, startDate, endDate, includeDomains = null, maxResults = MAX_TAVILY_RESULTS_PER_QUERY, searchDepth = "basic" }) {
+async function tavilySearch({ apiKey, query, startDate, endDate, includeDomains = null, excludeDomains = EXCLUDED_NEWS_DOMAINS, maxResults = MAX_TAVILY_RESULTS_PER_QUERY, searchDepth = "basic" }) {
   const body = {
     query,
     topic: "news",
@@ -710,6 +717,10 @@ async function tavilySearch({ apiKey, query, startDate, endDate, includeDomains 
 
   if (includeDomains && includeDomains.length > 0) {
     body.include_domains = includeDomains;
+  }
+
+  if (excludeDomains && excludeDomains.length > 0) {
+    body.exclude_domains = excludeDomains;
   }
 
   const response = await fetch("https://api.tavily.com/search", {
@@ -1032,6 +1043,11 @@ function calculateCountryRelevanceScore(source, countries = []) {
     score: Math.max(-2, Math.min(score, 12)),
     matches: [...new Set(matches)].slice(0, 4)
   };
+}
+
+function isExcludedNewsSource(source) {
+  const domain = String(source?.domain || source?.source || "").toLowerCase().replace(/^www\./, "");
+  return EXCLUDED_NEWS_DOMAINS.some(excluded => domain === excluded || domain.endsWith(`.${excluded}`));
 }
 
 function getSourceAuthorityScore(source) {
@@ -1856,6 +1872,7 @@ export async function onRequestPost(context) {
         startDate: start_date,
         endDate: end_date,
         includeDomains: null,
+        excludeDomains: EXCLUDED_NEWS_DOMAINS,
         maxResults: plan.maxResults || MAX_TAVILY_RESULTS_PER_QUERY,
         searchDepth
       }).then(results => normalizeTavilyResults(results, plan.label))
