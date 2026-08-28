@@ -388,6 +388,55 @@ function clientProfileSummary(profile = {}) {
   ].join("\n");
 }
 
+function buildKnownClientFacts({ sector, subsector, industry, isicCode = "", tradeFlow = null, tradeRoles = [], countries = [] }) {
+  const facts = [];
+  const add = (id, statement) => {
+    if (statement) facts.push({ id, statement });
+  };
+
+  add("K1", "The client is based in Thailand.");
+  add("K2", `The client's selected industry / ISIC activity is ${industry}${isicCode ? ` (${isicCode})` : ""}.`);
+  if (sector) add("K3", `The client's selected sector is ${sector}.`);
+  if (subsector) add("K4", `The client's selected subsector is ${subsector}.`);
+
+  if (tradeFlow) {
+    if (tradeFlow?.purchase?.domestic) add("K5", "The client purchases domestically in Thailand.");
+    if (tradeFlow?.purchase?.international) {
+      const markets = normalizeCountryList(tradeFlow.purchase.countries || []).map(c => c.name || c.label || c.code).filter(Boolean);
+      if (markets.length) add("K6", `The client's stated international purchase markets are ${markets.join(", ")}.`);
+    }
+    const purchaseCurrencies = normalizeCurrencyList(tradeFlow?.purchase?.currencies || []);
+    if (purchaseCurrencies.length) add("K7", `The client's selected purchase currencies are ${purchaseCurrencies.join(", ")}.`);
+
+    if (tradeFlow?.sales?.domestic) add("K8", "The client sells domestically in Thailand.");
+    if (tradeFlow?.sales?.international) {
+      const markets = normalizeCountryList(tradeFlow.sales.countries || []).map(c => c.name || c.label || c.code).filter(Boolean);
+      if (markets.length) add("K9", `The client's stated international sales markets are ${markets.join(", ")}.`);
+    }
+    const salesCurrencies = normalizeCurrencyList(tradeFlow?.sales?.currencies || []);
+    if (salesCurrencies.length) add("K10", `The client's selected sales currencies are ${salesCurrencies.join(", ")}.`);
+  } else {
+    const cleanRoles = uniqueArray((tradeRoles || []).map(v => String(v || "").trim()).filter(Boolean));
+    if (cleanRoles.length) add("K11", `The client's stated trade roles are ${cleanRoles.join(", ")}.`);
+    const cleanCountries = normalizeCountryList(countries || []).map(c => c.name || c.label || c.code).filter(Boolean);
+    if (cleanCountries.length) add("K12", `The client's stated relevant countries / markets are ${cleanCountries.join(", ")}.`);
+  }
+
+  return facts;
+}
+
+function containsUnsupportedClientRelationshipAssumption(text = "") {
+  const value = String(text || "");
+  const patterns = [
+    /\bif (?:the )?client (?:sells?|supplies?|serves?|exports?) (?:to|into)\b/i,
+    /\bif (?:the )?client (?:buys?|sources?|procures?|imports?) (?:from|this|these)\b/i,
+    /\bif (?:the )?client (?:uses?|relies on|depends on)\b/i,
+    /\bif [^.,;]{0,80} (?:is|are) part of (?:its|the client's) (?:input|inputs|raw material|raw materials|supply|supply mix)\b/i,
+    /\bfor (?:any|its) [^.,;]{0,60}(?:buyers?|customers?|suppliers?|vendors?)\b/i
+  ];
+  return patterns.some(pattern => pattern.test(value));
+}
+
 function cardCountInstruction() {
   return "Generate up to 6 cards, ranked from most useful to least useful for the RM. The UI will show the strongest three by default and keep the rest behind Show more. Prefer fewer high-quality cards over filling space.";
 }
@@ -541,6 +590,8 @@ Rules:
 - Currency selections are client context, not a reason to search generic FX news. Only use a currency code if it helps identify a concrete trade, invoicing, payment or market rule.
 - Do NOT create generic FX, macro, commodity, geopolitical, election, rates or broad market queries.
 - A geopolitical, commodity or policy event can still surface when it is directly tied to the client's industry and selected purchase/sales market.
+- Search for CURRENT DEVELOPMENTS, not static reference material. Favor terms such as latest, update, orders, production, shipments, demand, prices, regulation, standards, disruption, capacity, plant, trade measure, or buyer/supplier change when relevant to the exact activity.
+- Do not design queries around generic market-size reports, long-term CAGR forecasts, supplier directories, company profiles, "top companies" lists, or evergreen industry overviews.
 - Do NOT force every country into every query.
 - Do NOT create random country-pair searches unrelated to Thailand or the selected client flows.
 - Avoid questions and long sentences.
@@ -1159,6 +1210,9 @@ Prioritise sources in this order:
 4. Industry-specific news across selected markets only when the connection to how this client buys, sells, produces, delivers, pays or collects is clear.
 
 A useful article must have a clear client implication. It is not enough that it mentions a selected country, a broad sector keyword, a currency, or a generic macro theme.
+Current-news gate: the source must contain a concrete, dated or clearly current development within the selected timeframe. A static business directory, supplier listing, company profile, evergreen explainer, generic market-size page, or long-horizon CAGR/market forecast is LOW even if industry keywords match. A forecast is usable only when the CURRENT development is a newly issued/revised forecast or a current event that materially changes the outlook, and the source clearly dates that change.
+Known-client-fact gate: relevance must be explainable using only facts explicitly supplied in the client profile above. Do NOT assume an unstated buyer segment, supplier type, raw material/input mix, production process, distribution channel, customer concentration, facility structure, or commercial relationship merely because it is plausible for the industry. If the article matters only if such an unstated relationship exists, classify it LOW.
+Use this internal test: complete the sentence "This matters because we know the client ____." The blank must be fillable from the supplied profile, not from industry convention or imagination.
 Industry criticality rule: Prefer articles that involve the core industry terms. Downrank or omit articles that mainly match weak-adjacent/exclusion terms without also matching core terms. For example, a sugar article should not become an animal-feed theme unless it explicitly mentions feed, molasses for feed, feed grain substitution, livestock feed costs, or another core feed linkage.
 Exact-activity gate: being in the same broad sector is not enough. A story about an adjacent product, process, standard, plant type or customer segment should be LOW unless the source explicitly connects it to the client's exact ISIC activity/product OR it is a direct current upstream/downstream link that could change how this client buys, produces, sells or delivers.
 If the only way to explain relevance is with phrases such as "adjacent market", "broader sector", "does not directly concern", "could spill over" or a similar speculative bridge, classify the article LOW.
@@ -1179,18 +1233,30 @@ Return JSON only in this exact shape:
     {
       "number": 1,
       "relevanceLevel": "HIGH",
-      "justification": "One sentence explaining why this source is relevant for this client profile."
+      "contentType": "CURRENT_DEVELOPMENT",
+      "currentDevelopment": true,
+      "justification": "One sentence explaining why this source is relevant using only known client facts."
     }
   ]
 }
 
+Use contentType values only:
+- CURRENT_DEVELOPMENT: a concrete recent event/change.
+- ANALYSIS_WITH_CURRENT_UPDATE: an analysis page that contains a concrete recent update within the timeframe.
+- STATIC_REFERENCE: evergreen/static reference material.
+- DIRECTORY_PROFILE: business directory, supplier listing, or company profile.
+- EVERGREEN_FORECAST: generic market-size/CAGR/long-range forecast without a distinct current trigger.
+- PROMOTIONAL_OTHER: promotional/SEO content without a clear current development.
+
 Relevance levels:
 - HIGH: Thailand-related and directly relevant to the client industry, Thai import/export role, or Thai exposure to selected markets.
 - MEDIUM: useful exact-industry or selected-market context with a clear and specific implication for how the client buys, sells, produces, delivers, pays, collects, or manages supplier/buyer relationships. A same-sector but different-product story is not MEDIUM by itself.
-- LOW: weak keyword match, adjacent-product/process story without an explicit direct link to the exact ISIC activity, unrelated country export/import story, country-pair story without a direct link to the client's stated footprint, new-market or expansion opportunity outside the stated footprint, unrelated company news, old/background content, or no clear client implication.
+- LOW: weak keyword match, adjacent-product/process story without an explicit direct link to the exact ISIC activity, unrelated country export/import story, country-pair story without a direct link to the client's stated footprint, new-market or expansion opportunity outside the stated footprint, unrelated company news, static reference/directory/evergreen forecast content, old/background content, or no clear client implication.
 
 Rules:
 - Return HIGH and MEDIUM sources only; omit LOW sources completely.
+- HIGH or MEDIUM requires currentDevelopment=true and contentType CURRENT_DEVELOPMENT or ANALYSIS_WITH_CURRENT_UPDATE. Static/reference/directory/evergreen-forecast content cannot pass.
+- Reject a source when its client relevance depends on phrases such as "if the client sells to...", "if the client sources...", "if this is part of the client's input mix...", or any other unstated client relationship.
 - Never include a source because relevant updates are limited. Do not use fallback language such as "limited news", "broader context because", or "may be relevant".
 - Keep all HIGH sources.
 - Include MEDIUM sources only when the article has a clear, specific client implication.
@@ -1228,8 +1294,12 @@ ${JSON.stringify(compactSources, null, 2)}
         .filter(item => Number.isFinite(Number(item.number)))
         .map(item => {
           const level = String(item.relevanceLevel || item.relevance_level || (item.relevant ? "HIGH" : "LOW")).toUpperCase();
+          const contentType = String(item.contentType || item.content_type || "").toUpperCase();
+          const currentDevelopment = item.currentDevelopment === true || item.current_development === true || ["CURRENT_DEVELOPMENT", "ANALYSIS_WITH_CURRENT_UPDATE"].includes(contentType);
           return [Number(item.number), {
             relevanceLevel: ["HIGH", "MEDIUM", "LOW"].includes(level) ? level : "LOW",
+            contentType,
+            currentDevelopment,
             justification: String(item.justification || "").trim()
           }];
         })
@@ -1239,11 +1309,16 @@ ${JSON.stringify(compactSources, null, 2)}
       .map(source => {
         const review = reviewsByNumber.get(source.source_number);
         const relevanceLevel = review?.relevanceLevel || "LOW";
+        const currentDevelopment = Boolean(review?.currentDevelopment);
+        const contentType = review?.contentType || "";
+        const newsworthyType = ["CURRENT_DEVELOPMENT", "ANALYSIS_WITH_CURRENT_UPDATE"].includes(contentType);
         return {
           ...source,
           relevance_level: relevanceLevel,
-          relevance_justification: review?.justification || "Relevant as broader context for the client's industry, markets, or trade finance discussion.",
-          relevant: relevanceLevel === "HIGH" || relevanceLevel === "MEDIUM"
+          content_type: contentType,
+          current_development: currentDevelopment,
+          relevance_justification: review?.justification || "",
+          relevant: (relevanceLevel === "HIGH" || relevanceLevel === "MEDIUM") && currentDevelopment && newsworthyType
         };
       })
       .filter(source => source.relevant);
@@ -1525,6 +1600,8 @@ Critical extraction rules:
 - If the article only gives country-specific evidence, geography must remain that country even if the page has a broader regional heading.
 - Preserve the stated period or date (for example "Q2 2026", "July 2026", "21 August 2026"). Do not merge different periods into one trend.
 - Prefer the latest specific update and latest completed period. Older historical sections may be extracted only when they add a distinct factual development; mark them as OLDER_BACKGROUND.
+- Extract CURRENT developments, not static background. Do not extract company-directory facts, supplier listings, generic company descriptions, market-size baselines, generic CAGR forecasts, or evergreen industry descriptions as standalone facts.
+- A forecast fact is allowed only when the article clearly reports a newly issued/revised forecast or a current event that changed the forecast; state the current trigger, not merely the long-term CAGR.
 - Preserve the exact product, activity, regulation, input, buyer segment, or market topic being discussed. Do not broaden an adjacent product into an industry-wide claim.
 - Numeric changes may be included only when explicitly stated in the article.
 - Do not infer causes, client implications, banking implications, or advice.
@@ -1536,6 +1613,10 @@ COUNTRY, REGION, GLOBAL, MULTI_COUNTRY, UNSPECIFIED.
 
 Use these recencyRank values only:
 LATEST_UPDATE, LATEST_PERIOD, RECENT_PERIOD, OLDER_BACKGROUND, UNSPECIFIED.
+
+Use these factType values only:
+CURRENT_EVENT, CURRENT_MARKET_UPDATE, CURRENT_REGULATORY_UPDATE, CURRENT_COMPANY_EVENT, FORECAST_REVISION, BACKGROUND_REFERENCE.
+Normally return only the first five. BACKGROUND_REFERENCE should be used only when inseparable from a current fact and will not be eligible to create a signal by itself.
 
 Return JSON only in this exact shape:
 {
@@ -1551,6 +1632,7 @@ Return JSON only in this exact shape:
           "productOrTopic": "cold-rolled coil",
           "period": "Q2 2026",
           "recencyRank": "LATEST_PERIOD",
+          "factType": "CURRENT_MARKET_UPDATE",
           "scopeNote": "Regional statement; Germany is the numeric example."
         }
       ]
@@ -1587,6 +1669,7 @@ ${sourceContext}
   const validSourceNumbers = new Set(sources.map(source => Number(source.source_number)));
   const allowedScopes = new Set(["COUNTRY", "REGION", "GLOBAL", "MULTI_COUNTRY", "UNSPECIFIED"]);
   const allowedRecency = new Set(["LATEST_UPDATE", "LATEST_PERIOD", "RECENT_PERIOD", "OLDER_BACKGROUND", "UNSPECIFIED"]);
+  const allowedFactTypes = new Set(["CURRENT_EVENT", "CURRENT_MARKET_UPDATE", "CURRENT_REGULATORY_UPDATE", "CURRENT_COMPANY_EVENT", "FORECAST_REVISION"]);
   const output = [];
 
   for (const sourceEntry of parsed.sources) {
@@ -1600,6 +1683,8 @@ ${sourceContext}
 
       const geographyScopeRaw = String(fact?.geographyScope || "UNSPECIFIED").toUpperCase();
       const recencyRankRaw = String(fact?.recencyRank || "UNSPECIFIED").toUpperCase();
+      const factTypeRaw = String(fact?.factType || "BACKGROUND_REFERENCE").toUpperCase();
+      if (!allowedFactTypes.has(factTypeRaw) || recencyRankRaw === "OLDER_BACKGROUND") return;
       output.push({
         factId: `S${sourceNumber}F${index + 1}`,
         sourceNumber,
@@ -1612,6 +1697,7 @@ ${sourceContext}
         productOrTopic: String(fact?.productOrTopic || "").trim(),
         period: String(fact?.period || "Unspecified").trim() || "Unspecified",
         recencyRank: allowedRecency.has(recencyRankRaw) ? recencyRankRaw : "UNSPECIFIED",
+        factType: factTypeRaw,
         scopeNote: String(fact?.scopeNote || "").trim()
       });
     });
@@ -1620,8 +1706,9 @@ ${sourceContext}
   return output;
 }
 
-function validateCardsAgainstAtomicFacts(cards, atomicFacts) {
+function validateCardsAgainstAtomicFacts(cards, atomicFacts, knownClientFacts = []) {
   const factMap = new Map(atomicFacts.map(fact => [String(fact.factId), fact]));
+  const clientFactMap = new Map(knownClientFacts.map(fact => [String(fact.id), fact]));
 
   return (Array.isArray(cards) ? cards : []).filter(card => {
     const factIds = Array.isArray(card?.factIds)
@@ -1635,7 +1722,16 @@ function validateCardsAgainstAtomicFacts(cards, atomicFacts) {
     const requiredSources = new Set(factIds.map(id => factMap.get(id)?.sourceNumber).filter(Number.isFinite));
     if (!requiredSources.size || [...requiredSources].some(number => !sourceNumbers.has(number))) return false;
 
+    const clientFactIds = Array.isArray(card?.clientFactIds)
+      ? [...new Set(card.clientFactIds.map(value => String(value || "").trim()).filter(Boolean))]
+      : [];
+    if (!clientFactIds.length || clientFactIds.some(id => !clientFactMap.has(id))) return false;
+
+    const relevance = String(card?.relevance || card?.linkToClient || card?.link_to_client || "").trim();
+    if (!relevance || containsUnsupportedClientRelationshipAssumption(relevance)) return false;
+
     card.factIds = factIds;
+    card.clientFactIds = clientFactIds;
     card.sourceNumbers = [...sourceNumbers];
     return true;
   });
@@ -1653,6 +1749,7 @@ async function analyzeNewsDevelopments({ env, sources, atomicFacts = [], sector,
     .map(country => country.label || `${country.name} (${country.code})`)
     .join(", ");
   const termProfile = getIndustryTermProfile({ isicCode, industry });
+  const knownClientFacts = buildKnownClientFacts({ sector, subsector, industry, isicCode, tradeFlow, tradeRoles, countries });
 
   const sourceMetadata = new Map(sources.map(source => [Number(source.source_number), source]));
   const factContext = atomicFacts.map(fact => {
@@ -1670,6 +1767,7 @@ async function analyzeNewsDevelopments({ env, sources, atomicFacts = [], sector,
       productOrTopic: fact.productOrTopic,
       period: fact.period,
       recencyRank: fact.recencyRank,
+      factType: fact.factType,
       scopeNote: fact.scopeNote
     };
   });
@@ -1693,6 +1791,10 @@ Countries / markets relevant to the client: ${countryText}`}
 - Search mode: Conversation-card signal scan
 - Search queries used: ${plannedQueries.map(plan => `${plan.label}: ${plan.query}`).join(" | ")}
 
+Known client facts — CLOSED LIST:
+${knownClientFacts.map(fact => `- ${fact.id}: ${fact.statement}`).join("\n")}
+Anything not stated in this list is UNKNOWN. Do not fill gaps with typical industry practice.
+
 Task:
 Create evidence-grounded Client Signals from the provided atomic source facts. Rank them from most useful to least useful for a junior transaction banker. At this stage, generate signals only — do not generate questions, invitations, recommendations, or a full conversation flow.
 ${cardCountInstruction()}
@@ -1701,6 +1803,9 @@ Signal coverage:
 - Focus on the client's exact industry, Thailand operations, selected purchase markets and selected sales markets
 - Treat exact-industry fit as a gate, not a loose preference. Do not create a card from an adjacent product/process story unless the source explicitly links it to the client's exact ISIC activity or to a direct current input/output relationship
 - If you would need to describe a story as an "adjacent market", "broader sector", "does not directly concern" or similar speculative bridge, omit the card
+- KNOWN-FACT GATE: every Link to client must be supported by one or more IDs from the Known client facts closed list. Do not assume who the client's buyers are, who its suppliers are, what raw materials it uses, which production process it follows, which customer segment it serves, or which product is an input/output unless that relationship is explicitly in the known facts.
+- Internal test before keeping a card: complete "This matters because we know the client ____." The blank must be a direct restatement of one or more known client facts. If you need "if the client sells to...", "if the client sources...", "if this is part of its input mix...", or a similar hypothetical business relationship, OMIT THE CARD.
+- Being plausible for companies in this industry is not the same as being known about this client. Unknown relationships belong in later client discovery, not in news relevance.
 - Prioritise developments that could change how the client buys, sells, produces, delivers, pays, collects, or manages supplier/buyer relationships
 - Separate purchase-side supplier/cost/operating implications from sales-side buyer/demand/revenue implications when the evidence supports that distinction
 - Treat purchase countries as supplier/source markets and sales countries as buyer/revenue markets; do not cross-combine countries randomly
@@ -1730,13 +1835,16 @@ Card standard:
 
 Grounding rules:
 - Use ONLY the provided atomic facts. The raw article text is intentionally not provided at this stage.
+- Every atomic fact is intended to represent a current development. Do not turn a background/reference fact, directory fact, generic market-size statistic, or evergreen CAGR forecast into a signal.
+- A FORECAST_REVISION fact is usable only because the source reports a current issuance/revision/change; frame the current trigger, not the distant forecast as if it were today's operating condition.
 - Every factual statement in a card must be traceable to one or more factIds supplied below.
 - Do NOT add unstated facts, general industry knowledge, background assumptions, or evergreen commentary as if sourced.
 - Do NOT imply that an article specifically discusses the client's product, market, currency, or trade flow unless the source explicitly does.
 - You may draw cautious implications, but clearly distinguish direct evidence from inferred relevance.
 - Do not cite a source unless it directly supports the statement being made.
-- Every card must include at least one source number in the sourceNumbers array and at least one matching factId in the factIds array.
+- Every card must include at least one source number in the sourceNumbers array, at least one matching factId in the factIds array, and at least one clientFactId from the Known client facts closed list.
 - Use only factIds that are provided below. sourceNumbers must include the source number corresponding to every cited factId.
+- Use only clientFactIds from the Known client facts closed list. A clientFactId supports only what its statement literally says; it does not license additional assumptions about buyer/supplier type, input mix, production process, or customer segment.
 - Do not put [1] or [2] inline inside the observe, relate, keepInMind, leaveSpace, lightlyExplore, or offerSupport text. Put source references only in sourceNumbers.
 - If the sources do not contain meaningful evidence relevant to this Thailand-based client context, return JSON with "status": "NO_NEWS" and an empty cards array.
 - If there is at least one useful news-based card, return JSON with "status": "OK". Do NOT include the string NO_NEWS anywhere in titles, paragraphs, or bullets.
@@ -1769,8 +1877,9 @@ Return JSON only in this exact shape:
       "title": "Specific practical signal title",
       "tags": ["Trade", "Supply chain"],
       "context": "One concise, evidence-grounded statement of what is happening",
-      "relevance": "One concise, cautious link to the selected client profile and a clear cash, trade, payments, FX, working-capital, liquidity, supplier, buyer, or market transmission channel",
+      "relevance": "One concise, cautious link to the selected client profile using only known client facts and a clear supported transmission channel",
       "factIds": ["S1F1"],
+      "clientFactIds": ["K2", "K9"],
       "sourceNumbers": [1]
     }
   ]
@@ -1820,7 +1929,7 @@ ${JSON.stringify(factContext, null, 2)}
 
     const status = String(parsed.status || "").toUpperCase();
     const rawCards = Array.isArray(parsed.cards) ? parsed.cards : (Array.isArray(parsed.themes) ? parsed.themes : []);
-    const cards = validateCardsAgainstAtomicFacts(rawCards, atomicFacts);
+    const cards = validateCardsAgainstAtomicFacts(rawCards, atomicFacts, knownClientFacts);
 
     if (status === "NO_NEWS" || cards.length === 0) {
       return {

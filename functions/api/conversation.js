@@ -69,6 +69,8 @@ Rules:
 - Do not forecast
 - Do not invent facts
 - Do not imply the client has a problem
+- Do not introduce new facts about the client that are not already present in the selected signal or client profile. In particular, do not invent buyer segments, supplier types, raw materials, input mix, production processes, distribution channels, customer concentration, or commercial relationships.
+- If a useful follow-up depends on an unknown business relationship, Explore lightly may ask the client broadly about that area, but Link to client must not present the relationship as known.
 - Do not weaken or generalise a strong relevance link from the selected signal
 - Treat the client's stated purchase and sales geography as its current footprint, not as an invitation to propose new markets
 - Do not recommend or imply that the client should enter or exit a market, change suppliers or buyers, change production or pricing, invest, acquire, or make another corporate-strategy decision
