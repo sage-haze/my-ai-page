@@ -437,6 +437,16 @@ function containsUnsupportedClientRelationshipAssumption(text = "") {
   return patterns.some(pattern => pattern.test(value));
 }
 
+function containsSpeculativeConsequenceLink(text = "") {
+  const value = String(text || "");
+  const patterns = [
+    /\bif\b/i,
+    /\b(?:could|may|might) (?:affect|change|influence|alter|drive|lead to|result in|translate into|mean)\b/i,
+    /\bpotential(?:ly)? (?:affect|change|influence|alter|lead to|result in)\b/i
+  ];
+  return patterns.some(pattern => pattern.test(value));
+}
+
 function cardCountInstruction() {
   return "Generate up to 6 cards, ranked from most useful to least useful for the RM. The UI will show the strongest three by default and keep the rest behind Show more. Prefer fewer high-quality cards over filling space.";
 }
@@ -1209,7 +1219,7 @@ Prioritise sources in this order:
 3. Sales-market news with a concrete buyer, demand, distribution, regulatory, pricing or collection implication for the client.
 4. Industry-specific news across selected markets only when the connection to how this client buys, sells, produces, delivers, pays or collects is clear.
 
-A useful article must have a clear client implication. It is not enough that it mentions a selected country, a broad sector keyword, a currency, or a generic macro theme.
+A useful article must have a clear client connection. It is not enough that it mentions a selected country, a broad sector keyword, a currency, or a generic macro theme. At this screening stage, do not require a speculative banking consequence: an exact client market plus a genuinely relevant industry development can be a valid watchpoint even when the source does not prove an effect on this client's orders, cash flow, or working capital.
 Current-news gate: the source must contain a concrete, dated or clearly current development within the selected timeframe. A static business directory, supplier listing, company profile, evergreen explainer, generic market-size page, or long-horizon CAGR/market forecast is LOW even if industry keywords match. A forecast is usable only when the CURRENT development is a newly issued/revised forecast or a current event that materially changes the outlook, and the source clearly dates that change.
 Known-client-fact gate: relevance must be explainable using only facts explicitly supplied in the client profile above. Do NOT assume an unstated buyer segment, supplier type, raw material/input mix, production process, distribution channel, customer concentration, facility structure, or commercial relationship merely because it is plausible for the industry. If the article matters only if such an unstated relationship exists, classify it LOW.
 Use this internal test: complete the sentence "This matters because we know the client ____." The blank must be fillable from the supplied profile, not from industry convention or imagination.
@@ -1728,7 +1738,7 @@ function validateCardsAgainstAtomicFacts(cards, atomicFacts, knownClientFacts = 
     if (!clientFactIds.length || clientFactIds.some(id => !clientFactMap.has(id))) return false;
 
     const relevance = String(card?.relevance || card?.linkToClient || card?.link_to_client || "").trim();
-    if (!relevance || containsUnsupportedClientRelationshipAssumption(relevance)) return false;
+    if (!relevance || containsUnsupportedClientRelationshipAssumption(relevance) || containsSpeculativeConsequenceLink(relevance)) return false;
 
     card.factIds = factIds;
     card.clientFactIds = clientFactIds;
@@ -1811,7 +1821,7 @@ Signal coverage:
 - Treat purchase countries as supplier/source markets and sales countries as buyer/revenue markets; do not cross-combine countries randomly
 - Client geography is a constraint, not an opportunity set. The selected countries describe the client's current stated footprint. Do not suggest or imply that the client should enter a new market because an article shows demand elsewhere
 - Do not recommend changing suppliers or buyers, changing production, changing pricing, investing, acquiring, expanding, exiting a market, or any other corporate-strategy action
-- You are supporting a bank relationship manager. Translate relevant developments into possible implications for the client's EXISTING cash flow, payments, collections, supplier/buyer relationships, trade structures, working capital, liquidity, FX flows, operating resilience, or existing banking/facility arrangements
+- You are supporting a bank relationship manager. First establish whether the development intersects the client's EXISTING industry and stated footprint. Do not force a cash-flow, payments, working-capital, liquidity, FX, or facility implication when the source does not directly establish that transmission.
 - Treat selected currencies as context only. Do not create a signal from generic FX movement; only mention currency when the article itself supports a concrete trade, pricing, invoicing or payment link
 - Do not create generic macro, commodity, geopolitical, rates or broad-market cards. Such developments are usable only when the source directly connects them to this client's industry and selected trade flow
 - Translate only the supported commercial consequence into cash, trade, payments, working capital, liquidity, or operating resilience
@@ -1820,14 +1830,16 @@ Signal coverage:
 Card standard:
 - Each card has only two sections: Comment on context and Link to client
 - Comment on context: one concise, plain-English statement of what the selected atomic facts show. Preserve the fact's geography and period in the sentence whenever they are stated; never write an unscoped global-sounding trend from a country- or region-scoped fact.
-- Link to client: one concise sentence explaining a possible connection to the client profile without asserting that the client is affected
+- Link to client: one or two concise sentences. First anchor the source fact to ONE known client fact (for example, the client sells to China). Then, only if needed, state a scope limitation (for example, the source covers steel demand broadly rather than steel sheets specifically). Do not add a hypothetical operating or financial consequence.
 - Geography matching is strict: a COUNTRY fact can support only that country; a REGION fact may be used as broader regional context for a client country in that region, but the wording must stay regional; a countryExample inside a regional fact must never be presented as evidence for another country.
 - A MULTI_COUNTRY fact may be used only for the countries explicitly covered. A GLOBAL fact may be used only when the article itself genuinely states a global development. UNSPECIFIED geography should normally be omitted.
 - If a source has China evidence under an Asia heading but no genuine Asia-wide statement, do not use it as evidence for Japan. If a Europe fact uses Germany as its numeric example, you may describe broader European conditions for a France-exposed client only when the atomic fact itself is REGION-scoped; explicitly avoid implying a France-specific move.
 - Prefer LATEST_UPDATE and LATEST_PERIOD facts. Do not lead with an older quarter when a newer relevant fact from the same source exists, unless the older fact is uniquely relevant to the client's exact footprint.
 - The evidence sentence and client-link sentence must not silently change geography, product/topic, or time period.
-- Separate the directly supported first-order link from any second-order implication. Use conditional wording such as "if orders take longer to confirm" or "if buyers change payment terms" before mentioning receivable timing, inventory holding, packing costs, liquidity, or working-capital effects
-- Do not claim slower collections, higher inventory, delayed payments, or greater cash tied up unless the source directly supports that outcome. When it is only a plausible transmission channel, make the condition explicit
+- ONE-HOP LINK RULE: Link to client may make only one inference beyond the sourced fact: connect the fact to a known client attribute or stated purchase/sales market. Stop there.
+- Do not add second-order consequences in Link to client, even conditionally. Phrases such as "if orders change", "if buyers change terms", "could affect receivables", "may influence working capital", or similar scenario chains belong later in client discovery only after the client raises them.
+- If the source itself directly reports a concrete operating consequence and that consequence maps literally to a known client fact, you may preserve it. Otherwise use factual wording such as "may provide useful context for the demand environment in one of the client's stated sales markets" or "is worth monitoring as broader market context".
+- When the article is broader than the client's exact product/activity but still passes because the geography and industry connection are strong, state that scope plainly and treat it as a watchpoint rather than a direct indicator of the client's orders or performance.
 - Do not generate a question or next step in this first stage
 - Prefer a concrete commercial transmission channel over generic wording
 - Avoid ambiguous contrasts or corrective phrases such as "rather than", "instead of", "not necessarily", "without assuming", "despite", or "although" unless the source itself clearly supports the contrast
@@ -1840,7 +1852,7 @@ Grounding rules:
 - Every factual statement in a card must be traceable to one or more factIds supplied below.
 - Do NOT add unstated facts, general industry knowledge, background assumptions, or evergreen commentary as if sourced.
 - Do NOT imply that an article specifically discusses the client's product, market, currency, or trade flow unless the source explicitly does.
-- You may draw cautious implications, but clearly distinguish direct evidence from inferred relevance.
+- You may draw only a one-hop relevance inference: source fact -> known client fact. Do not infer a chain of operational or financial effects from that connection.
 - Do not cite a source unless it directly supports the statement being made.
 - Every card must include at least one source number in the sourceNumbers array, at least one matching factId in the factIds array, and at least one clientFactId from the Known client facts closed list.
 - Use only factIds that are provided below. sourceNumbers must include the source number corresponding to every cited factId.
