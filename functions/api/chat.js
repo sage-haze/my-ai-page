@@ -1830,7 +1830,7 @@ Signal coverage:
 Card standard:
 - Each card has only two sections: Comment on context and Link to client
 - Comment on context: one concise, plain-English statement of what the selected atomic facts show. Preserve the fact's geography and period in the sentence whenever they are stated; never write an unscoped global-sounding trend from a country- or region-scoped fact.
-- Link to client: one or two concise sentences. First anchor the source fact to ONE known client fact (for example, the client sells to China). Then, only if needed, state a scope limitation (for example, the source covers steel demand broadly rather than steel sheets specifically). Do not add a hypothetical operating or financial consequence.
+- Link to client: one or two concise sentences that read as a natural continuation of Comment on context. Connect the development to ONE known client fact, but do not narrate the validation logic or mechanically restate the client profile. Then, only if genuinely useful, add a light scope caveat. Do not add a hypothetical operating or financial consequence.
 - Geography matching is strict: a COUNTRY fact can support only that country; a REGION fact may be used as broader regional context for a client country in that region, but the wording must stay regional; a countryExample inside a regional fact must never be presented as evidence for another country.
 - A MULTI_COUNTRY fact may be used only for the countries explicitly covered. A GLOBAL fact may be used only when the article itself genuinely states a global development. UNSPECIFIED geography should normally be omitted.
 - If a source has China evidence under an Asia heading but no genuine Asia-wide statement, do not use it as evidence for Japan. If a Europe fact uses Germany as its numeric example, you may describe broader European conditions for a France-exposed client only when the atomic fact itself is REGION-scoped; explicitly avoid implying a France-specific move.
@@ -1838,8 +1838,13 @@ Card standard:
 - The evidence sentence and client-link sentence must not silently change geography, product/topic, or time period.
 - ONE-HOP LINK RULE: Link to client may make only one inference beyond the sourced fact: connect the fact to a known client attribute or stated purchase/sales market. Stop there.
 - Do not add second-order consequences in Link to client, even conditionally. Phrases such as "if orders change", "if buyers change terms", "could affect receivables", "may influence working capital", or similar scenario chains belong later in client discovery only after the client raises them.
-- If the source itself directly reports a concrete operating consequence and that consequence maps literally to a known client fact, you may preserve it. Otherwise use factual wording such as "may provide useful context for the demand environment in one of the client's stated sales markets" or "is worth monitoring as broader market context".
-- When the article is broader than the client's exact product/activity but still passes because the geography and industry connection are strong, state that scope plainly and treat it as a watchpoint rather than a direct indicator of the client's orders or performance.
+- Write Link to client as though it is the next sentence in the same conversation, not as an explanation of why the article passed a relevance test. The banker should be able to read Comment on context and Link to client aloud without sounding like a system prompt.
+- Prefer natural bridges grounded in known facts, for example: "For a Thai steel-sheet producer, that puts energy costs firmly on the radar."; "With China already part of its sales mix, this is a useful read on the demand backdrop there."; "Given its domestic sales exposure, this is worth keeping in view as part of the local market picture." Use these only as style examples; do not copy facts that are not in the client profile.
+- Avoid mechanical or rubric-like wording such as "The client is Thailand-based", "the selected activity is", "the client has stated sales to", "the fact is about", "the source covers", "this is useful context", "this is a sales-side signal", or "this provides context for one of the client's stated markets". Express the same idea naturally instead.
+- Do not start every Link to client with the same formula. Vary the bridge naturally while staying factual and concise.
+- If a scope caveat is needed, make it a light second clause or second sentence rather than the main message. For example, "This is more of a broader steel-market watchpoint than a direct read on sheet orders." Do not refer to the source or the model's reasoning process in the caveat.
+- If the source itself directly reports a concrete operating consequence and that consequence maps literally to a known client fact, you may preserve it. Otherwise stop after the factual client connection.
+- When the article is broader than the client's exact product/activity but still passes because the geography and industry connection are strong, preserve that scope naturally and treat it as a watchpoint rather than a direct indicator of the client's orders or performance.
 - Do not generate a question or next step in this first stage
 - Prefer a concrete commercial transmission channel over generic wording
 - Avoid ambiguous contrasts or corrective phrases such as "rather than", "instead of", "not necessarily", "without assuming", "despite", or "although" unless the source itself clearly supports the contrast
@@ -1878,7 +1883,9 @@ Relevance discipline:
 Writing style:
 - Use practical, banker-friendly titles. Avoid generic titles such as "Supply Chain Risk" or "Market Update".
 - Keep each paragraph short and calibrated.
-- When relevance is indirect, use cautious wording such as "may", "could", "worth monitoring", or "conversation opener".
+- Comment on context should state the development plainly; Link to client should feel like a smooth bridge from that observation, not a separate compliance explanation.
+- Keep the strict known-fact and one-hop checks INTERNAL. Do not expose fact-validation language, client-profile labels, or source-screening logic to the banker.
+- When relevance is indirect, use cautious wording such as "may", "worth keeping in view", "watchpoint", or "broader market backdrop" without inventing a consequence.
 - Avoid overly promotional language.
 
 Return JSON only in this exact shape:
