@@ -1,63 +1,19 @@
 import { INDUSTRY_TERMS } from "./industry-terms.js";
 
-const DEFAULT_APPROVED_DOMAINS = [
+const PREFERRED_NEWS_DOMAINS = [
   "reuters.com",
   "bloomberg.com",
   "ft.com",
   "wsj.com",
-  "worldbank.org",
-  "imf.org",
-  "bis.org",
-  "bot.or.th"
+  "nikkei.com",
+  "spglobal.com"
 ];
+
+const MIN_RAW_ARTICLE_WORDS = 120;
+const MAX_TAVILY_RESULTS_PER_QUERY = 10;
+const MAX_FINAL_NEWS_SOURCES = 10;
 
 const ALLOWED_CURRENCIES = ["THB", "USD", "JPY", "EUR", "CNY"];
-
-const ISO2_TO_ISO3 = {
-  TH: "THA", US: "USA", CN: "CHN", JP: "JPN", KR: "KOR", SG: "SGP", MY: "MYS", ID: "IDN", VN: "VNM", PH: "PHL",
-  KH: "KHM", LA: "LAO", MM: "MMR", BN: "BRN", IN: "IND", AU: "AUS", NZ: "NZL", GB: "GBR", DE: "DEU", FR: "FRA",
-  IT: "ITA", NL: "NLD", BE: "BEL", ES: "ESP", CA: "CAN", MX: "MEX", BR: "BRA", AE: "ARE", SA: "SAU", ZA: "ZAF"
-};
-
-const COUNTRY_NAME_TO_ISO3 = {
-  thailand: "THA", "united states": "USA", usa: "USA", china: "CHN", japan: "JPN", "south korea": "KOR", singapore: "SGP",
-  malaysia: "MYS", indonesia: "IDN", vietnam: "VNM", "viet nam": "VNM", philippines: "PHL", cambodia: "KHM", laos: "LAO",
-  "lao pdr": "LAO", myanmar: "MMR", brunei: "BRN", india: "IND", australia: "AUS", "united kingdom": "GBR", germany: "DEU",
-  france: "FRA", italy: "ITA", netherlands: "NLD", belgium: "BEL", spain: "ESP", canada: "CAN", mexico: "MEX", brazil: "BRA",
-  "united arab emirates": "ARE", "saudi arabia": "SAU", "south africa": "ZAF"
-};
-
-const WORLD_BANK_INDICATORS = [
-  { id: "NY.GDP.MKTP.KD.ZG", label: "real GDP growth", unit: "%", thread: "macro_indicators" },
-  { id: "FP.CPI.TOTL.ZG", label: "consumer inflation", unit: "%", thread: "macro_indicators" },
-  { id: "NE.EXP.GNFS.ZS", label: "exports of goods and services", unit: "% of GDP", thread: "trade_supply_chain" },
-  { id: "NE.IMP.GNFS.ZS", label: "imports of goods and services", unit: "% of GDP", thread: "trade_supply_chain" },
-  { id: "BX.KLT.DINV.WD.GD.ZS", label: "net FDI inflows", unit: "% of GDP", thread: "capital_flows" }
-];
-
-const IMF_DATAMAPPER_INDICATORS = [
-  { id: "NGDP_RPCH", label: "IMF real GDP growth", unit: "%", thread: "macro_indicators" },
-  { id: "PCPIPCH", label: "IMF consumer inflation", unit: "%", thread: "macro_indicators" },
-  { id: "BCA_NGDPD", label: "IMF current account balance", unit: "% of GDP", thread: "macro_indicators" }
-];
-
-const FRED_INDICATORS = [
-  { id: "DGS10", label: "US 10-year Treasury yield", unit: "%", thread: "macro_indicators" },
-  { id: "FEDFUNDS", label: "Effective federal funds rate", unit: "%", thread: "macro_indicators" },
-  { id: "CPIAUCSL", label: "US CPI index", unit: "index", thread: "macro_indicators" },
-  { id: "UNRATE", label: "US unemployment rate", unit: "%", thread: "macro_indicators" },
-  { id: "DTWEXBGS", label: "Nominal broad US dollar index", unit: "index", thread: "fx_rates" }
-];
-
-const BOT_CURRENCY_NAME_TO_CODE = {
-  "US DOLLAR": "USD",
-  "EURO": "EUR",
-  "JAPANESE YEN": "JPY",
-  "CHINESE YUAN": "CNY",
-  "YUAN RENMINBI": "CNY"
-};
-
-const BOT_ALLOWED_FX_CURRENCIES = ["USD", "EUR", "JPY", "CNY"];
 
 const OPENAI_FAST_MODEL = "gpt-4.1-mini";
 const OPENAI_ANALYSIS_MODEL = "gpt-4.1";
@@ -318,493 +274,6 @@ function normalizeCurrencyList(currencies = []) {
     .filter(currency => ALLOWED_CURRENCIES.includes(currency)));
 }
 
-function countryToIso3(country) {
-  const code = String(country?.code || "").toUpperCase().trim();
-  if (code.length === 3) return code;
-  if (code.length === 2 && ISO2_TO_ISO3[code]) return ISO2_TO_ISO3[code];
-
-  const name = String(country?.name || country?.label || "").toLowerCase().trim();
-  return COUNTRY_NAME_TO_ISO3[name] || "";
-}
-
-function getEvidenceCountryCodes(tradeFlow, maxCountries = 5) {
-  const selectedCountries = getAllTradeFlowCountries(tradeFlow);
-  const codes = ["THA", ...selectedCountries.map(countryToIso3)]
-    .map(code => String(code || "").toUpperCase().trim())
-    .filter(Boolean);
-
-  return uniqueArray(codes).slice(0, maxCountries);
-}
-
-function shouldFetchOfficialEvidence(signalThreads = []) {
-  const enabled = new Set(signalThreads && signalThreads.length ? signalThreads : defaultSignalThreads());
-  return ["macro_indicators", "trade_supply_chain", "sector_news", "fx_rates"].some(thread => enabled.has(thread));
-}
-
-function latestByCountry(rows = []) {
-  const byCountry = new Map();
-  for (const row of rows || []) {
-    if (row?.value === null || row?.value === undefined) continue;
-    const countryCode = row?.countryiso3code || row?.country?.id || "";
-    const countryName = row?.country?.value || countryCode;
-    const year = Number(row?.date);
-    if (!countryCode || !Number.isFinite(year)) continue;
-    const existing = byCountry.get(countryCode);
-    if (!existing || year > existing.year) {
-      byCountry.set(countryCode, {
-        countryCode,
-        countryName,
-        year,
-        value: Number(row.value)
-      });
-    }
-  }
-  return [...byCountry.values()].sort((a, b) => a.countryName.localeCompare(b.countryName));
-}
-
-function formatDataPointValue(value, unit = "") {
-  if (!Number.isFinite(Number(value))) return "n/a";
-  const abs = Math.abs(Number(value));
-  const digits = abs >= 100 ? 1 : 2;
-  return `${Number(value).toFixed(digits)}${unit ? ` ${unit}` : ""}`;
-}
-
-function sourceDateFromYear(year) {
-  const safeYear = Number(year);
-  return Number.isFinite(safeYear) && safeYear > 1900 ? `${safeYear}-12-31` : "";
-}
-
-function includeOfficialIndicator(indicator, signalThreads = []) {
-  const enabled = new Set(signalThreads && signalThreads.length ? signalThreads : []);
-  if (enabled.has("macro_indicators")) return true;
-  if (indicator.thread === "trade_supply_chain" && enabled.has("trade_supply_chain")) return true;
-  if (indicator.thread === "capital_flows" && (enabled.has("sector_news") || enabled.has("trade_supply_chain"))) return true;
-  if (!enabled.size) return true;
-  return false;
-}
-
-async function fetchWorldBankEvidence({ countryCodes = [], signalThreads = [] }) {
-  const countries = uniqueArray(countryCodes).slice(0, 5);
-  if (!countries.length) return [];
-
-  const selectedIndicators = WORLD_BANK_INDICATORS.filter(indicator => includeOfficialIndicator(indicator, signalThreads));
-  const countryPath = countries.join(";");
-  const evidence = [];
-
-  for (const indicator of selectedIndicators) {
-    const url = new URL(`https://api.worldbank.org/v2/country/${countryPath}/indicator/${indicator.id}`);
-    url.searchParams.set("format", "json");
-    url.searchParams.set("per_page", "80");
-    url.searchParams.set("date", "2019:2030");
-
-    try {
-      const response = await fetch(url.toString(), { headers: { "User-Agent": "conversation-builder/1.0" } });
-      if (!response.ok) continue;
-      const data = await response.json().catch(() => null);
-      const rows = Array.isArray(data?.[1]) ? data[1] : [];
-      const latest = latestByCountry(rows);
-      if (!latest.length) continue;
-
-      const latestYear = Math.max(...latest.map(item => item.year));
-      const summaryLines = latest.map(item => `${item.countryName}: ${formatDataPointValue(item.value, indicator.unit)} (${item.year})`);
-      const summary = `${indicator.label}: ${summaryLines.join("; ")}.`;
-
-      evidence.push({
-        title: `World Bank data: ${indicator.label}`,
-        url: url.toString(),
-        source: "World Bank Indicators API",
-        domain: "worldbank.org",
-        published_at: sourceDateFromYear(latestYear),
-        summary,
-        raw_content: `Official World Bank indicator ${indicator.id}. ${summary} Use as periodic structural context rather than daily news.`,
-        score: 0.95,
-        source_group: `official_world_bank_${indicator.thread}`,
-        evidence_kind: "official_data"
-      });
-    } catch (_) {
-      // Keep official sources best-effort so a public API outage does not break the app.
-    }
-  }
-
-  return evidence;
-}
-
-function latestImfValues(valuesByCountry = {}) {
-  return Object.entries(valuesByCountry || {}).map(([countryCode, values]) => {
-    const yearEntries = Object.entries(values || {})
-      .map(([year, value]) => ({ year: Number(year), value: Number(value) }))
-      .filter(item => Number.isFinite(item.year) && Number.isFinite(item.value))
-      .sort((a, b) => b.year - a.year);
-    const latest = yearEntries[0];
-    if (!latest) return null;
-    return { countryCode, year: latest.year, value: latest.value };
-  }).filter(Boolean);
-}
-
-async function fetchImfDatamapperEvidence({ countryCodes = [], signalThreads = [] }) {
-  const countries = uniqueArray(countryCodes).slice(0, 5);
-  if (!countries.length) return [];
-
-  const selectedIndicators = IMF_DATAMAPPER_INDICATORS.filter(indicator => includeOfficialIndicator(indicator, signalThreads));
-  const evidence = [];
-
-  for (const indicator of selectedIndicators) {
-    const url = `https://www.imf.org/external/datamapper/api/v1/${indicator.id}/${countries.join("/")}`;
-
-    try {
-      const response = await fetch(url, { headers: { "User-Agent": "conversation-builder/1.0" } });
-      if (!response.ok) continue;
-      const data = await response.json().catch(() => null);
-      const rawValues = data?.values?.[indicator.id] || data?.values || {};
-      const latest = latestImfValues(rawValues);
-      if (!latest.length) continue;
-
-      const latestYear = Math.max(...latest.map(item => item.year));
-      const countryNames = data?.countries || {};
-      const summaryLines = latest.map(item => {
-        const countryName = countryNames?.[item.countryCode]?.label || countryNames?.[item.countryCode] || item.countryCode;
-        return `${countryName}: ${formatDataPointValue(item.value, indicator.unit)} (${item.year})`;
-      });
-      const summary = `${indicator.label}: ${summaryLines.join("; ")}.`;
-
-      evidence.push({
-        title: `IMF DataMapper: ${indicator.label}`,
-        url,
-        source: "IMF DataMapper API",
-        domain: "imf.org",
-        published_at: sourceDateFromYear(latestYear),
-        summary,
-        raw_content: `Official IMF DataMapper indicator ${indicator.id}. ${summary} Use as macro context and peer comparison, not daily news.`,
-        score: 0.9,
-        source_group: `official_imf_${indicator.thread}`,
-        evidence_kind: "official_data"
-      });
-    } catch (_) {
-      // Best-effort only.
-    }
-  }
-
-  return evidence;
-}
-
-async function fetchNoKeyOfficialEvidence({ tradeFlow, signalThreads = [] }) {
-  if (!shouldFetchOfficialEvidence(signalThreads)) return [];
-
-  const countryCodes = getEvidenceCountryCodes(tradeFlow, 5);
-  const results = await Promise.allSettled([
-    fetchWorldBankEvidence({ countryCodes, signalThreads }),
-    fetchImfDatamapperEvidence({ countryCodes, signalThreads })
-  ]);
-
-  return results
-    .flatMap(result => result.status === "fulfilled" ? result.value : [])
-    .filter(item => item && item.url);
-}
-
-function getPreviousDateString(daysBack = 7) {
-  return formatDate(new Date(Date.now() - Number(daysBack || 7) * 24 * 60 * 60 * 1000));
-}
-
-function getNestedArray(data, possiblePaths = []) {
-  for (const path of possiblePaths) {
-    let value = data;
-    for (const key of path) {
-      value = value?.[key];
-    }
-    if (Array.isArray(value)) return value;
-  }
-  return [];
-}
-
-function latestByDate(rows = [], dateFields = ["period", "date", "as_of_date", "effective_date", "rate_date"]) {
-  return [...(rows || [])]
-    .filter(row => row && typeof row === "object")
-    .sort((a, b) => {
-      const aDate = Date.parse(dateFields.map(field => a[field]).find(Boolean) || "") || 0;
-      const bDate = Date.parse(dateFields.map(field => b[field]).find(Boolean) || "") || 0;
-      return bDate - aDate;
-    })[0] || null;
-}
-
-function firstFiniteNumber(row = {}, fields = []) {
-  for (const field of fields) {
-    const raw = row?.[field];
-    if (raw === null || raw === undefined || raw === "") continue;
-    const value = Number(String(raw).replace(/,/g, ""));
-    if (Number.isFinite(value)) return value;
-  }
-  return null;
-}
-
-function botHeaders(env) {
-  return {
-    "X-IBM-Client-Id": env.BOT_API_CLIENT_ID,
-    "accept": "application/json",
-    "User-Agent": "conversation-builder/1.0"
-  };
-}
-
-async function botGet(env, endpoint, params = {}) {
-  if (!env.BOT_API_CLIENT_ID) return null;
-  const url = new URL(endpoint);
-  Object.entries(params || {}).forEach(([key, value]) => {
-    if (value !== null && value !== undefined && value !== "") url.searchParams.set(key, String(value));
-  });
-
-  const response = await fetch(url.toString(), { headers: botHeaders(env) });
-  const text = await response.text();
-  let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch (_) { data = { raw: text }; }
-  if (!response.ok) {
-    const message = data?.error || data?.message || data?.moreInformation || text || `BOT request failed with HTTP ${response.status}`;
-    throw new Error(String(message).slice(0, 240));
-  }
-  return data;
-}
-
-function makeOfficialEvidence({ title, url, summary, rawContent, publishedAt = "", sourceGroup, score = 0.96 }) {
-  return {
-    title,
-    url,
-    source: "Bank of Thailand API",
-    domain: "bot.or.th",
-    published_at: publishedAt,
-    summary,
-    raw_content: rawContent || `${title}. ${summary}`,
-    score,
-    source_group: sourceGroup,
-    evidence_kind: "official_data"
-  };
-}
-
-function botCurrencyCode(row = {}) {
-  const direct = String(row.currency_id || row.currency_code || row.currency || row.ccy || "").toUpperCase().trim();
-  if (BOT_ALLOWED_FX_CURRENCIES.includes(direct)) return direct;
-
-  const name = String(row.currency_name_eng || row.currency_name || row.currency_name_th || "").toUpperCase();
-  for (const [needle, code] of Object.entries(BOT_CURRENCY_NAME_TO_CODE)) {
-    if (name.includes(needle)) return code;
-  }
-  return "";
-}
-
-async function fetchBotExchangeRateEvidence({ env, currencies = [], signalThreads = [] }) {
-  const enabled = new Set(signalThreads || []);
-  if (enabled.size && !enabled.has("fx_rates") && !enabled.has("macro_indicators")) return [];
-  if (!env.BOT_API_CLIENT_ID) return [];
-
-  const targetCurrencies = uniqueArray((currencies || []).filter(currency => BOT_ALLOWED_FX_CURRENCIES.includes(currency)));
-  if (!targetCurrencies.length) return [];
-
-  const end_period = formatDate(new Date());
-  const start_period = getPreviousDateString(30);
-  const endpoint = "https://apigw1.bot.or.th/bot/public/Stat-ExchangeRate/v2/DAILY_AVG_EXG_RATE/";
-
-  try {
-    const data = await botGet(env, endpoint, { start_period, end_period });
-    const rows = getNestedArray(data, [["result", "data"], ["result", "data", "data"], ["data"]]);
-    if (!rows.length) return [];
-
-    const lines = [];
-    const rawRows = [];
-    for (const currency of targetCurrencies) {
-      const matches = rows.filter(row => botCurrencyCode(row) === currency);
-      const latest = latestByDate(matches);
-      if (!latest) continue;
-      const mid = firstFiniteNumber(latest, ["mid_rate", "rate", "selling", "buying_transfer", "buying_sight"]);
-      if (!Number.isFinite(mid)) continue;
-      const period = latest.period || latest.date || latest.as_of_date || end_period;
-      lines.push(`${currency}/THB: ${mid.toFixed(4)} (${period})`);
-      rawRows.push(latest);
-    }
-
-    if (!lines.length) return [];
-    const summary = `BOT average exchange rate latest observations: ${lines.join("; ")}.`;
-    return [makeOfficialEvidence({
-      title: "Bank of Thailand data: selected THB exchange rates",
-      url: `${endpoint}?start_period=${start_period}&end_period=${end_period}`,
-      summary,
-      rawContent: `${summary} Use as Thailand-local FX evidence for currency mismatch, payment timing, invoice currency, and hedge discipline conversations. Raw rows: ${JSON.stringify(rawRows).slice(0, 1800)}`,
-      publishedAt: end_period,
-      sourceGroup: "official_bot_fx_rates"
-    })];
-  } catch (_) {
-    return [];
-  }
-}
-
-async function fetchBotPolicyRateEvidence({ env, signalThreads = [] }) {
-  const enabled = new Set(signalThreads || []);
-  if (enabled.size && !enabled.has("macro_indicators") && !enabled.has("fx_rates")) return [];
-  if (!env.BOT_API_CLIENT_ID) return [];
-
-  const endpoint = "https://apigw1.bot.or.th/bot/public/PolicyRate/v2/policy_rate/";
-  try {
-    const data = await botGet(env, endpoint);
-    const rows = getNestedArray(data, [["result", "data"], ["data"]]);
-    const latest = Array.isArray(rows) && rows.length ? latestByDate(rows) : data?.result?.data || data?.data || data;
-    const rate = firstFiniteNumber(latest, ["policy_rate", "rate", "value", "interest_rate"]);
-    if (!Number.isFinite(rate)) return [];
-    const date = latest?.period || latest?.date || latest?.as_of_date || latest?.effective_date || formatDate(new Date());
-    const summary = `BOT policy rate latest observation: ${rate.toFixed(2)}%${date ? ` (${date})` : ""}.`;
-    return [makeOfficialEvidence({
-      title: "Bank of Thailand data: policy rate",
-      url: endpoint,
-      summary,
-      rawContent: `${summary} Use as Thailand-local rate context for deposit strategy, borrowing cost, refinancing, working capital discipline, and liquidity conversations.`,
-      publishedAt: date,
-      sourceGroup: "official_bot_interest_rates"
-    })];
-  } catch (_) {
-    return [];
-  }
-}
-
-function botTenorLabel(row = {}) {
-  return String(row.tenor || row.period_type || row.term_type || row.rate_type || row.type || row.name || "rate").trim();
-}
-
-async function fetchBotBiborEvidence({ env, signalThreads = [] }) {
-  const enabled = new Set(signalThreads || []);
-  if (enabled.size && !enabled.has("macro_indicators") && !enabled.has("fx_rates")) return [];
-  if (!env.BOT_API_CLIENT_ID) return [];
-
-  const end_period = formatDate(new Date());
-  const start_period = getPreviousDateString(30);
-  const endpoint = "https://apigw1.bot.or.th/bot/public/BIBOR/v2/bibor_rate/";
-  try {
-    const data = await botGet(env, endpoint, { start_period, end_period });
-    const rows = getNestedArray(data, [["result", "data"], ["data"]]);
-    if (!rows.length) return [];
-
-    const byTenor = new Map();
-    for (const row of rows) {
-      const tenor = botTenorLabel(row);
-      const value = firstFiniteNumber(row, ["rate", "interest_rate", "value", "bid", "offer"]);
-      if (!tenor || !Number.isFinite(value)) continue;
-      const existing = byTenor.get(tenor);
-      const rowDate = Date.parse(row.period || row.date || row.as_of_date || "") || 0;
-      const existingDate = Date.parse(existing?.period || existing?.date || existing?.as_of_date || "") || 0;
-      if (!existing || rowDate >= existingDate) byTenor.set(tenor, row);
-    }
-
-    const lines = [...byTenor.entries()].slice(0, 5).map(([tenor, row]) => {
-      const value = firstFiniteNumber(row, ["rate", "interest_rate", "value", "bid", "offer"]);
-      const period = row.period || row.date || row.as_of_date || end_period;
-      return `${tenor}: ${value.toFixed(2)}% (${period})`;
-    });
-    if (!lines.length) return [];
-
-    const summary = `BOT BIBOR latest observations: ${lines.join("; ")}.`;
-    return [makeOfficialEvidence({
-      title: "Bank of Thailand data: BIBOR rates",
-      url: `${endpoint}?start_period=${start_period}&end_period=${end_period}`,
-      summary,
-      rawContent: `${summary} Use as Thailand-local short-term rate context for funding cost, cash yield, deposits, and working capital conversations.`,
-      publishedAt: end_period,
-      sourceGroup: "official_bot_interest_rates"
-    })];
-  } catch (_) {
-    return [];
-  }
-}
-
-async function fetchBotStatisticsCatalogueEvidence({ env, signalThreads = [] }) {
-  const enabled = new Set(signalThreads || []);
-  if (enabled.size && !enabled.has("macro_indicators") && !enabled.has("trade_supply_chain")) return [];
-  if (!env.BOT_API_CLIENT_ID) return [];
-
-  const endpoint = "https://apigw1.bot.or.th/bot/public/search-series/";
-  const keywords = enabled.has("trade_supply_chain") ? ["exports", "imports"] : ["inflation", "current account"];
-
-  const evidence = [];
-  for (const keyword of keywords.slice(0, 2)) {
-    try {
-      const data = await botGet(env, endpoint, { keyword });
-      const rows = getNestedArray(data, [["result", "series_details"], ["result", "data"], ["data"]]).slice(0, 5);
-      if (!rows.length) continue;
-      const names = rows.map(row => row.series_name_eng || row.series_name || row.name || row.series_code).filter(Boolean).slice(0, 4);
-      if (!names.length) continue;
-      evidence.push(makeOfficialEvidence({
-        title: `Bank of Thailand statistics catalogue: ${keyword}`,
-        url: `${endpoint}?keyword=${encodeURIComponent(keyword)}`,
-        summary: `BOT statistics catalogue has available series for ${keyword}: ${names.join("; ")}.`,
-        rawContent: `BOT statistics catalogue search result for ${keyword}. This is a data-discovery signal only; use it to identify local statistics available for follow-up, not as a direct numeric observation.`,
-        publishedAt: formatDate(new Date()),
-        sourceGroup: "official_bot_statistics_catalogue",
-        score: 0.75
-      }));
-    } catch (_) {
-      // best effort
-    }
-  }
-  return evidence;
-}
-
-async function fetchFredEvidence({ env, signalThreads = [] }) {
-  const enabled = new Set(signalThreads || []);
-  if (enabled.size && !enabled.has("macro_indicators") && !enabled.has("fx_rates")) return [];
-  if (!env.FRED_API_KEY) return [];
-
-  const selected = FRED_INDICATORS.filter(indicator => includeOfficialIndicator(indicator, signalThreads));
-  const evidence = [];
-
-  for (const indicator of selected) {
-    const url = new URL("https://api.stlouisfed.org/fred/series/observations");
-    url.searchParams.set("series_id", indicator.id);
-    url.searchParams.set("api_key", env.FRED_API_KEY);
-    url.searchParams.set("file_type", "json");
-    url.searchParams.set("sort_order", "desc");
-    url.searchParams.set("limit", "3");
-
-    try {
-      const response = await fetch(url.toString(), { headers: { "User-Agent": "conversation-builder/1.0" } });
-      if (!response.ok) continue;
-      const data = await response.json().catch(() => null);
-      const latest = (data?.observations || [])
-        .map(item => ({ date: item.date, value: Number(item.value) }))
-        .find(item => item.date && Number.isFinite(item.value));
-      if (!latest) continue;
-
-      const publicUrl = `https://fred.stlouisfed.org/series/${indicator.id}`;
-      const valueText = formatDataPointValue(latest.value, indicator.unit);
-      const summary = `FRED ${indicator.label}: ${valueText} (${latest.date}).`;
-      evidence.push({
-        title: `FRED data: ${indicator.label}`,
-        url: publicUrl,
-        source: "FRED API",
-        domain: "fred.stlouisfed.org",
-        published_at: latest.date,
-        summary,
-        raw_content: `${summary} Use as global market-driver context for Thailand-based client conversations, especially USD, rates, global demand, and risk sentiment.`,
-        score: 0.9,
-        source_group: `official_fred_${indicator.thread}`,
-        evidence_kind: "official_data"
-      });
-    } catch (_) {
-      // best effort
-    }
-  }
-
-  return evidence;
-}
-
-async function fetchCredentialedOfficialEvidence({ env, tradeFlow, currencies = [], signalThreads = [] }) {
-  if (!shouldFetchOfficialEvidence(signalThreads)) return [];
-
-  const results = await Promise.allSettled([
-    fetchFredEvidence({ env, signalThreads }),
-    fetchBotExchangeRateEvidence({ env, currencies, signalThreads }),
-    fetchBotPolicyRateEvidence({ env, signalThreads }),
-    fetchBotBiborEvidence({ env, signalThreads }),
-    fetchBotStatisticsCatalogueEvidence({ env, signalThreads })
-  ]);
-
-  return results
-    .flatMap(result => result.status === "fulfilled" ? result.value : [])
-    .filter(item => item && item.url);
-}
-
 function normalizeTradeFlow(raw = {}, fallbackCountries = [], fallbackCurrencies = []) {
   const purchase = raw?.purchase || {};
   const sales = raw?.sales || {};
@@ -908,7 +377,7 @@ function cardCountInstruction() {
 }
 
 function defaultSignalThreads() {
-  return ["sector_news", "fx_rates", "geopolitics", "trade_supply_chain", "commodities", "macro_indicators"];
+  return ["sector_news", "trade_supply_chain"];
 }
 
 function signalThreadText(signalThreads = []) {
@@ -937,46 +406,49 @@ function formatKeepInMind(value) {
   ].filter(Boolean).join(" ").trim();
 }
 
-function buildFallbackQueries({ sector, subsector, industry, isicCode, tradeFlow, signalThreads = [] }) {
+function buildFallbackQueries({ sector, subsector, industry, isicCode, tradeFlow }) {
   const baseKeywords = getSearchKeywords({ sector, subsector, industry, isicCode }).slice(0, 4).join(" ");
-  const purchaseMarkets = listCountries(tradeFlow?.purchase?.countries, 3);
-  const salesMarkets = listCountries(tradeFlow?.sales?.countries, 3);
-  const enabled = new Set(signalThreads && signalThreads.length ? signalThreads : defaultSignalThreads());
-  const queries = [
-    { label: "purchase_cost_supply_context", thread: "trade_supply_chain", query: cleanQueryText(`Thailand ${industry} import sourcing supplier costs logistics ${purchaseMarkets} news`), maxResults: 5 },
-    { label: "sales_demand_export_context", thread: "sector_news", query: cleanQueryText(`Thailand ${industry} exports demand buyers ${salesMarkets} news`), maxResults: 5 },
-    { label: "industry_trade_context", thread: "sector_news", query: cleanQueryText(`${industry} global supply chain demand prices trade news`), maxResults: 5 },
-    { label: "fx_trade_crosswinds", thread: "fx_rates", query: cleanQueryText(`Thailand ${industry} FX currency trade impact ${baseKeywords} news`), maxResults: 5 },
-    { label: "geopolitics_policy_risk", thread: "geopolitics", query: cleanQueryText(`${industry} Thailand trade geopolitics sanctions shipping policy disruption news`), maxResults: 5 },
-    { label: "commodities_input_costs", thread: "commodities", query: cleanQueryText(`${industry} commodity input costs prices margins Thailand news`), maxResults: 5 },
-    { label: "macro_background", thread: "macro_indicators", query: cleanQueryText(`Thailand ${industry} macro inflation PMI exports demand news`), maxResults: 5 }
-  ];
-  return queries.filter(item => enabled.has(item.thread) && item.query.length > 0).slice(0, 8);
-}
+  const purchaseMarkets = listCountries(tradeFlow?.purchase?.countries, 4);
+  const salesMarkets = listCountries(tradeFlow?.sales?.countries, 4);
+  const allMarkets = listCountries(getAllTradeFlowCountries(tradeFlow), 5);
 
-function buildRecoveryQueries({ sector, subsector, industry, isicCode, tradeFlow }) {
-  const baseKeywords = getSearchKeywords({ sector, subsector, industry, isicCode }).slice(0, 3).join(" ");
-  const markets = listCountries(getAllTradeFlowCountries(tradeFlow), 4);
   return [
-    { label: "fallback_thailand_industry", query: cleanQueryText(`Thailand ${industry} trade supply chain demand news`), maxResults: 5 },
-    { label: "fallback_exposure_context", query: cleanQueryText(`${industry} ${markets} supply demand logistics tariffs news`), maxResults: 5 },
-    { label: "fallback_sector_context", query: cleanQueryText(`${industry} ${baseKeywords} global trade news`), maxResults: 5 }
-  ].filter(item => item.query.length > 0).slice(0, 3);
+    {
+      label: "purchase_market_context",
+      query: cleanQueryText(`Thailand ${industry} suppliers sourcing imports ${purchaseMarkets} ${baseKeywords} news`),
+      maxResults: MAX_TAVILY_RESULTS_PER_QUERY
+    },
+    {
+      label: "sales_market_context",
+      query: cleanQueryText(`Thailand ${industry} buyers exports demand ${salesMarkets} ${baseKeywords} news`),
+      maxResults: MAX_TAVILY_RESULTS_PER_QUERY
+    },
+    {
+      label: "thailand_industry_context",
+      query: cleanQueryText(`Thailand ${industry} industry production trade regulation ${baseKeywords} news`),
+      maxResults: MAX_TAVILY_RESULTS_PER_QUERY
+    },
+    {
+      label: "industry_selected_markets_context",
+      query: cleanQueryText(`${industry} ${allMarkets} suppliers buyers trade industry ${baseKeywords} news`),
+      maxResults: MAX_TAVILY_RESULTS_PER_QUERY
+    }
+  ].filter(item => item.query.length > 0);
 }
 
 function prepareCandidateSources({ sources }) {
   const allCandidateSources = dedupeSources(sources)
+    .filter(source => hasSufficientArticleContent(source))
     .sort((a, b) => {
       const aThai = isThailandRelatedSource(a) ? 1 : 0;
       const bThai = isThailandRelatedSource(b) ? 1 : 0;
-      const aThaiGroup = String(a.source_group || "").includes("thai") ? 1 : 0;
-      const bThaiGroup = String(b.source_group || "").includes("thai") ? 1 : 0;
-      return bThai - aThai || bThaiGroup - aThaiGroup || (b.score || 0) - (a.score || 0);
+      const authorityDelta = getSourceAuthorityScore(b) - getSourceAuthorityScore(a);
+      return bThai - aThai || authorityDelta || (b.score || 0) - (a.score || 0);
     });
 
-  // Keep the review pool balanced so selected-country/global searches do not crowd out Thailand-related sources.
-  const candidateLimit = 16;
-  const perGroupLimit = 5;
+  // Review a broader but still bounded pool so the RM can receive up to 10 strong articles after filtering.
+  const candidateLimit = 24;
+  const perGroupLimit = 8;
   const groupCounts = new Map();
   const balancedCandidates = [];
 
@@ -1008,61 +480,60 @@ function parseQueryPlan(text) {
       .map(item => ({
         label: cleanQueryText(item.label || "planned_query").toLowerCase().replace(/\s+/g, "_"),
         query: cleanQueryText(item.query),
-        maxResults: Number(item.maxResults || 4)
+        maxResults: Math.min(MAX_TAVILY_RESULTS_PER_QUERY, Math.max(1, Number(item.maxResults || MAX_TAVILY_RESULTS_PER_QUERY)))
       }))
       .filter(item => item.query.length > 0)
-      .slice(0, 8);
+      .slice(0, 4);
   } catch (_) {
     return null;
   }
 }
 
-async function planTavilyQueries({ env, sector, subsector, industry, isicCode, tradeFlow, timeframe, signalThreads = [] }) {
-  const fallbackQueries = buildFallbackQueries({ sector, subsector, industry, isicCode, tradeFlow, signalThreads });
-  const targetCount = 8;
+async function planTavilyQueries({ env, sector, subsector, industry, isicCode, tradeFlow, timeframe }) {
+  const fallbackQueries = buildFallbackQueries({ sector, subsector, industry, isicCode, tradeFlow });
+  const targetCount = 4;
 
   const plannerPrompt = `
-Create ${targetCount} short Tavily news search queries for a Thailand-based bank RM.
+Create up to ${targetCount} short Tavily news search queries for a Thailand-based bank relationship manager.
 
-Customer profile:
+Known client profile:
 - Client base: Thailand
 - Sector: ${sector}
 - Subsector: ${subsector}
 - Specific industry / ISIC activity: ${industry}
-- Directional trade flow:
+- Purchase and sales profile:
 ${tradeFlowSummary(tradeFlow)}
 - Timeframe: last ${timeframe} days
 - Core industry terms: ${getSearchKeywords({ sector, subsector, industry, isicCode }).slice(0, 10).join(", ")}
-- Enabled signal threads: ${signalThreadText(signalThreads)}
 
 Goal:
-Generate one consistent premium search plan that separates purchase-side cost/supplier risk from sales-side demand/revenue risk, plus selected external signal threads such as FX/rates, geopolitics, trade disruption, commodities, and macro background.
+Find recent news that could plausibly change how this specific client buys, sells, produces, delivers, pays, collects, or manages supplier/buyer relationships.
+
+Use these four search intents only:
+1. purchase_market_context: supplier conditions, sourcing, imports, production inputs, logistics or regulation in the client's purchase markets.
+2. sales_market_context: buyer demand, exports, sales conditions, regulation or distribution in the client's sales markets.
+3. thailand_industry_context: Thailand-specific developments affecting the client's exact industry or operating activity.
+4. industry_selected_markets_context: industry-specific developments across the selected purchase/sales markets that have a concrete business link to this client.
 
 Rules:
 - Return JSON only.
-- Tavily is keyword search, not reasoning. Keep each query short and keyword-style.
-- Use the specific industry as the main anchor.
-- Generate queries with DIFFERENT intent:
-  1. purchase_cost_supply_context: supplier conditions, input costs, imports, logistics, tariffs, purchase markets.
-  2. sales_demand_export_context: export demand, buyer markets, revenue conditions, regulation, sales markets.
-  3. thailand_client_context: Thailand industry trade flow / working capital relevance.
-  4. industry_trade_context: broader global industry context without overloading all country names.
-  5. fx_trade_crosswinds: currency, competitiveness, margin or payment implications tied to selected purchase/sales currencies.
-  6. geopolitics_policy_risk: sanctions, shipping lanes, tariffs, elections, conflict or policy risk affecting trade flows.
-  7. commodities_input_costs: oil, energy, food, metals, freight or other inputs only where relevant to the selected industry.
-  8. macro_background: inflation, PMI, rates, demand and confidence only where useful for client conversation context.
-- Only include query intents that match the enabled signal threads.
-- Do NOT create random country-pair searches unless Thailand is part of the client flow.
+- Tavily is keyword search, not reasoning. Keep queries short and keyword-style.
+- Anchor every query on the client's exact industry / ISIC activity.
+- Use purchase countries mainly in purchase-side queries and sales countries mainly in sales-side queries.
+- Currency selections are client context, not a reason to search generic FX news. Only use a currency code if it helps identify a concrete trade, invoicing, payment or market rule.
+- Do NOT create generic FX, macro, commodity, geopolitical, election, rates or broad market queries.
+- A geopolitical, commodity or policy event can still surface when it is directly tied to the client's industry and selected purchase/sales market.
 - Do NOT force every country into every query.
-- Avoid prompts, questions, and long sentences.
+- Do NOT create random country-pair searches unrelated to Thailand or the selected client flows.
+- Avoid questions and long sentences.
 - Each query must be under 180 characters.
-- Use maxResults 5 for each query.
+- Use maxResults ${MAX_TAVILY_RESULTS_PER_QUERY} for each query.
 
 JSON shape:
 {
   "queries": [
-    { "label": "purchase_cost_supply_context", "query": "...", "maxResults": 5 },
-    { "label": "sales_demand_export_context", "query": "...", "maxResults": 5 }
+    { "label": "purchase_market_context", "query": "...", "maxResults": ${MAX_TAVILY_RESULTS_PER_QUERY} },
+    { "label": "sales_market_context", "query": "...", "maxResults": ${MAX_TAVILY_RESULTS_PER_QUERY} }
   ]
 }`.trim();
 
@@ -1080,7 +551,7 @@ JSON shape:
     if (!response.ok) return fallbackQueries;
 
     const planned = parseQueryPlan(extractOutputText(data));
-    return planned && planned.length >= 3 ? planned.slice(0, targetCount) : fallbackQueries;
+    return planned && planned.length >= 2 ? planned.slice(0, targetCount) : fallbackQueries;
   } catch (_) {
     return fallbackQueries;
   }
@@ -1098,6 +569,22 @@ function normalizeTavilyResults(results, sourceGroup) {
     score: item.score || 0,
     source_group: sourceGroup
   }));
+}
+
+function countArticleWords(text = "") {
+  return String(text || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean).length;
+}
+
+function hasSufficientArticleContent(source) {
+  const rawContent = String(source?.raw_content || "").trim();
+  // An empty extraction is not proof that the page itself is thin (paywalls and script-heavy sites can block extraction),
+  // so let the relevance reviewer decide those. Only reject pages Tavily successfully extracted and found to be very short.
+  if (!rawContent) return true;
+  return countArticleWords(rawContent) >= MIN_RAW_ARTICLE_WORDS;
 }
 
 function normalizeSourceTitle(title = "") {
@@ -1210,7 +697,7 @@ function dedupeSources(items) {
   return deduped;
 }
 
-async function tavilySearch({ apiKey, query, startDate, endDate, includeDomains = null, maxResults = 5, searchDepth = "basic" }) {
+async function tavilySearch({ apiKey, query, startDate, endDate, includeDomains = null, maxResults = MAX_TAVILY_RESULTS_PER_QUERY, searchDepth = "basic" }) {
   const body = {
     query,
     topic: "news",
@@ -1250,58 +737,6 @@ async function tavilySearch({ apiKey, query, startDate, endDate, includeDomains 
   return data.results || [];
 }
 
-
-function gdeltTimespanFromDays(days) {
-  const safeDays = Math.max(1, Math.min(Number(days || 30), 90));
-  return `${safeDays}d`;
-}
-
-async function gdeltDocSearch({ query, timeframe = 30, maxRecords = 10 }) {
-  const url = new URL("https://api.gdeltproject.org/api/v2/doc/doc");
-  url.searchParams.set("query", query);
-  url.searchParams.set("mode", "ArtList");
-  url.searchParams.set("format", "json");
-  url.searchParams.set("maxrecords", String(maxRecords));
-  url.searchParams.set("sort", "HybridRel");
-  url.searchParams.set("timespan", gdeltTimespanFromDays(timeframe));
-
-  const response = await fetch(url.toString(), {
-    headers: { "User-Agent": "conversation-builder/1.0" }
-  });
-
-  if (!response.ok) return [];
-  const data = await response.json().catch(() => null);
-  return Array.isArray(data?.articles) ? data.articles : [];
-}
-
-function normalizeGdeltResults(results, sourceGroup) {
-  return (results || []).map(item => ({
-    title: item.title || item.url || "Untitled GDELT source",
-    url: item.url,
-    source: item.source || item.domain || "GDELT",
-    domain: item.domain || (item.url ? new URL(item.url).hostname.replace(/^www\./, "") : ""),
-    published_at: item.seendate || "",
-    summary: item.title || "",
-    raw_content: item.title || "",
-    score: 0.5,
-    source_group: sourceGroup
-  })).filter(item => item.url);
-}
-
-function buildGdeltQueries({ industry, tradeFlow, signalThreads = [] }) {
-  const enabled = new Set(signalThreads || []);
-  if (!enabled.has("geopolitics") && !enabled.has("trade_supply_chain")) return [];
-  const markets = listCountries(getAllTradeFlowCountries(tradeFlow), 4);
-  const base = cleanQueryText(`Thailand ${industry} ${markets}`);
-  const queries = [];
-  if (enabled.has("geopolitics")) {
-    queries.push({ label: "gdelt_geopolitics_policy", query: cleanQueryText(`${base} geopolitics sanctions tariffs conflict election trade`) });
-  }
-  if (enabled.has("trade_supply_chain")) {
-    queries.push({ label: "gdelt_supply_chain_logistics", query: cleanQueryText(`${base} supply chain shipping port logistics disruption`) });
-  }
-  return queries.filter(item => item.query.length > 0).slice(0, 2);
-}
 
 async function fetchYahooSeries(pair, rangeDays = 30) {
   const safeRangeDays = [30, 90].includes(Number(rangeDays)) ? Number(rangeDays) : 30;
@@ -1601,20 +1036,14 @@ function calculateCountryRelevanceScore(source, countries = []) {
 
 function getSourceAuthorityScore(source) {
   const domain = String(source.domain || source.source || "").toLowerCase();
-  if (/reuters|bloomberg|ft\.com|nikkei|spglobal|fastmarkets|argusmedia|worldbank|imf|fred|stlouisfed|adb|aseanstats|worldsteel|steelbb|steelorbis|official|gov|customs|commerce|bot\.or\.th/.test(domain)) return 5;
-  if (/bangkokpost|nationthailand|thaipbs|prachachat|kaohoon|set\.or\.th|bot\.or\.th/.test(domain)) return 4;
-  if (/marinelink|hellenicshipping|freightwaves|supplychaindive/.test(domain)) return 3;
+  if (PREFERRED_NEWS_DOMAINS.some(preferred => domain === preferred || domain.endsWith(`.${preferred}`))) return 5;
+  if (/bangkokpost|nationthailand|thaipbs|prachachat|kaohoon|set\.or\.th/.test(domain)) return 4;
+  if (/fastmarkets|argusmedia|worldsteel|steelbb|steelorbis|marinelink|hellenicshipping|freightwaves|supplychaindive/.test(domain)) return 3;
   if (/openpr|einnews|globenewswire|prnewswire|manilatimes|kipost/.test(domain)) return 1;
   return 2;
 }
 
 function getRecencyScore(source) {
-  const group = String(source.source_group || "").toLowerCase();
-  const kind = String(source.evidence_kind || "").toLowerCase();
-
-  // Official datasets update periodically and should not be penalised like stale news.
-  if (kind === "official_data" || group.startsWith("official_")) return 4;
-
   const published = Date.parse(source.published_at || "");
   if (!Number.isFinite(published)) return 1;
   const days = (Date.now() - published) / (1000 * 60 * 60 * 24);
@@ -1661,7 +1090,7 @@ async function assessSourceRelevance({ env, sources, sector, subsector, industry
 
   const compactSources = sources.map(source => {
     const text = source.raw_content || source.summary || "";
-    const trimmedText = text.length > 1200 ? text.slice(0, 1200) + "…" : text;
+    const trimmedText = text.length > 1000 ? text.slice(0, 1000) + "…" : text;
 
     return {
       number: source.source_number,
@@ -1673,6 +1102,7 @@ async function assessSourceRelevance({ env, sources, sector, subsector, industry
       authorityScore: getSourceAuthorityScore(source),
       recencyScore: getRecencyScore(source),
       industryRelevance: calculateIndustryRelevanceScore(source, termProfile),
+      extractedWordCount: countArticleWords(source.raw_content || ""),
       snippet: trimmedText
     };
   });
@@ -1694,17 +1124,22 @@ ${tradeFlow ? tradeFlowSummary(tradeFlow) : `Client trade role: ${tradeRoles.joi
 - Tavily queries used: ${plannedQueries.map(plan => `${plan.label}: ${plan.query}`).join(" | ")}
 
 Task:
-Review the candidate evidence sources and classify their usefulness for a Thailand-based bank RM. Evidence may include recent articles, market/news discovery, or periodic official datasets from sources such as the World Bank or IMF.
+Review the candidate Tavily news articles and classify their usefulness for this specific Thailand-based client.
 Prioritise sources in this order:
-1. Direct Thailand + selected-market news connected to the industry, Thai company flows, Thai supply chains, Thai import/export activity, or Thai macro/trade policy.
-2. Selected-country news, especially United States / Thailand flows when those are selected, only when it clearly affects Thailand-based sourcing, export demand, buyer/supplier conditions, logistics, pricing, or trade risk.
-3. Regional ASEAN news that has a clear Thailand-client implication.
-4. Broader global industry news only when it is unavoidable context and clearly affects Thai client demand, pricing, supply chain, logistics, trade policy, working capital, payment risk, or counterparty risk.
+1. Direct Thailand news connected to the client's exact industry or operating activity.
+2. Purchase-market news with a concrete supplier, sourcing, input, production, logistics, regulatory or delivery implication for the client.
+3. Sales-market news with a concrete buyer, demand, distribution, regulatory, pricing or collection implication for the client.
+4. Industry-specific news across selected markets only when the connection to how this client buys, sells, produces, delivers, pays or collects is clear.
 
-A useful evidence item must have a clear client implication. It is not enough that it mentions a selected country, exporter/importer, broad sector keyword, or macro indicator.
+A useful article must have a clear client implication. It is not enough that it mentions a selected country, a broad sector keyword, a currency, or a generic macro theme.
 Industry criticality rule: Prefer articles that involve the core industry terms. Downrank or omit articles that mainly match weak-adjacent/exclusion terms without also matching core terms. For example, a sugar article should not become an animal-feed theme unless it explicitly mentions feed, molasses for feed, feed grain substitution, livestock feed costs, or another core feed linkage.
-Interpret purchase/sales strictly from the Thailand-based client's perspective. Purchase markets are supplier/cost-side exposures; sales markets are buyer/revenue-side exposures. Do not mix the two unless the source supports a crosswind or hedge implication.
-Country-cross results, such as China-Indonesia, US-Indonesia, EU-China, or other non-selected market stories, should be LOW unless they have a clear Thailand or selected-market implication for the client. EU/China/global stories should normally be MEDIUM at most and should not displace Thailand/selected-market sources. Official datasets are periodic context, not breaking news; they may be HIGH or MEDIUM when they directly support Thailand, selected-market, trade-flow, macro, liquidity, capital, or risk context.
+Interpret purchase/sales strictly from the Thailand-based client's perspective. Purchase markets are supplier/cost-side exposures; sales markets are buyer/revenue-side exposures.
+Client geography is a constraint, not an opportunity set. The selected purchase and sales markets describe the client's current stated footprint. A story about a different country is NOT relevant merely because it suggests a new supplier, buyer, export market, growth market, or commercial opportunity. Do not infer that the client should enter a new market, switch suppliers or buyers, change production, alter pricing, invest, acquire, or otherwise change corporate strategy.
+You are screening news for a bank relationship manager. Relevance should come from a plausible connection to the client's EXISTING operations and banking needs: supplier/buyer relationships, payments, collections, trade structures, cash flow, working capital, liquidity, FX flows, operating resilience, or whether existing banking/facility arrangements may need discussion. Do not turn market news into corporate-strategy advice.
+Treat selected currencies as client context only. Generic FX-rate or currency-market stories are LOW unless the article directly affects invoicing, payment, pricing, settlement or commercial conditions for this industry and selected market.
+Generic macro, commodities, geopolitics, elections, interest rates or broad market stories are LOW unless the article directly connects the client's industry to a selected purchase/sales market and changes an operating or commercial condition.
+Country-cross results unrelated to Thailand or the selected client flows should be LOW. Broader global industry stories should not displace more direct Thailand, purchase-market or sales-market sources.
+Publisher preference: when two articles are similarly relevant, prefer higher-authority publishers (authorityScore 5 or 4). Do not exclude a specialist industry publication when it is more specific and useful for this client's industry.
 Do not include sources merely to fill a quota. If relevance is weak or indirect, classify it as LOW and omit it.
 
 Return JSON only in this exact shape:
@@ -1722,8 +1157,8 @@ Return JSON only in this exact shape:
 
 Relevance levels:
 - HIGH: Thailand-related and directly relevant to the client industry, Thai import/export role, or Thai exposure to selected markets.
-- MEDIUM: useful global industry context, selected-market context, or official data context with a clear and explainable implication for Thai client flows, demand, pricing, supply chain, liquidity, capital, or risk.
-- LOW: weak keyword match, unrelated country export/import story, country-pair story without Thai/global industry implication, unrelated company news, old/background content, or no clear client implication.
+- MEDIUM: useful industry or selected-market context with a clear and specific implication for how the client buys, sells, produces, delivers, pays, collects, or manages supplier/buyer relationships.
+- LOW: weak keyword match, unrelated country export/import story, country-pair story without a direct link to the client's stated footprint, new-market or expansion opportunity outside the stated footprint, unrelated company news, old/background content, or no clear client implication.
 
 Rules:
 - Return HIGH and MEDIUM sources only; omit LOW sources completely.
@@ -1792,7 +1227,7 @@ ${JSON.stringify(compactSources, null, 2)}
       .sort((a, b) => sourcePriority(b, countries, termProfile) - sourcePriority(a, countries, termProfile));
     const selectedSources = [...highSources, ...mediumSources]
       .sort((a, b) => sourcePriority(b, countries, termProfile) - sourcePriority(a, countries, termProfile))
-      .slice(0, 10)
+      .slice(0, MAX_FINAL_NEWS_SOURCES)
       .map(source => {
         const countryRel = calculateCountryRelevanceScore(source, countries);
         const industryRel = calculateIndustryRelevanceScore(source, termProfile);
@@ -1870,44 +1305,40 @@ function stripInlineSourceRefs(text) {
 }
 
 function normalizeNoNewsText(timeframe) {
-  return `No significant or relevant market developments identified for this industry and client context in the selected ${timeframe}-day period.`;
+  return `No relevant recent news identified\nWe did not find a sufficiently relevant development for this client's industry and selected purchase/sales markets in the last ${timeframe} days.`;
 }
 
 function normalizeCardTags(tags = [], fallbackText = "") {
-  const allowed = new Set(["Business model", "Supply & demand", "Financial management", "Other business areas"]);
+  const allowed = new Set(["FX", "Trade", "Working capital", "Payments", "Supply chain", "Liquidity", "Geopolitics", "Rates", "Commodities", "Sector"]);
   const map = {
-    "business model": "Business model",
-    "business model and operating activities": "Business model",
-    operations: "Business model",
-    operational: "Business model",
-    production: "Business model",
-    logistics: "Business model",
-    inventory: "Business model",
-    "supply & demand": "Supply & demand",
-    "supply and demand": "Supply & demand",
-    supplier: "Supply & demand",
-    suppliers: "Supply & demand",
-    buyer: "Supply & demand",
-    buyers: "Supply & demand",
-    demand: "Supply & demand",
-    "supplier and buyer relationships": "Supply & demand",
-    "financial management": "Financial management",
-    "working capital": "Financial management",
-    liquidity: "Financial management",
-    payments: "Financial management",
-    payment: "Financial management",
-    collections: "Financial management",
-    collection: "Financial management",
-    fx: "Financial management",
-    rates: "Financial management",
-    "working capital and financial management": "Financial management",
-    "other business areas": "Other business areas",
-    geopolitics: "Other business areas",
-    policy: "Other business areas",
-    regulation: "Other business areas",
-    strategy: "Other business areas",
-    management: "Other business areas",
-    "business decisions, policies and developments": "Other business areas"
+    fx: "FX",
+    currency: "FX",
+    currencies: "FX",
+    rates: "Rates",
+    rate: "Rates",
+    interest: "Rates",
+    trade: "Trade",
+    "trade finance": "Trade",
+    workingcapital: "Working capital",
+    "working capital": "Working capital",
+    payments: "Payments",
+    payment: "Payments",
+    collections: "Payments",
+    collection: "Payments",
+    "supply chain": "Supply chain",
+    supplychain: "Supply chain",
+    logistics: "Supply chain",
+    shipping: "Supply chain",
+    liquidity: "Liquidity",
+    cash: "Liquidity",
+    geopolitical: "Geopolitics",
+    geopolitics: "Geopolitics",
+    policy: "Geopolitics",
+    commodities: "Commodities",
+    commodity: "Commodities",
+    sector: "Sector",
+    industry: "Sector",
+    market: "Sector"
   };
 
   const cleanTags = (Array.isArray(tags) ? tags : String(tags || "").split(/[,|/]+/))
@@ -1916,14 +1347,19 @@ function normalizeCardTags(tags = [], fallbackText = "") {
 
   if (!cleanTags.length && fallbackText) {
     const text = String(fallbackText).toLowerCase();
-    if (/(supplier|buyer|customer demand|bargaining|counterpart|commercial terms|order volume|minimum order|prepayment)/i.test(text)) cleanTags.push("Supply & demand");
-    if (/(working capital|cash|liquidity|payment|collection|receivable|payable|funding|currency|fx|rate|hedg)/i.test(text)) cleanTags.push("Financial management");
-    if (/(management|ownership|group structure|policy|regulation|geopolit|new market|new factory|strategy|risk appetite)/i.test(text)) cleanTags.push("Other business areas");
-    if (/(purchasing|sourcing|inventory|production|capacity|delivery|logistics|invoice|reconciliation|operations|operating cycle)/i.test(text)) cleanTags.push("Business model");
+    if (/\b(fx|currency|currencies|usd|eur|cny|jpy|thb|hedg)/i.test(text)) cleanTags.push("FX");
+    if (/\b(rate|rates|interest|borrowing|funding cost|yield)\b/i.test(text)) cleanTags.push("Rates");
+    if (/\b(trade|letter of credit|lc\b|guarantee|documentary|supplier payment|buyer risk)\b/i.test(text)) cleanTags.push("Trade");
+    if (/\b(working capital|cash conversion|receivable|receivables|payable|payables|inventory|cash cycle)\b/i.test(text)) cleanTags.push("Working capital");
+    if (/\b(payment|payments|collection|collections|settlement|reconciliation|fraud|routing)\b/i.test(text)) cleanTags.push("Payments");
+    if (/\b(supply chain|supplier|shipping|logistics|port|freight|route|inventory buffer)\b/i.test(text)) cleanTags.push("Supply chain");
+    if (/\b(liquidity|cash visibility|cash buffer|cash forecasting|deposit|surplus cash|trapped cash)\b/i.test(text)) cleanTags.push("Liquidity");
+    if (/\b(geopolitic|sanction|tariff|policy|election|border|conflict|war|compliance)\b/i.test(text)) cleanTags.push("Geopolitics");
+    if (/\b(commodity|commodities|oil|gas|energy|metal|food prices|input cost)\b/i.test(text)) cleanTags.push("Commodities");
   }
 
   const unique = [...new Set(cleanTags)];
-  return (unique.length ? unique : ["Business model"]).slice(0, 2);
+  return (unique.length ? unique : ["Sector"]).slice(0, 3);
 }
 
 function formatNewsThemesFromJson(parsed) {
@@ -1945,21 +1381,6 @@ function formatNewsThemesFromJson(parsed) {
       relevance ? `Link to client: ${stripInlineSourceRefs(relevance)}` : ""
     ].filter(Boolean).join("\n");
   }).filter(Boolean).join("\n\n");
-}
-
-
-function formatStructuralNoNewsCard({ timeframe, industry, tradeFlow }) {
-  const currencies = getAllTradeFlowCurrencies(tradeFlow, []);
-  const purchaseMarkets = listCountries(tradeFlow?.purchase?.countries, 3) || "domestic suppliers";
-  const salesMarkets = listCountries(tradeFlow?.sales?.countries, 3) || "domestic customers";
-  const currencyText = currencies.length ? currencies.join("/") : "selected currencies";
-
-  return [
-    `Card 1: Structural client signal when recent news is limited`,
-    `Tags: Financial management, Business model`,
-    `Comment on context: No strong recent headline was identified for this profile in the selected ${timeframe}-day period`,
-    `Link to client: For a Thailand-based ${industry} business purchasing from ${purchaseMarkets} and selling to ${salesMarkets}, payment timing, supplier and buyer terms, cash buffers, and recurring ${currencyText} flows remain useful structural areas to keep in view`
-  ].join("\n");
 }
 
 
@@ -2079,17 +1500,21 @@ Create evidence-grounded Client Signals from the provided sources. Rank them fro
 ${cardCountInstruction()}
 
 Signal coverage:
-- Include direct client signals where supported: Thailand, selected supplier markets, selected buyer markets, the client's broad currency exposure, and the specific ISIC activity
-- Also include useful general-market signals where they may affect upstream suppliers, downstream buyers, regional demand, input costs, logistics, trade policy, countries, or the wider industry
-- General-market signals must still have a clear and cautious bridge to the selected client profile
-- Separate purchase-side cost/supplier implications from sales-side revenue/demand implications when the evidence supports that distinction
+- Focus on the client's exact industry, Thailand operations, selected purchase markets and selected sales markets
+- Prioritise developments that could change how the client buys, sells, produces, delivers, pays, collects, or manages supplier/buyer relationships
+- Separate purchase-side supplier/cost/operating implications from sales-side buyer/demand/revenue implications when the evidence supports that distinction
 - Treat purchase countries as supplier/source markets and sales countries as buyer/revenue markets; do not cross-combine countries randomly
-- Translate developments through cash, trade, payments, FX flows, working capital, liquidity, and operating resilience
+- Client geography is a constraint, not an opportunity set. The selected countries describe the client's current stated footprint. Do not suggest or imply that the client should enter a new market because an article shows demand elsewhere
+- Do not recommend changing suppliers or buyers, changing production, changing pricing, investing, acquiring, expanding, exiting a market, or any other corporate-strategy action
+- You are supporting a bank relationship manager. Translate relevant developments into possible implications for the client's EXISTING cash flow, payments, collections, supplier/buyer relationships, trade structures, working capital, liquidity, FX flows, operating resilience, or existing banking/facility arrangements
+- Treat selected currencies as context only. Do not create a signal from generic FX movement; only mention currency when the article itself supports a concrete trade, pricing, invoicing or payment link
+- Do not create generic macro, commodity, geopolitical, rates or broad-market cards. Such developments are usable only when the source directly connects them to this client's industry and selected trade flow
+- Translate only the supported commercial consequence into cash, trade, payments, working capital, liquidity, or operating resilience
 
 Card standard:
 - Each card has only two sections: Comment on context and Link to client
 - Comment on context: one concise, plain-English statement of what the sources show
-- Link to client: one concise sentence that starts from the selected broad client-understanding tag, then drills down to the specific business mechanism that may be affected without asserting that the client is affected
+- Link to client: one concise sentence explaining a possible connection to the client profile without asserting that the client is affected
 - Separate the directly supported first-order link from any second-order implication. Use conditional wording such as "if orders take longer to confirm" or "if buyers change payment terms" before mentioning receivable timing, inventory holding, packing costs, liquidity, or working-capital effects
 - Do not claim slower collections, higher inventory, delayed payments, or greater cash tied up unless the source directly supports that outcome. When it is only a plausible transmission channel, make the condition explicit
 - Do not generate a question or next step in this first stage
@@ -2103,9 +1528,9 @@ Grounding rules:
 - Do NOT imply that an article specifically discusses the client's product, market, currency, or trade flow unless the source explicitly does.
 - You may draw cautious implications, but clearly distinguish direct evidence from inferred relevance.
 - Do not cite a source unless it directly supports the statement being made.
-- Every card must include at least one source number in the sourceNumbers array. Official datasets may be used as context, but do not describe them as recent news unless the date supports it.
+- Every card must include at least one source number in the sourceNumbers array.
 - Do not put [1] or [2] inline inside the observe, relate, keepInMind, leaveSpace, lightlyExplore, or offerSupport text. Put source references only in sourceNumbers.
-- If the sources do not contain meaningful evidence relevant to this Thailand-based client context, return JSON with "status": "NO_NEWS" and an empty cards array. If only official data is available, make the card clearly about local/regional context rather than breaking news.
+- If the sources do not contain meaningful evidence relevant to this Thailand-based client context, return JSON with "status": "NO_NEWS" and an empty cards array.
 - If there is at least one useful news-based card, return JSON with "status": "OK". Do NOT include the string NO_NEWS anywhere in titles, paragraphs, or bullets.
 
 Relevance discipline:
@@ -2115,11 +1540,12 @@ Relevance discipline:
 - Prefer fewer, stronger cards over many isolated source summaries.
 - If a development is only useful as a light conversation opener, frame it as a small-talk / awareness point rather than a risk or sales opportunity.
 - Not every card needs a risk, opportunity, or RM angle. Only include those when genuinely supported.
-- Avoid recommendations such as financing a specific expansion, acquisition, or project unless the source clearly supports it for the selected client profile.
+- Do not recommend financing a specific expansion, acquisition, project, market entry, supplier switch, buyer switch, investment, pricing change, or other corporate-strategy action. Those decisions belong to the client.
+- If a development may affect the amount or timing of cash needs, you may say it could be useful to understand whether existing banking or facility arrangements still fit the operating cycle. Do NOT state that the client should increase, reduce, refinance, or take a specific credit facility.
 - Do NOT assume a named company in an article is the bank's client or the user's client. Frame it as a sector signal, competitor signal, buyer/supplier signal, or market development.
 - Do not infer invoice, settlement, or proceeds currency from a selected country or market.
 - Do not name a specific currency in a country-specific Link to client sentence unless the source explicitly discusses that currency and the client profile explicitly maps it to the relevant transaction flow. Otherwise use neutral wording such as sales proceeds, payment timing, FX exposure, buyer terms, or receivable timing.
-- Do NOT repeat the standalone FX rate commentary. Mention FX only when a source directly supports an implication, or when selected purchase/sales currencies create an obvious directional crosswind that is clearly presented as an inference.
+- Do NOT repeat standalone FX rate commentary. Mention currency only when a source directly supports a concrete implication for the selected purchase/sales flow.
 
 Writing style:
 - Use practical, banker-friendly titles. Avoid generic titles such as "Supply Chain Risk" or "Market Update".
@@ -2133,7 +1559,7 @@ Return JSON only in this exact shape:
   "cards": [
     {
       "title": "Specific practical signal title",
-      "tags": ["Business model", "Supply & demand"],
+      "tags": ["Trade", "Supply chain"],
       "context": "One concise, evidence-grounded statement of what is happening",
       "relevance": "One concise, cautious link to the selected client profile and a clear cash, trade, payments, FX, working-capital, liquidity, supplier, buyer, or market transmission channel",
       "sourceNumbers": [1, 2]
@@ -2141,13 +1567,7 @@ Return JSON only in this exact shape:
   ]
 }
 
-Allowed tags: Business model, Supply & demand, Financial management, Other business areas. Use one primary tag and at most one secondary tag per card.
-Tag logic:
-- Business model: how the client buys, sells, produces, stores, delivers, invoices, pays, collects or reconciles.
-- Supply & demand: supplier/buyer relationships, business risks, demand conditions, dependency, bargaining power, reliability, concentration and commercial terms.
-- Financial management: working capital, payment/collection timing, liquidity, funding, cash visibility, currency exposure and financial risk management.
-- Other business areas: management policy, ownership/group decisions, risk appetite, regulation, geopolitical triggers, expansion or strategic change.
-The tag should identify the broad client-understanding segment. Link to client should then drill down into the specific affected part within that segment.
+Allowed tags: FX, Trade, Working capital, Payments, Supply chain, Liquidity, Geopolitics, Rates, Commodities, Sector. Use one to three tags per card. Prefer transaction-banking relevance tags over generic macro labels.
 
 If not relevant, return exactly this JSON:
 {
@@ -2425,51 +1845,30 @@ export async function onRequestPost(context) {
       industry,
       isicCode,
       tradeFlow,
-      timeframe,
-      signalThreads
+      timeframe
     });
 
     const searchDepth = "advanced";
-    const gdeltQueries = buildGdeltQueries({ industry, tradeFlow, signalThreads });
+    const tavilyBatches = await Promise.all(plannedQueries.map(plan =>
+      tavilySearch({
+        apiKey: env.TAVILY_API_KEY,
+        query: plan.query,
+        startDate: start_date,
+        endDate: end_date,
+        includeDomains: null,
+        maxResults: plan.maxResults || MAX_TAVILY_RESULTS_PER_QUERY,
+        searchDepth
+      }).then(results => normalizeTavilyResults(results, plan.label))
+    ));
 
-    const [tavilyBatches, gdeltBatches, noKeyOfficialEvidence, credentialedOfficialEvidence] = await Promise.all([
-      Promise.all(plannedQueries.map(plan =>
-        tavilySearch({
-          apiKey: env.TAVILY_API_KEY,
-          query: plan.query,
-          startDate: start_date,
-          endDate: end_date,
-          includeDomains: null,
-          maxResults: plan.maxResults || 5,
-          searchDepth
-        }).then(results => normalizeTavilyResults(results, plan.label))
-      )),
-      Promise.all(gdeltQueries.map(plan =>
-        gdeltDocSearch({
-          query: plan.query,
-          timeframe,
-          maxRecords: 8
-        }).then(results => normalizeGdeltResults(results, plan.label)).catch(() => [])
-      )),
-      fetchNoKeyOfficialEvidence({ tradeFlow, signalThreads }),
-      fetchCredentialedOfficialEvidence({ env, tradeFlow, currencies, signalThreads })
-    ]);
-
-    const officialEvidence = [...noKeyOfficialEvidence, ...credentialedOfficialEvidence];
     const fxResults = [];
 
     const primaryCandidateSources = prepareCandidateSources({
-      sources: [...tavilyBatches.flat(), ...gdeltBatches.flat(), ...officialEvidence]
+      sources: tavilyBatches.flat()
     });
 
-    const officialEvidencePlans = officialEvidence.map(item => ({
-      label: item.source_group || "official_no_key_evidence",
-      query: item.title || item.source || "Official no-key evidence",
-      maxResults: 1
-    }));
-
-    let effectiveQueries = [...plannedQueries, ...gdeltQueries, ...officialEvidencePlans];
-    let sourceAssessment = await assessSourceRelevance({
+    const effectiveQueries = [...plannedQueries];
+    const sourceAssessment = await assessSourceRelevance({
       env,
       sources: primaryCandidateSources,
       sector,
@@ -2483,57 +1882,9 @@ export async function onRequestPost(context) {
       plannedQueries: effectiveQueries
     });
 
-    let candidateSources = primaryCandidateSources;
-    let fallbackTriggered = false;
-
-    // Controlled fallback: only broaden the search when the strict filter leaves 0–2 usable sources.
-    // This avoids asking users to manually refresh while keeping Tavily usage under control.
-    if (sourceAssessment.sources.length < 3) {
-      const recoveryQueries = buildRecoveryQueries({
-        sector,
-        subsector,
-        industry,
-        isicCode,
-        tradeFlow
-      });
-
-      const existingQueryText = new Set(effectiveQueries.map(plan => cleanQueryText(plan.query).toLowerCase()));
-      const newRecoveryQueries = recoveryQueries.filter(plan => !existingQueryText.has(cleanQueryText(plan.query).toLowerCase()));
-
-      if (newRecoveryQueries.length > 0) {
-        fallbackTriggered = true;
-        const fallbackBatches = await Promise.all(newRecoveryQueries.map(plan =>
-          tavilySearch({
-            apiKey: env.TAVILY_API_KEY,
-            query: plan.query,
-            startDate: start_date,
-            endDate: end_date,
-            includeDomains: null,
-            maxResults: plan.maxResults || 5,
-            searchDepth: "basic"
-          }).then(results => normalizeTavilyResults(results, plan.label))
-        ));
-
-        effectiveQueries = [...effectiveQueries, ...newRecoveryQueries];
-        candidateSources = prepareCandidateSources({
-          sources: [...tavilyBatches.flat(), ...gdeltBatches.flat(), ...officialEvidence, ...fallbackBatches.flat()]
-        });
-
-        sourceAssessment = await assessSourceRelevance({
-          env,
-          sources: candidateSources,
-          sector,
-          subsector,
-          industry,
-          isicCode,
-          tradeRoles,
-          countries,
-          tradeFlow,
-          timeframe,
-          plannedQueries: effectiveQueries
-        });
-      }
-    }
+    // Deliberately do not broaden or retry the news search when few/no sources survive.
+    // A genuine "no relevant news" result is preferable to forcing weaker articles into the output.
+    const fallbackTriggered = false;
 
     const mergedSources = sourceAssessment.sources.map((source, index) => ({
       ...source,
@@ -2555,7 +1906,7 @@ export async function onRequestPost(context) {
     if (!sourceAssessment.hasRelevantUpdates || mergedSources.length === 0) {
       const noNews = {
         status: "NO_NEWS",
-        content: formatStructuralNoNewsCard({ timeframe, industry, tradeFlow, conversationGoal, clientProfile })
+        content: normalizeNoNewsText(timeframe)
       };
 
       return Response.json({

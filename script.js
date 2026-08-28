@@ -1663,37 +1663,35 @@ const ALLOWED_SIGNAL_TAGS = [
 function normaliseSignalTag(tag) {
   const clean = String(tag || "").trim().toLowerCase();
   const map = {
-    "business model": "Business model",
-    "business model and operating activities": "Business model",
-    operations: "Business model",
-    operational: "Business model",
-    production: "Business model",
-    logistics: "Business model",
-    inventory: "Business model",
-    "supply & demand": "Supply & demand",
-    "supply and demand": "Supply & demand",
-    supplier: "Supply & demand",
-    suppliers: "Supply & demand",
-    buyer: "Supply & demand",
-    buyers: "Supply & demand",
-    demand: "Supply & demand",
-    "supplier and buyer relationships": "Supply & demand",
-    "financial management": "Financial management",
-    "working capital": "Financial management",
-    liquidity: "Financial management",
-    payments: "Financial management",
-    payment: "Financial management",
-    collections: "Financial management",
-    collection: "Financial management",
-    fx: "Financial management",
-    rates: "Financial management",
-    "working capital and financial management": "Financial management",
-    "other business areas": "Other business areas",
-    geopolitics: "Other business areas",
-    policy: "Other business areas",
-    regulation: "Other business areas",
-    management: "Other business areas",
-    "business decisions, policies and developments": "Other business areas"
+    fx: "FX",
+    currency: "FX",
+    currencies: "FX",
+    rates: "Rates",
+    rate: "Rates",
+    interest: "Rates",
+    trade: "Trade",
+    "trade finance": "Trade",
+    workingcapital: "Working capital",
+    "working capital": "Working capital",
+    payments: "Payments",
+    payment: "Payments",
+    collections: "Payments",
+    collection: "Payments",
+    "supply chain": "Supply chain",
+    supplychain: "Supply chain",
+    logistics: "Supply chain",
+    shipping: "Supply chain",
+    liquidity: "Liquidity",
+    cash: "Liquidity",
+    geopolitical: "Geopolitics",
+    geopolitics: "Geopolitics",
+    policy: "Geopolitics",
+    commodities: "Commodities",
+    commodity: "Commodities",
+    input: "Commodities",
+    sector: "Sector",
+    industry: "Sector",
+    market: "Sector"
   };
   return map[clean] || null;
 }
@@ -1703,13 +1701,18 @@ function deriveSignalTags(text) {
   const tags = [];
   const add = (tag) => { if (!tags.includes(tag)) tags.push(tag); };
 
-  if (/(supplier|buyer|customer demand|bargaining|counterpart|commercial terms|order volume|minimum order|prepayment|dependency|concentration)/i.test(source)) add("Supply & demand");
-  if (/(working capital|cash|liquidity|payment|collection|receivable|payable|funding|currency|fx|rate|hedg|cash cycle)/i.test(source)) add("Financial management");
-  if (/(management|ownership|group structure|policy|regulation|geopolit|new market|new factory|strategy|risk appetite)/i.test(source)) add("Other business areas");
-  if (/(purchasing|sourcing|inventory|production|capacity|delivery|logistics|invoice|reconciliation|operations|operating cycle|shipping)/i.test(source)) add("Business model");
+  if (/\b(fx|currency|currencies|usd|eur|cny|jpy|thb|hedg)/i.test(source)) add("FX");
+  if (/\b(rate|rates|interest|borrowing|funding cost|yield)\b/i.test(source)) add("Rates");
+  if (/\b(trade|letter of credit|lc\b|guarantee|documentary|supplier payment|buyer risk)\b/i.test(source)) add("Trade");
+  if (/\b(working capital|cash conversion|receivable|receivables|payable|payables|inventory|cash cycle)\b/i.test(source)) add("Working capital");
+  if (/\b(payment|payments|collection|collections|settlement|reconciliation|fraud|routing)\b/i.test(source)) add("Payments");
+  if (/\b(supply chain|supplier|shipping|logistics|port|freight|route|inventory buffer)\b/i.test(source)) add("Supply chain");
+  if (/\b(liquidity|cash visibility|cash buffer|cash forecasting|deposit|surplus cash|trapped cash)\b/i.test(source)) add("Liquidity");
+  if (/\b(geopolitic|sanction|tariff|policy|election|border|conflict|war|compliance)\b/i.test(source)) add("Geopolitics");
+  if (/\b(commodity|commodities|oil|gas|energy|metal|food prices|input cost)\b/i.test(source)) add("Commodities");
 
-  if (!tags.length) add("Business model");
-  return tags.slice(0, 2);
+  if (!tags.length) add("Sector");
+  return tags.slice(0, 3);
 }
 
 function parseTagsFromLine(line) {
@@ -1995,11 +1998,13 @@ function normalizeSectionLabel(label) {
 function renderExploreItems(items) {
   if (!items.length) return "";
   return `
-    <div class="conversation-guidance">Articulate the possible client experience without assuming it applies</div>
+    <div class="conversation-guidance">If the client seems interested, choose a gentle invitation that feels natural</div>
     <div class="conversation-question-list">
       ${items.map(item => `
         <div class="conversation-question-item">
           <div class="conversation-question">${escapeHtml(item.question)}</div>
+          ${item.whyAsk ? `<div class="conversation-note"><strong>Why ask</strong><span>${escapeHtml(item.whyAsk)}</span></div>` : ""}
+          ${item.listenFor ? `<div class="conversation-note"><strong>Listen for</strong><span>${escapeHtml(item.listenFor)}</span></div>` : ""}
         </div>
       `).join("")}
     </div>
@@ -2009,12 +2014,13 @@ function renderExploreItems(items) {
 function renderAllowItems(items) {
   if (!items.length) return "";
   return `
-    <div class="conversation-guidance">Ask one gentle question, then follow what feels relevant to the client</div>
+    <div class="conversation-guidance">Listen for where the client places the emphasis</div>
     <div class="conversation-cue-list">
       ${items.map(item => `
         <div class="conversation-cue-item">
           <strong>${escapeHtml(item.focus)}</strong>
           ${item.meaning ? `<span>${escapeHtml(item.meaning)}</span>` : ""}
+          ${item.followLead ? `<small>${escapeHtml(item.followLead)}</small>` : ""}
         </div>
       `).join("")}
     </div>
@@ -2309,6 +2315,25 @@ function renderConversationCards(text) {
   selectedSignalIndexes = new Set();
   renderSignalSelectionList();
   return true;
+}
+
+
+function renderNoNewsState(text) {
+  resetConversationBridge();
+  lastConversationCards = [];
+  selectedSignalIndexes = new Set();
+  const lines = String(text || "")
+    .split(/\n+/)
+    .map(line => line.trim())
+    .filter(Boolean);
+  const heading = lines[0] || "No relevant recent news identified";
+  const detail = lines.slice(1).join(" ");
+  analysisOutput.innerHTML = `
+    <div class="no-news-state">
+      <h3>${escapeHtml(heading)}</h3>
+      ${detail ? `<p>${escapeHtml(detail)}</p>` : ""}
+    </div>
+  `;
 }
 
 function renderAnalysis(text) {
@@ -2692,7 +2717,11 @@ button.addEventListener("click", async function () {
 
     renderSources(data.sources || [], Boolean(data.no_relevant_updates), Boolean(data.fallback_triggered));
     const analysisText = data.news?.content || data.analysis || "";
-    renderAnalysis(analysisText || "No analysis returned.");
+    if (Boolean(data.no_relevant_updates) || data.news?.status === "NO_NEWS") {
+      renderNoNewsState(analysisText);
+    } else {
+      renderAnalysis(analysisText || "No analysis returned.");
+    }
     signalRunSucceeded = Boolean(String(analysisText).trim());
 
     const marketIntelligenceRendered = await marketIntelligencePromise;
