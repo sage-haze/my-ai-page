@@ -1223,6 +1223,7 @@ A useful article must have a clear client connection. It is not enough that it m
 Current-news gate: the source must contain a concrete, dated or clearly current development within the selected timeframe. A static business directory, supplier listing, company profile, evergreen explainer, generic market-size page, or long-horizon CAGR/market forecast is LOW even if industry keywords match. A forecast is usable only when the CURRENT development is a newly issued/revised forecast or a current event that materially changes the outlook, and the source clearly dates that change.
 Known-client-fact gate: relevance must be explainable using only facts explicitly supplied in the client profile above. Do NOT assume an unstated buyer segment, supplier type, raw material/input mix, production process, distribution channel, customer concentration, facility structure, or commercial relationship merely because it is plausible for the industry. If the article matters only if such an unstated relationship exists, classify it LOW.
 Use this internal test: complete the sentence "This matters because we know the client ____." The blank must be fillable from the supplied profile, not from industry convention or imagination.
+Trade-measure directionality gate: for anti-dumping, countervailing, safeguard, tariff, quota, import-control, customs or other trade-remedy measures, match BOTH destination and origin to the client's actual directional flow. For this Thailand-based client, an import measure in a stated sales market is directly relevant only when Thai-origin goods are explicitly in scope or the measure applies to all origins. If the measure names specific origins and Thailand is not among them, classify it LOW. Do not treat an affected origin (for example China) as relevant merely because that country appears elsewhere in the client's purchase or sales markets; the named origin must match the actual flow affected by the measure.
 Industry criticality rule: Prefer articles that involve the core industry terms. Downrank or omit articles that mainly match weak-adjacent/exclusion terms without also matching core terms. For example, a sugar article should not become an animal-feed theme unless it explicitly mentions feed, molasses for feed, feed grain substitution, livestock feed costs, or another core feed linkage.
 Exact-activity gate: being in the same broad sector is not enough. A story about an adjacent product, process, standard, plant type or customer segment should be LOW unless the source explicitly connects it to the client's exact ISIC activity/product OR it is a direct current upstream/downstream link that could change how this client buys, produces, sells or delivers.
 If the only way to explain relevance is with phrases such as "adjacent market", "broader sector", "does not directly concern", "could spill over" or a similar speculative bridge, classify the article LOW.
@@ -1267,6 +1268,7 @@ Rules:
 - Return HIGH and MEDIUM sources only; omit LOW sources completely.
 - HIGH or MEDIUM requires currentDevelopment=true and contentType CURRENT_DEVELOPMENT or ANALYSIS_WITH_CURRENT_UPDATE. Static/reference/directory/evergreen-forecast content cannot pass.
 - Reject a source when its client relevance depends on phrases such as "if the client sells to...", "if the client sources...", "if this is part of the client's input mix...", or any other unstated client relationship.
+- For a destination-country trade remedy that names affected origin countries, reject it when the client's origin is not in scope. Example: a Japan investigation of steel from South Korea, China and Taiwan is LOW for a Thailand-origin exporter to Japan unless the article explicitly includes Thailand or applies the measure more broadly.
 - Never include a source because relevant updates are limited. Do not use fallback language such as "limited news", "broader context because", or "may be relevant".
 - Keep all HIGH sources.
 - Include MEDIUM sources only when the article has a clear, specific client implication.
@@ -1613,6 +1615,7 @@ Critical extraction rules:
 - Extract CURRENT developments, not static background. Do not extract company-directory facts, supplier listings, generic company descriptions, market-size baselines, generic CAGR forecasts, or evergreen industry descriptions as standalone facts.
 - A forecast fact is allowed only when the article clearly reports a newly issued/revised forecast or a current event that changed the forecast; state the current trigger, not merely the long-term CAGR.
 - Preserve the exact product, activity, regulation, input, buyer segment, or market topic being discussed. Do not broaden an adjacent product into an industry-wide claim.
+- For anti-dumping, countervailing, safeguard, tariff, quota, import-control, customs or other trade-remedy facts, explicitly capture the destination market and the origin countries in scope. Do not omit named origins because they are essential to applicability.
 - Numeric changes may be included only when explicitly stated in the article.
 - Do not infer causes, client implications, banking implications, or advice.
 - Do not add general knowledge. If a page is too vague or promotional to support a clear factual development, return no facts for that source.
@@ -1627,6 +1630,10 @@ LATEST_UPDATE, LATEST_PERIOD, RECENT_PERIOD, OLDER_BACKGROUND, UNSPECIFIED.
 Use these factType values only:
 CURRENT_EVENT, CURRENT_MARKET_UPDATE, CURRENT_REGULATORY_UPDATE, CURRENT_COMPANY_EVENT, FORECAST_REVISION, BACKGROUND_REFERENCE.
 Normally return only the first five. BACKGROUND_REFERENCE should be used only when inseparable from a current fact and will not be eligible to create a signal by itself.
+
+Use these originCoverage values only:
+NAMED_ORIGINS_ONLY, ALL_ORIGINS, NOT_STATED, NOT_APPLICABLE.
+For a trade-remedy/import-control fact, use NAMED_ORIGINS_ONLY when the measure names particular origin countries, ALL_ORIGINS only when the source clearly says it applies irrespective of origin, and NOT_STATED when the source does not make origin coverage clear. For non-trade-measure facts use NOT_APPLICABLE.
 
 Return JSON only in this exact shape:
 {
@@ -1643,6 +1650,9 @@ Return JSON only in this exact shape:
           "period": "Q2 2026",
           "recencyRank": "LATEST_PERIOD",
           "factType": "CURRENT_MARKET_UPDATE",
+          "tradeMeasureDestination": "",
+          "affectedOriginCountries": [],
+          "originCoverage": "NOT_APPLICABLE",
           "scopeNote": "Regional statement; Germany is the numeric example."
         }
       ]
@@ -1680,6 +1690,7 @@ ${sourceContext}
   const allowedScopes = new Set(["COUNTRY", "REGION", "GLOBAL", "MULTI_COUNTRY", "UNSPECIFIED"]);
   const allowedRecency = new Set(["LATEST_UPDATE", "LATEST_PERIOD", "RECENT_PERIOD", "OLDER_BACKGROUND", "UNSPECIFIED"]);
   const allowedFactTypes = new Set(["CURRENT_EVENT", "CURRENT_MARKET_UPDATE", "CURRENT_REGULATORY_UPDATE", "CURRENT_COMPANY_EVENT", "FORECAST_REVISION"]);
+  const allowedOriginCoverage = new Set(["NAMED_ORIGINS_ONLY", "ALL_ORIGINS", "NOT_STATED", "NOT_APPLICABLE"]);
   const output = [];
 
   for (const sourceEntry of parsed.sources) {
@@ -1708,12 +1719,88 @@ ${sourceContext}
         period: String(fact?.period || "Unspecified").trim() || "Unspecified",
         recencyRank: allowedRecency.has(recencyRankRaw) ? recencyRankRaw : "UNSPECIFIED",
         factType: factTypeRaw,
+        tradeMeasureDestination: String(fact?.tradeMeasureDestination || "").trim(),
+        affectedOriginCountries: Array.isArray(fact?.affectedOriginCountries)
+          ? fact.affectedOriginCountries.map(value => String(value || "").trim()).filter(Boolean).slice(0, 12)
+          : [],
+        originCoverage: allowedOriginCoverage.has(String(fact?.originCoverage || "NOT_APPLICABLE").toUpperCase())
+          ? String(fact?.originCoverage || "NOT_APPLICABLE").toUpperCase()
+          : "NOT_APPLICABLE",
         scopeNote: String(fact?.scopeNote || "").trim()
       });
     });
   }
 
   return output;
+}
+
+function normalizeCountryMatchKey(value = "") {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function countryNameSet(countries = []) {
+  return new Set(normalizeCountryList(countries)
+    .flatMap(country => [country.name, country.label, country.code])
+    .map(normalizeCountryMatchKey)
+    .filter(Boolean));
+}
+
+function listIntersectsCountrySet(values = [], countrySet = new Set()) {
+  return (Array.isArray(values) ? values : [])
+    .map(normalizeCountryMatchKey)
+    .filter(Boolean)
+    .some(value => countrySet.has(value));
+}
+
+function filterAtomicFactsForDirectionalTradeMeasures(facts = [], tradeFlow = null) {
+  if (!tradeFlow) return facts;
+
+  const salesMarkets = countryNameSet(tradeFlow?.sales?.countries || []);
+  const purchaseMarkets = countryNameSet(tradeFlow?.purchase?.countries || []);
+  const thailandKeys = new Set(["thailand", "th", "tha"]);
+
+  return (Array.isArray(facts) ? facts : []).filter(fact => {
+    const coverage = String(fact?.originCoverage || "NOT_APPLICABLE").toUpperCase();
+    if (coverage === "NOT_APPLICABLE") return true;
+
+    const destination = normalizeCountryMatchKey(fact?.tradeMeasureDestination || "");
+    if (!destination) return true; // Let the final evidence model handle unclear scope conservatively.
+
+    const destinationIsThailand = thailandKeys.has(destination);
+    const destinationIsSalesMarket = salesMarkets.has(destination);
+
+    // A trade measure in a country outside the client's directional footprint is not a direct-flow signal.
+    if (!destinationIsThailand && !destinationIsSalesMarket) return false;
+
+    if (coverage === "ALL_ORIGINS") {
+      if (destinationIsSalesMarket && tradeFlow?.sales?.international) return true;
+      if (destinationIsThailand && tradeFlow?.purchase?.international) return true;
+      return false;
+    }
+
+    if (coverage === "NAMED_ORIGINS_ONLY") {
+      const origins = Array.isArray(fact?.affectedOriginCountries) ? fact.affectedOriginCountries : [];
+
+      // For exports from this Thailand-based client into a selected sales market, Thailand must be named.
+      if (destinationIsSalesMarket) {
+        return origins.map(normalizeCountryMatchKey).some(origin => thailandKeys.has(origin));
+      }
+
+      // For an import measure in Thailand, one of the client's stated international purchase origins must be named.
+      if (destinationIsThailand) {
+        if (!tradeFlow?.purchase?.international || !purchaseMarkets.size) return false;
+        return listIntersectsCountrySet(origins, purchaseMarkets);
+      }
+    }
+
+    // NOT_STATED remains eligible for model review, but cannot be treated as a direct match without evidence.
+    return true;
+  });
 }
 
 function validateCardsAgainstAtomicFacts(cards, atomicFacts, knownClientFacts = []) {
@@ -1778,6 +1865,9 @@ async function analyzeNewsDevelopments({ env, sources, atomicFacts = [], sector,
       period: fact.period,
       recencyRank: fact.recencyRank,
       factType: fact.factType,
+      tradeMeasureDestination: fact.tradeMeasureDestination || "",
+      affectedOriginCountries: fact.affectedOriginCountries || [],
+      originCoverage: fact.originCoverage || "NOT_APPLICABLE",
       scopeNote: fact.scopeNote
     };
   });
@@ -1819,6 +1909,7 @@ Signal coverage:
 - Prioritise developments that could change how the client buys, sells, produces, delivers, pays, collects, or manages supplier/buyer relationships
 - Separate purchase-side supplier/cost/operating implications from sales-side buyer/demand/revenue implications when the evidence supports that distinction
 - Treat purchase countries as supplier/source markets and sales countries as buyer/revenue markets; do not cross-combine countries randomly
+- TRADE-MEASURE FLOW GATE: anti-dumping, countervailing, safeguard, tariff, quota, import-control, customs and similar measures must match the client's actual directional flow, not merely a country somewhere in the profile. For international sales from this Thailand-based client, a measure in the destination market is usable only when Thai-origin goods are explicitly covered or the measure applies to all origins. If named origins exclude Thailand, OMIT THE CARD. Never remap a named origin such as China to a separate client exposure to China when the measure concerns China-origin goods entering another market.
 - Client geography is a constraint, not an opportunity set. The selected countries describe the client's current stated footprint. Do not suggest or imply that the client should enter a new market because an article shows demand elsewhere
 - Do not recommend changing suppliers or buyers, changing production, changing pricing, investing, acquiring, expanding, exiting a market, or any other corporate-strategy action
 - You are supporting a bank relationship manager. First establish whether the development intersects the client's EXISTING industry and stated footprint. Do not force a cash-flow, payments, working-capital, liquidity, FX, or facility implication when the source does not directly establish that transmission.
@@ -1830,7 +1921,7 @@ Signal coverage:
 Card standard:
 - Each card has only two sections: Comment on context and Link to client
 - Comment on context: one concise, plain-English statement of what the selected atomic facts show. Preserve the fact's geography and period in the sentence whenever they are stated; never write an unscoped global-sounding trend from a country- or region-scoped fact.
-- Link to client: one or two concise sentences that read as a natural continuation of Comment on context. Connect the development to ONE known client fact, but do not narrate the validation logic or mechanically restate the client profile. Then, only if genuinely useful, add a light scope caveat. Do not add a hypothetical operating or financial consequence.
+- Link to client: usually two short, natural sentences (roughly 30-55 words in total) that read as a smooth continuation of Comment on context. The first sentence should connect the development to ONE known client fact or existing market. The second may explain what aspect of the client's existing business makes it worth watching or lightly clarify the evidence scope. Do not narrate validation logic, mechanically restate the profile, or add a hypothetical operating/financial consequence.
 - Geography matching is strict: a COUNTRY fact can support only that country; a REGION fact may be used as broader regional context for a client country in that region, but the wording must stay regional; a countryExample inside a regional fact must never be presented as evidence for another country.
 - A MULTI_COUNTRY fact may be used only for the countries explicitly covered. A GLOBAL fact may be used only when the article itself genuinely states a global development. UNSPECIFIED geography should normally be omitted.
 - If a source has China evidence under an Asia heading but no genuine Asia-wide statement, do not use it as evidence for Japan. If a Europe fact uses Germany as its numeric example, you may describe broader European conditions for a France-exposed client only when the atomic fact itself is REGION-scoped; explicitly avoid implying a France-specific move.
@@ -1839,8 +1930,8 @@ Card standard:
 - ONE-HOP LINK RULE: Link to client may make only one inference beyond the sourced fact: connect the fact to a known client attribute or stated purchase/sales market. Stop there.
 - Do not add second-order consequences in Link to client, even conditionally. Phrases such as "if orders change", "if buyers change terms", "could affect receivables", "may influence working capital", or similar scenario chains belong later in client discovery only after the client raises them.
 - Write Link to client as though it is the next sentence in the same conversation, not as an explanation of why the article passed a relevance test. The banker should be able to read Comment on context and Link to client aloud without sounding like a system prompt.
-- Prefer natural bridges grounded in known facts, for example: "For a Thai steel-sheet producer, that puts energy costs firmly on the radar."; "With China already part of its sales mix, this is a useful read on the demand backdrop there."; "Given its domestic sales exposure, this is worth keeping in view as part of the local market picture." Use these only as style examples; do not copy facts that are not in the client profile.
-- Avoid mechanical or rubric-like wording such as "The client is Thailand-based", "the selected activity is", "the client has stated sales to", "the fact is about", "the source covers", "this is useful context", "this is a sales-side signal", or "this provides context for one of the client's stated markets". Express the same idea naturally instead.
+- Prefer natural bridges grounded in known facts, for example: "For a Thai steel-sheet producer, the higher power tariff is directly relevant to the domestic production-cost environment. The increase applies across the wider steel sector, so it is best treated as an industry cost watchpoint."; "With the client already selling into China, this is a useful read on the demand environment in one of its existing export markets. It is broader steel-market context rather than a direct read on the client's own orders."; "For the client's domestic business in Thailand, this gives a current read on the local steel-demand backdrop. It is market context rather than a company-specific order signal." Use these only as style examples; do not copy facts that are not in the client profile.
+- Avoid mechanical or rubric-like wording such as "The client is Thailand-based", "the selected activity is", "the client has stated sales to", "the fact is about", "the source covers", "this is useful context", "this is a sales-side signal", or "this provides context for one of the client's stated markets". Also avoid portfolio jargon such as "sales mix" or "sales exposure"; prefer natural banking language such as "already selling into China", "an existing export market", "the client's domestic business", or "its existing sales in Japan". Express the same idea naturally instead.
 - Do not start every Link to client with the same formula. Vary the bridge naturally while staying factual and concise.
 - If a scope caveat is needed, make it a light second clause or second sentence rather than the main message. For example, "This is more of a broader steel-market watchpoint than a direct read on sheet orders." Do not refer to the source or the model's reasoning process in the caveat.
 - If the source itself directly reports a concrete operating consequence and that consequence maps literally to a known client fact, you may preserve it. Otherwise stop after the factual client connection.
@@ -1896,7 +1987,7 @@ Return JSON only in this exact shape:
       "title": "Specific practical signal title",
       "tags": ["Trade", "Supply chain"],
       "context": "One concise, evidence-grounded statement of what is happening",
-      "relevance": "One concise, cautious link to the selected client profile using only known client facts and a clear supported transmission channel",
+      "relevance": "Usually two short, natural sentences linking the sourced development to one known client fact or existing market, with a light scope clarification where useful",
       "factIds": ["S1F1"],
       "clientFactIds": ["K2", "K9"],
       "sourceNumbers": [1]
@@ -2224,9 +2315,14 @@ export async function onRequestPost(context) {
       source_number: index + 1
     }));
 
-    const atomicFacts = (!sourceAssessment.hasRelevantUpdates || mergedSources.length === 0)
+    const extractedAtomicFacts = (!sourceAssessment.hasRelevantUpdates || mergedSources.length === 0)
       ? []
       : await extractAtomicNewsFacts({ env, sources: mergedSources });
+
+    // Trade remedies are directional. A destination-country measure that names origins other than
+    // the client's actual origin should not become a client signal merely because those countries
+    // appear elsewhere in the profile.
+    const atomicFacts = filterAtomicFactsForDirectionalTradeMeasures(extractedAtomicFacts, tradeFlow);
 
     // DEACTIVATED 2026-05: Industry Context & RM Considerations is hidden in the UI.
     // Keep generateGeneralContext() above for future reuse, but do not call it now.
