@@ -18,6 +18,16 @@ function parseJsonObject(text) {
   }
 }
 
+function containsSpeculativeClientLink(text = "") {
+  const value = String(text || "");
+  const patterns = [
+    /\bif\b/i,
+    /\b(?:could|may|might) (?:affect|change|influence|alter|drive|lead to|result in|translate into|mean)\b/i,
+    /\bpotential(?:ly)? (?:affect|change|influence|alter|lead to|result in)\b/i
+  ];
+  return patterns.some(pattern => pattern.test(value));
+}
+
 function cleanSignal(signal, index) {
   return {
     title: String(signal?.title || `Signal ${index + 1}`).trim(),
@@ -59,7 +69,7 @@ Client profile:
 
 CLEAR structure:
 - Comment on context — Begin with a simple observation: summarise the development in 2 concise sentences. Include the most useful facts and enough market context for the banker to understand the signal.
-- Link to client — Relate it gently to the client’s business: preserve and strengthen the selected signal's client relevance. Use 2 concise sentences. State direct effects confidently only when supported; present second-order effects conditionally using phrases such as "if orders take longer to confirm" or "if buyers change terms".
+- Link to client — Relate it gently to the client’s business: preserve the selected signal's evidence-based relevance without strengthening it. Use 1 or 2 concise sentences that flow naturally from Comment on context. Apply a one-hop rule: connect the development to one known client fact or stated market, then stop. Do not mechanically restate the profile or explain why the signal is relevant. If useful, add a light scope caveat. Do not add hypothetical operational or financial consequences here.
 - Explore lightly — Invite the client to share their perspective: provide exactly 2 broad, gentle invitations the banker can choose from. Start with the client’s view before asking about a specific operational detail. For each invitation, add one short reason for asking and one short, neutral phrase describing what to listen for. Each supporting phrase should be no more than 18 words.
 - Allow room — Listen to what feels relevant to them: provide 2 or 3 compact listening cues. Each cue should name the client's possible emphasis, say briefly what it may indicate, and give one short way to follow the client's lead. Do not repeat "Listen for where the client places the emphasis" in every item.
 - Reaffirm support — Reflect and offer a helpful next step: provide exactly 2 conditional examples. Each should show how the banker can reflect what the client raised and then offer a proportionate next step. Keep each example to one short sentence and avoid a compulsory product pitch.
@@ -69,7 +79,18 @@ Rules:
 - Do not forecast
 - Do not invent facts
 - Do not imply the client has a problem
-- Do not weaken or generalise a strong relevance link from the selected signal
+- Do not introduce new facts about the client that are not already present in the selected signal or client profile. In particular, do not invent buyer segments, supplier types, raw materials, input mix, production processes, distribution channels, customer concentration, or commercial relationships.
+- If a useful follow-up depends on an unknown business relationship, Explore lightly may ask the client broadly about that area, but Link to client must not present the relationship as known.
+- ONE-HOP LINK RULE: Link to client may connect the development to a stated client fact such as industry, purchase market, or sales market, but must not continue into an assumed consequence for orders, pricing, payments, receivables, working capital, liquidity, or facilities unless that consequence is explicitly present in the selected signal itself.
+- Do not use conditional scenario chains in Link to client such as "if orders change...", "if buyers change terms...", "could affect receivables...", or "may influence working capital...". Those implications should emerge only if the client raises them during Explore lightly / Allow room.
+- Treat the evidence checks as internal reasoning. Do not write Link to client like a validation note. Avoid phrases such as "The client is Thailand-based", "the selected activity is", "the client has stated sales to", "the source covers", "the fact is about", or "this is useful context".
+- Prefer a smooth bridge such as "For a Thai steel-sheet producer...", "With China already part of its sales mix...", "Given its domestic sales exposure...", or another natural equivalent supported by the actual profile. Vary the phrasing across cards rather than repeating a template.
+- When the selected signal is broader than the client's exact product/activity, preserve that limitation lightly, for example by calling it a broader sector watchpoint rather than explaining the source-screening logic.
+- Do not weaken, generalise, or strengthen the relevance link from the selected signal.
+- Treat the client's stated purchase and sales geography as its current footprint, not as an invitation to propose new markets
+- Do not recommend or imply that the client should enter or exit a market, change suppliers or buyers, change production or pricing, invest, acquire, or make another corporate-strategy decision
+- Keep the banker in a transaction-banking role: explore implications for existing cash flow, payments, collections, trade structures, supplier/buyer terms, working capital, liquidity, FX flows, operating resilience, and whether existing banking arrangements merit a review
+- You may offer to review whether an existing facility or banking arrangement still fits the operating cycle if the client raises a relevant change. Do not state that the client should increase, reduce, refinance, or take a specific credit facility
 - Do not infer invoice, settlement, or proceeds currency from a country or market. Name a specific currency only when it is explicitly present in the selected signal and supported by the client profile; otherwise use neutral wording such as sales proceeds, payment timing, FX exposure, or receivable timing
 - Avoid ambiguous contrasts such as “rather than”, “instead of”, “without assuming”, “despite”, and “although” unless directly necessary and supported
 - Explore lightly should feel like an invitation, not an interview or diagnostic checklist
@@ -214,7 +235,16 @@ ${JSON.stringify(signals, null, 2)}
       return Response.json({ error: "Conversation generation returned an unexpected format." }, { status: 500 });
     }
 
-    return Response.json({ cards: parsed.cards });
+    const safeCards = parsed.cards.map((card, index) => {
+      const originalSignal = signals[index] || signals.find(signal => signal.title === card?.title);
+      const generatedLink = String(card?.linkToClient || "").trim();
+      if (originalSignal?.relevance && containsSpeculativeClientLink(generatedLink)) {
+        return { ...card, linkToClient: originalSignal.relevance };
+      }
+      return card;
+    });
+
+    return Response.json({ cards: safeCards });
   } catch (error) {
     return Response.json({ error: error?.message || "Conversation generation failed." }, { status: 500 });
   }

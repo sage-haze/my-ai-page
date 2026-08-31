@@ -2317,6 +2317,25 @@ function renderConversationCards(text) {
   return true;
 }
 
+
+function renderNoNewsState(text) {
+  resetConversationBridge();
+  lastConversationCards = [];
+  selectedSignalIndexes = new Set();
+  const lines = String(text || "")
+    .split(/\n+/)
+    .map(line => line.trim())
+    .filter(Boolean);
+  const heading = lines[0] || "No relevant recent news identified";
+  const detail = lines.slice(1).join(" ");
+  analysisOutput.innerHTML = `
+    <div class="no-news-state">
+      <h3>${escapeHtml(heading)}</h3>
+      ${detail ? `<p>${escapeHtml(detail)}</p>` : ""}
+    </div>
+  `;
+}
+
 function renderAnalysis(text) {
   if (!text) {
     resetConversationBridge();
@@ -2698,7 +2717,11 @@ button.addEventListener("click", async function () {
 
     renderSources(data.sources || [], Boolean(data.no_relevant_updates), Boolean(data.fallback_triggered));
     const analysisText = data.news?.content || data.analysis || "";
-    renderAnalysis(analysisText || "No analysis returned.");
+    if (Boolean(data.no_relevant_updates) || data.news?.status === "NO_NEWS") {
+      renderNoNewsState(analysisText);
+    } else {
+      renderAnalysis(analysisText || "No analysis returned.");
+    }
     signalRunSucceeded = Boolean(String(analysisText).trim());
 
     const marketIntelligenceRendered = await marketIntelligencePromise;

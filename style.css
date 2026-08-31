@@ -196,6 +196,24 @@ button:disabled {
   line-height: 1.4;
 }
 
+.no-news-state {
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  background: #f8fafc;
+  padding: 14px 16px;
+  color: #475569;
+}
+
+.no-news-state h3 {
+  margin: 0 0 6px;
+  font-size: 16px;
+  color: #334155;
+}
+
+.no-news-state p {
+  margin: 0;
+}
+
 .theme-card {
   border: 1px solid #ddd;
   border-radius: 10px;
