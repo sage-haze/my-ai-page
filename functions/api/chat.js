@@ -1424,58 +1424,115 @@ function normalizeNoNewsText(timeframe) {
   return `No relevant recent news identified\nWe did not find a sufficiently relevant development for this client's industry and selected purchase/sales markets in the last ${timeframe} days.`;
 }
 
-function normalizeCardTags(tags = [], fallbackText = "") {
-  const allowed = new Set(["FX", "Trade", "Working capital", "Payments", "Supply chain", "Liquidity", "Geopolitics", "Rates", "Commodities", "Sector"]);
-  const map = {
-    fx: "FX",
-    currency: "FX",
-    currencies: "FX",
-    rates: "Rates",
-    rate: "Rates",
-    interest: "Rates",
-    trade: "Trade",
-    "trade finance": "Trade",
-    workingcapital: "Working capital",
-    "working capital": "Working capital",
-    payments: "Payments",
-    payment: "Payments",
-    collections: "Payments",
-    collection: "Payments",
-    "supply chain": "Supply chain",
-    supplychain: "Supply chain",
-    logistics: "Supply chain",
-    shipping: "Supply chain",
-    liquidity: "Liquidity",
-    cash: "Liquidity",
-    geopolitical: "Geopolitics",
-    geopolitics: "Geopolitics",
-    policy: "Geopolitics",
-    commodities: "Commodities",
-    commodity: "Commodities",
-    sector: "Sector",
-    industry: "Sector",
-    market: "Sector"
+const CLIENT_UNDERSTANDING_TAXONOMY = {
+  "Client business model and operating activities": [
+    "Purchase activities",
+    "Sales activities",
+    "Inventory / goods handling",
+    "Delivery / logistics",
+    "Payments",
+    "Collections",
+    "Reconciliation",
+    "Investments / operating activities"
+  ],
+  "Relationships with suppliers / buyers": [
+    "Business risks (affecting revenue)",
+    "Operational risks (affecting production)",
+    "Operating markets",
+    "Transaction volume of payments and collections",
+    "Dynamics of bargaining power",
+    "Supplier / buyer dependency",
+    "Trust / relationship",
+    "Trading / payment terms",
+    "Part of a larger group"
+  ],
+  "Working capital and financial management": [
+    "Payment timing",
+    "Collection timing",
+    "Currency needs",
+    "Exchange-rate exposure",
+    "Buyer payment risk",
+    "Cash available for payments",
+    "Documentation involved",
+    "Inventory days",
+    "Debtor days",
+    "Creditor days",
+    "Financing gap",
+    "Pre-shipment working capital",
+    "Post-shipment working capital"
+  ],
+  "Other business areas to consider": [
+    "Bank / account restrictions",
+    "Payment mode preferences",
+    "Collection mode preferences",
+    "Payment currency preferences",
+    "Collection currency preferences",
+    "Facility decision-making autonomy",
+    "Group / management influence"
+  ]
+};
+
+function normalizeUnderstandingArea(area = "") {
+  const clean = String(area || "").trim().toLowerCase();
+  const aliases = {
+    "client business model and operating activities": "Client business model and operating activities",
+    "business model and operating activities": "Client business model and operating activities",
+    "business model & operating activities": "Client business model and operating activities",
+    "business model & operations": "Client business model and operating activities",
+    "relationships with suppliers / buyers": "Relationships with suppliers / buyers",
+    "relationships with suppliers and buyers": "Relationships with suppliers / buyers",
+    "supplier / buyer relationships": "Relationships with suppliers / buyers",
+    "supplier/buyer relationships": "Relationships with suppliers / buyers",
+    "working capital and financial management": "Working capital and financial management",
+    "working capital & financial management": "Working capital and financial management",
+    "other business areas to consider": "Other business areas to consider",
+    "other business areas": "Other business areas to consider"
   };
+  return aliases[clean] || "";
+}
 
-  const cleanTags = (Array.isArray(tags) ? tags : String(tags || "").split(/[,|/]+/))
-    .map(tag => map[String(tag || "").trim().toLowerCase()] || String(tag || "").trim())
-    .filter(tag => allowed.has(tag));
+function normalizeUnderstandingActivity(area, activity = "") {
+  const canonicalArea = normalizeUnderstandingArea(area);
+  if (!canonicalArea) return "";
+  const allowed = CLIENT_UNDERSTANDING_TAXONOMY[canonicalArea] || [];
+  const clean = String(activity || "").trim().toLowerCase();
+  return allowed.find(item => item.toLowerCase() === clean) || "";
+}
 
-  if (!cleanTags.length && fallbackText) {
-    const text = String(fallbackText).toLowerCase();
-    if (/\b(fx|currency|currencies|usd|eur|cny|jpy|thb|hedg)/i.test(text)) cleanTags.push("FX");
-    if (/\b(rate|rates|interest|borrowing|funding cost|yield)\b/i.test(text)) cleanTags.push("Rates");
-    if (/\b(trade|letter of credit|lc\b|guarantee|documentary|supplier payment|buyer risk)\b/i.test(text)) cleanTags.push("Trade");
-    if (/\b(working capital|cash conversion|receivable|receivables|payable|payables|inventory|cash cycle)\b/i.test(text)) cleanTags.push("Working capital");
-    if (/\b(payment|payments|collection|collections|settlement|reconciliation|fraud|routing)\b/i.test(text)) cleanTags.push("Payments");
-    if (/\b(supply chain|supplier|shipping|logistics|port|freight|route|inventory buffer)\b/i.test(text)) cleanTags.push("Supply chain");
-    if (/\b(liquidity|cash visibility|cash buffer|cash forecasting|deposit|surplus cash|trapped cash)\b/i.test(text)) cleanTags.push("Liquidity");
-    if (/\b(geopolitic|sanction|tariff|policy|election|border|conflict|war|compliance)\b/i.test(text)) cleanTags.push("Geopolitics");
-    if (/\b(commodity|commodities|oil|gas|energy|metal|food prices|input cost)\b/i.test(text)) cleanTags.push("Commodities");
-  }
+function normalizeClientUnderstanding(value = []) {
+  if (!Array.isArray(value)) return [];
+  const seenAreas = new Set();
+  const normalized = [];
 
-  const unique = [...new Set(cleanTags)];
-  return (unique.length ? unique : ["Sector"]).slice(0, 3);
+  value.forEach((item, index) => {
+    const area = normalizeUnderstandingArea(item?.area || item?.level1 || item?.category || "");
+    if (!area || seenAreas.has(area)) return;
+    const activities = (Array.isArray(item?.activities) ? item.activities : [])
+      .map(activity => normalizeUnderstandingActivity(area, typeof activity === "string" ? activity : activity?.name))
+      .filter(Boolean);
+    const uniqueActivities = [...new Set(activities)].slice(0, 4);
+    if (!uniqueActivities.length) return;
+    normalized.push({
+      area,
+      priority: String(item?.priority || (index === 0 ? "PRIMARY" : "SECONDARY")).toUpperCase() === "SECONDARY" ? "SECONDARY" : "PRIMARY",
+      activities: uniqueActivities
+    });
+    seenAreas.add(area);
+  });
+
+  if (normalized.length) normalized[0].priority = "PRIMARY";
+  if (normalized.length > 1) normalized[1].priority = "SECONDARY";
+  return normalized.slice(0, 2);
+}
+
+function normalizeCardTags(tags = [], fallbackText = "", clientUnderstanding = []) {
+  const fromUnderstanding = normalizeClientUnderstanding(clientUnderstanding).map(item => item.area);
+  if (fromUnderstanding.length) return fromUnderstanding;
+
+  const normalized = (Array.isArray(tags) ? tags : String(tags || "").split(/[|]+/))
+    .map(normalizeUnderstandingArea)
+    .filter(Boolean);
+  return [...new Set(normalized)].slice(0, 2);
 }
 
 function formatNewsThemesFromJson(parsed) {
@@ -1485,13 +1542,15 @@ function formatNewsThemesFromJson(parsed) {
     const title = String(card.title || `Card ${index + 1}`).replace(/^(Theme|Card)\s*\d+\s*:\s*/i, "").trim();
     const context = String(card.context || card.commentOnContext || card.comment_on_context || card.whatIsHappening || card.what_is_happening || card.observe || "").trim();
     const relevance = String(card.relevance || card.linkToClient || card.link_to_client || card.whyRelevant || card.why_relevant || card.relate || "").trim();
-    const tags = normalizeCardTags(card.tags || card.tag || [], `${title} ${context} ${relevance}`);
+    const clientUnderstanding = normalizeClientUnderstanding(card.clientUnderstanding || card.client_understanding || []);
+    const tags = normalizeCardTags(card.tags || card.tag || [], `${title} ${context} ${relevance}`, clientUnderstanding);
     const sourceNumbers = Array.isArray(card.sourceNumbers) ? card.sourceNumbers : extractSourceRefs(`${context} ${relevance}`);
     const cleanSourceNumbers = [...new Set(sourceNumbers.map(Number).filter(Number.isFinite))].sort((a, b) => a - b);
 
     return [
       `Card ${index + 1}: ${stripInlineSourceRefs(title)}`,
-      `Tags: ${tags.join(", ")}`,
+      tags.length ? `Tags: ${tags.join(" | ")}` : "",
+      clientUnderstanding.length ? `Client understanding: ${JSON.stringify(clientUnderstanding)}` : "",
       cleanSourceNumbers.length ? `Sources: ${cleanSourceNumbers.map(number => `[${number}]`).join(" ")}` : "",
       context ? `Comment on context: ${stripInlineSourceRefs(context)}` : "",
       relevance ? `Link to client: ${stripInlineSourceRefs(relevance)}` : ""
@@ -1827,9 +1886,14 @@ function validateCardsAgainstAtomicFacts(cards, atomicFacts, knownClientFacts = 
     const relevance = String(card?.relevance || card?.linkToClient || card?.link_to_client || "").trim();
     if (!relevance || containsUnsupportedClientRelationshipAssumption(relevance) || containsSpeculativeConsequenceLink(relevance)) return false;
 
+    const clientUnderstanding = normalizeClientUnderstanding(card?.clientUnderstanding || card?.client_understanding || []);
+    if (!clientUnderstanding.length) return false;
+
     card.factIds = factIds;
     card.clientFactIds = clientFactIds;
     card.sourceNumbers = [...sourceNumbers];
+    card.clientUnderstanding = clientUnderstanding;
+    card.tags = clientUnderstanding.map(item => item.area);
     return true;
   });
 }
@@ -1873,7 +1937,7 @@ async function analyzeNewsDevelopments({ env, sources, atomicFacts = [], sector,
   });
 
   const prompt = `
-You are a transaction banking conversation coach supporting a junior Thailand-based relationship manager.
+You are a client-understanding coach supporting a junior Thailand-based relationship manager.
 
 The user's custom focus/context is:
 ${defaultPrompt}
@@ -1896,7 +1960,7 @@ ${knownClientFacts.map(fact => `- ${fact.id}: ${fact.statement}`).join("\n")}
 Anything not stated in this list is UNKNOWN. Do not fill gaps with typical industry practice.
 
 Task:
-Create evidence-grounded Client Signals from the provided atomic source facts. Rank them from most useful to least useful for a junior transaction banker. At this stage, generate signals only — do not generate questions, invitations, recommendations, or a full conversation flow.
+Create evidence-grounded Client Signals from the provided atomic source facts. Rank them from most useful to least useful for a junior transaction banker. Keep the existing Comment on context and Link to client structure. Then classify each retained signal against the workshop's Client Understanding framework so the banker can see which parts of their client understanding may be worth revisiting. Do not generate questions, invitations, recommendations, or a conversation flow.
 ${cardCountInstruction()}
 
 Signal coverage:
@@ -1937,6 +2001,56 @@ Card standard:
 - If the source itself directly reports a concrete operating consequence and that consequence maps literally to a known client fact, you may preserve it. Otherwise stop after the factual client connection.
 - When the article is broader than the client's exact product/activity but still passes because the geography and industry connection are strong, preserve that scope naturally and treat it as a watchpoint rather than a direct indicator of the client's orders or performance.
 - Do not generate a question or next step in this first stage
+- CLIENT UNDERSTANDING CLASSIFICATION: classify each retained signal using the fixed workshop taxonomy below. Classification happens only AFTER a signal has passed the news relevance gates; never use a training label to rescue a weak or speculative article.
+- Use exactly ONE primary Level 1 area. Add a second Level 1 area only when there is a clear first-order connection from the sourced fact and known client facts. Never add a second area merely because it could eventually be affected.
+- Under each selected Level 1 area, choose 1-4 Level 2 activities from the fixed list. These identify what aspect of existing client understanding may be worth revisiting; they are NOT claims that the client is affected.
+- Do not jump to Working capital and financial management simply because any business change could eventually affect cash. Select it only when the sourced development and known client facts create a direct first-order reason to revisit payment/collection timing, liquidity, currency needs, cash-conversion drivers, or financing gap.
+- Do not infer unknown buyers, suppliers, inputs, production processes, trading terms, payment terms, bargaining power, financing arrangements, management preferences, or group policies when choosing Level 2 activities.
+- Prefer the narrowest useful Level 2 activities. If the evidence only supports a broad market watchpoint, Operating markets or Business risks (affecting revenue) may be enough; do not add downstream financial consequences.
+- The purpose is pedagogical: show the participant which workshop area to revisit, while preserving the distinction between known client facts and information still to be understood.
+
+Fixed Client Understanding taxonomy:
+1) Client business model and operating activities
+   - Purchase activities
+   - Sales activities
+   - Inventory / goods handling
+   - Delivery / logistics
+   - Payments
+   - Collections
+   - Reconciliation
+   - Investments / operating activities
+2) Relationships with suppliers / buyers
+   - Business risks (affecting revenue)
+   - Operational risks (affecting production)
+   - Operating markets
+   - Transaction volume of payments and collections
+   - Dynamics of bargaining power
+   - Supplier / buyer dependency
+   - Trust / relationship
+   - Trading / payment terms
+   - Part of a larger group
+3) Working capital and financial management
+   - Payment timing
+   - Collection timing
+   - Currency needs
+   - Exchange-rate exposure
+   - Buyer payment risk
+   - Cash available for payments
+   - Documentation involved
+   - Inventory days
+   - Debtor days
+   - Creditor days
+   - Financing gap
+   - Pre-shipment working capital
+   - Post-shipment working capital
+4) Other business areas to consider
+   - Bank / account restrictions
+   - Payment mode preferences
+   - Collection mode preferences
+   - Payment currency preferences
+   - Collection currency preferences
+   - Facility decision-making autonomy
+   - Group / management influence
 - Prefer a concrete commercial transmission channel over generic wording
 - Avoid ambiguous contrasts or corrective phrases such as "rather than", "instead of", "not necessarily", "without assuming", "despite", or "although" unless the source itself clearly supports the contrast
 - Never imply that the user or client made an assumption that was not stated
@@ -1985,7 +2099,14 @@ Return JSON only in this exact shape:
   "cards": [
     {
       "title": "Specific practical signal title",
-      "tags": ["Trade", "Supply chain"],
+      "tags": ["Relationships with suppliers / buyers"],
+      "clientUnderstanding": [
+        {
+          "area": "Relationships with suppliers / buyers",
+          "priority": "PRIMARY",
+          "activities": ["Operating markets", "Business risks (affecting revenue)"]
+        }
+      ],
       "context": "One concise, evidence-grounded statement of what is happening",
       "relevance": "Usually two short, natural sentences linking the sourced development to one known client fact or existing market, with a light scope clarification where useful",
       "factIds": ["S1F1"],
@@ -1995,7 +2116,7 @@ Return JSON only in this exact shape:
   ]
 }
 
-Allowed tags: FX, Trade, Working capital, Payments, Supply chain, Liquidity, Geopolitics, Rates, Commodities, Sector. Use one to three tags per card. Prefer transaction-banking relevance tags over generic macro labels.
+Allowed tags are ONLY the four Level 1 Client Understanding areas listed above. The tags must match the areas used in clientUnderstanding. Use one primary tag and at most one secondary tag.
 
 If not relevant, return exactly this JSON:
 {

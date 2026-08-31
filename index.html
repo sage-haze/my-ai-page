@@ -3,14 +3,14 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Client Conversation Bridge</title>
+    <title>Client Understanding Bridge</title>
     <link rel="stylesheet" href="style.css">
   </head>
   <body>
     <div class="page bridge-page">
       <header class="bridge-hero">
         <h1>Build Your Bridge</h1>
-        <p class="intro">Convert market signals into commercial client relevance.</p>
+        <p class="intro">Use relevant external developments to revisit what you understand about the client’s business.</p>
       </header>
 
       <div class="preparation-layout">
@@ -118,7 +118,7 @@
 
           <div class="form-group developer-focus hidden">
             <label for="defaultPrompt">Custom Focus (Optional)</label>
-            <textarea id="defaultPrompt" rows="3">Focus on developments relevant to this client’s existing directional trade flows. Separate purchase-side supplier/cost implications from sales-side buyer/revenue implications, and consider possible effects on payments, collections, trade structures, working capital, liquidity, FX flows, and existing financing arrangements. Prioritise practical insights for a Thailand-based client without recommending changes to the client’s markets, suppliers, buyers, production, pricing, investment, or corporate strategy.</textarea>
+            <textarea id="defaultPrompt" rows="3">Focus on developments relevant to this client’s existing directional trade flows. Separate purchase-side context from sales-side context, and use relevant news as a trigger to identify which areas of client understanding may be worth revisiting. Distinguish known client facts from information that still needs to be understood. Do not recommend changes to the client’s markets, suppliers, buyers, production, pricing, investment, financing, or corporate strategy.</textarea>
           </div>
 
           <div class="action-row primary-action-row">
@@ -126,18 +126,30 @@
           </div>
         </main>
 
-        <aside class="setup-card five-moves-card five-moves-sidebar" aria-label="A simple conversation flow">
+        <aside class="setup-card client-understanding-sidebar" aria-label="Client understanding framework">
           <div class="section-heading-row">
             <div>
-              <h2>A CLEAR Conversation Flow</h2>
+              <h2>Client Understanding</h2>
+              <p class="sidebar-intro">Use external developments as a trigger to revisit what you know about the client.</p>
             </div>
           </div>
-          <ol class="five-moves-list clear-moves-list">
-            <li data-letter="C"><strong>Comment on context</strong><span>Begin with a simple observation</span></li>
-            <li data-letter="L"><strong>Link to client</strong><span>Relate it gently to the client’s business</span></li>
-            <li data-letter="E"><strong>Explore lightly</strong><span>Invite the client to share their perspective</span></li>
-            <li data-letter="A"><strong>Allow room</strong><span>Listen to what feels relevant to them</span></li>
-            <li data-letter="R"><strong>Reaffirm support</strong><span>Reflect and offer a helpful next step</span></li>
+          <ol class="client-understanding-framework">
+            <li>
+              <span class="framework-number">1</span>
+              <div><strong>Client business model and operating activities</strong><span>How the client buys, sells, and operates, and how this drives banking and financial needs.</span></div>
+            </li>
+            <li>
+              <span class="framework-number">2</span>
+              <div><strong>Relationships with suppliers / buyers</strong><span>How dynamics with key business partners may shape decisions, needs, and priorities.</span></div>
+            </li>
+            <li>
+              <span class="framework-number">3</span>
+              <div><strong>Working capital and financial management</strong><span>How the client manages cash flow, liquidity, and its broader financial position.</span></div>
+            </li>
+            <li>
+              <span class="framework-number">4</span>
+              <div><strong>Other business areas to consider</strong><span>Characteristics or developments that may affect future business needs and financial activity.</span></div>
+            </li>
           </ol>
         </aside>
       </div>
@@ -156,13 +168,6 @@
           </div>
           <div id="fxOutput">Market rates will appear here.</div>
         </div>
-      </section>
-
-      <section class="result-card bridge-panel hidden" id="bridgePanel">
-        <div class="result-card-header">
-          <h2>Client Conversation</h2>
-        </div>
-        <div id="bridgeOutput"></div>
       </section>
 
 
