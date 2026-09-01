@@ -1688,6 +1688,18 @@ function normaliseSignalTag(tag) {
   return map[clean] || null;
 }
 
+const CLIENT_UNDERSTANDING_DISPLAY_LABELS = {
+  "Client business model and operating activities": "Business model",
+  "Working capital and financial management": "Working capital",
+  "Relationships with suppliers / buyers": "Up/Downstream relations",
+  "Other business areas to consider": "Other business areas"
+};
+
+function clientUnderstandingDisplayLabel(area) {
+  const canonical = normaliseSignalTag(area);
+  return CLIENT_UNDERSTANDING_DISPLAY_LABELS[canonical] || canonical || String(area || "").trim();
+}
+
 function deriveSignalTags() {
   return [];
 }
@@ -1869,7 +1881,13 @@ function parseConversationCardBlock(block) {
   if (!tags.length) {
     tags = deriveSignalTags(`${heading}\n${mergedSections.map(section => section.text).join("\n")}`);
   }
-  return { heading, tags, sections: mergedSections, sourceNumbers: [...sourceNumbers].sort((a, b) => a - b) };
+  return {
+    heading,
+    tags,
+    clientUnderstanding,
+    sections: mergedSections,
+    sourceNumbers: [...sourceNumbers].sort((a, b) => a - b)
+  };
 }
 
 function renderSignalTags(tags) {
@@ -1879,7 +1897,7 @@ function renderSignalTags(tags) {
     .filter((tag, index, array) => array.indexOf(tag) === index)
     .slice(0, 3);
   if (!cleanTags.length) return "";
-  return `<div class="signal-tag-row">${cleanTags.map(tag => `<span class="signal-tag">${escapeHtml(tag)}</span>`).join("")}</div>`;
+  return `<div class="signal-tag-row">${cleanTags.map(tag => `<span class="signal-tag">${escapeHtml(clientUnderstandingDisplayLabel(tag))}</span>`).join("")}</div>`;
 }
 
 function renderClientUnderstandingDetails(card) {
@@ -1889,7 +1907,7 @@ function renderClientUnderstandingDetails(card) {
   const groupHtml = groups.map((group, index) => `
     <div class="understanding-group">
       <div class="understanding-group-heading">
-        <span>${escapeHtml(group.area)}</span>
+        <span>${escapeHtml(clientUnderstandingDisplayLabel(group.area))}</span>
         <small>${index === 0 ? "Most relevant" : "Also worth revisiting"}</small>
       </div>
       <ul class="understanding-activity-list">
@@ -1900,8 +1918,8 @@ function renderClientUnderstandingDetails(card) {
 
   return `
     <details class="client-understanding-details">
-      <summary>Areas of client understanding to revisit</summary>
-      <div class="understanding-helper">These are prompts for what may be worth understanding better — not assumptions that the client is already affected.</div>
+      <summary>Client understanding to revisit</summary>
+      <div class="understanding-helper">Possible Level 2 areas to revisit from the workshop — prompts for what may be worth understanding better, not assumptions that the client is already affected.</div>
       <div class="understanding-groups">${groupHtml}</div>
     </details>
   `;
