@@ -13,6 +13,20 @@ Client setup
 → FX / rates context
 ```
 
+
+## OpenAI model variables
+
+Model selection can be controlled from Cloudflare without editing code:
+
+```text
+OPENAI_BASIC_MODEL=gpt-5.6-luna
+OPENAI_ANALYSIS_MODEL=<your analysis model>
+```
+
+`OPENAI_BASIC_MODEL` is used for the routine research steps in `functions/api/chat.js` (search planning, source review and fact extraction). If the variable is absent, the code defaults to `gpt-5.6-luna`. `OPENAI_ANALYSIS_MODEL` remains separate and controls final Client Signal synthesis.
+
+The effective model names can be checked at `/api/source-health`.
+
 ## Required secrets
 
 Set these in Cloudflare Pages / Workers as encrypted secrets.

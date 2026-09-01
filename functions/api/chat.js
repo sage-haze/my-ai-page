@@ -1,5 +1,3 @@
-import { INDUSTRY_TERMS } from "./industry-terms.js";
-
 const PREFERRED_NEWS_DOMAINS = [
   "reuters.com",
   "bloomberg.com",
@@ -28,11 +26,133 @@ const EXCLUDED_NEWS_DOMAINS = [
 const MIN_RAW_ARTICLE_WORDS = 120;
 const MAX_TAVILY_RESULTS_PER_QUERY = 10;
 const MAX_FINAL_NEWS_SOURCES = 10;
+const MAX_RETAINED_ARTICLE_CHARS = 18000;
+const TAVILY_CONCURRENCY = 2;
 
 const ALLOWED_CURRENCIES = ["THB", "USD", "JPY", "EUR", "CNY"];
 
-const OPENAI_FAST_MODEL = "gpt-4.1-mini";
+const DEFAULT_OPENAI_BASIC_MODEL = "gpt-5.6-luna";
+const DEFAULT_OPENAI_BASIC_REASONING_EFFORT = "none";
 const OPENAI_ANALYSIS_MODEL = "gpt-4.1";
+
+function getOpenAIBasicModel(env = {}) {
+  const configured = String(env?.OPENAI_BASIC_MODEL || "").trim();
+  return configured || DEFAULT_OPENAI_BASIC_MODEL;
+}
+
+function getOpenAIBasicReasoningEffort(env = {}) {
+  const allowed = new Set(["none", "minimal", "low", "medium", "high", "xhigh"]);
+  const configured = String(env?.OPENAI_BASIC_REASONING_EFFORT || DEFAULT_OPENAI_BASIC_REASONING_EFFORT).trim().toLowerCase();
+  return allowed.has(configured) ? configured : DEFAULT_OPENAI_BASIC_REASONING_EFFORT;
+}
+
+function buildOpenAIBasicRequest(env, input, extra = {}) {
+  const model = getOpenAIBasicModel(env);
+  const body = { model, input, ...extra };
+  // GPT-5 family models support explicit reasoning effort. The basic research stages are
+  // classification/extraction tasks, so default to no extra reasoning for lower latency.
+  // This can be overridden in Cloudflare with OPENAI_BASIC_REASONING_EFFORT.
+  if (/^gpt-5(?:\.|$)/i.test(model)) {
+    body.reasoning = { effort: getOpenAIBasicReasoningEffort(env) };
+  }
+  return body;
+}
+
+function buildAtomicFactJsonSchema() {
+  const factSchema = {
+    type: "object",
+    properties: {
+      fact: { type: "string" },
+      geography: { type: "string" },
+      geographyScope: {
+        type: "string",
+        enum: ["COUNTRY", "REGION", "GLOBAL", "MULTI_COUNTRY", "UNSPECIFIED"]
+      },
+      countryExamples: {
+        type: "array",
+        items: { type: "string" }
+      },
+      productOrTopic: { type: "string" },
+      period: { type: "string" },
+      recencyRank: {
+        type: "string",
+        enum: ["LATEST_UPDATE", "LATEST_PERIOD", "RECENT_PERIOD", "OLDER_BACKGROUND", "UNSPECIFIED"]
+      },
+      factType: {
+        type: "string",
+        enum: [
+          "CURRENT_EVENT",
+          "CURRENT_MARKET_UPDATE",
+          "CURRENT_REGULATORY_UPDATE",
+          "CURRENT_COMPANY_EVENT",
+          "FORECAST_REVISION",
+          "BACKGROUND_REFERENCE"
+        ]
+      },
+      tradeMeasureDestination: { type: "string" },
+      affectedOriginCountries: {
+        type: "array",
+        items: { type: "string" }
+      },
+      originCoverage: {
+        type: "string",
+        enum: ["NAMED_ORIGINS_ONLY", "ALL_ORIGINS", "NOT_STATED", "NOT_APPLICABLE"]
+      },
+      scopeNote: { type: "string" }
+    },
+    required: [
+      "fact",
+      "geography",
+      "geographyScope",
+      "countryExamples",
+      "productOrTopic",
+      "period",
+      "recencyRank",
+      "factType",
+      "tradeMeasureDestination",
+      "affectedOriginCountries",
+      "originCoverage",
+      "scopeNote"
+    ],
+    additionalProperties: false
+  };
+
+  return {
+    type: "object",
+    properties: {
+      sources: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            sourceNumber: { type: "integer" },
+            facts: {
+              type: "array",
+              items: factSchema
+            }
+          },
+          required: ["sourceNumber", "facts"],
+          additionalProperties: false
+        }
+      }
+    },
+    required: ["sources"],
+    additionalProperties: false
+  };
+}
+
+function getOpenAIRefusalText(data) {
+  if (!Array.isArray(data?.output)) return "";
+  for (const item of data.output) {
+    if (!Array.isArray(item?.content)) continue;
+    for (const contentItem of item.content) {
+      if (contentItem?.type === "refusal" && contentItem.refusal) {
+        return String(contentItem.refusal).trim();
+      }
+    }
+  }
+  return "";
+}
 
 const SUBSECTOR_KEYWORD_MAP = {
   "Thai commercial bank": [
@@ -179,21 +299,50 @@ function uniqueArray(items) {
 }
 
 function getIndustryTermProfile({ isicCode = "", industry = "" } = {}) {
-  const code = String(isicCode || "").trim();
-  if (code && INDUSTRY_TERMS[code]) return INDUSTRY_TERMS[code];
-
+  // Keep the Worker lightweight: derive a focused term profile from the exact selected
+  // ISIC activity instead of importing the full ~900 KB catalogue into every isolate.
+  // The OpenAI relevance gate remains the main semantic filter; these terms are only
+  // used for search/scoring support.
   const cleanIndustry = String(industry || "")
     .replace(/^\d+\s*[-–—:]\s*/, "")
-    .toLowerCase()
+    .replace(/\s+/g, " ")
     .trim();
 
-  if (!cleanIndustry) return { high: [], medium: [], low: [] };
+  if (!cleanIndustry) return { description: "", high: [], medium: [], low: [] };
 
-  const match = Object.values(INDUSTRY_TERMS).find(profile =>
-    String(profile.description || "").toLowerCase() === cleanIndustry
-  );
+  const generic = new Set([
+    "manufacture", "manufacturing", "activities", "activity", "services", "service",
+    "production", "processing", "growing", "wholesale", "retail", "repair", "installation",
+    "other", "except", "including", "related", "operation", "operations", "products", "product"
+  ]);
+  const words = cleanIndustry
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter(word => !["and", "the", "for", "with", "from", "of", "in", "on", "by", "to", "or"].includes(word));
+  const specificWords = words.filter(word => !generic.has(word));
 
-  return match || { high: [], medium: [], low: [] };
+  const phrases = [];
+  for (let size = Math.min(4, specificWords.length); size >= 2; size -= 1) {
+    for (let i = 0; i <= specificWords.length - size; i += 1) {
+      phrases.push(specificWords.slice(i, i + size).join(" "));
+    }
+  }
+
+  const high = uniqueArray([
+    cleanIndustry.toLowerCase(),
+    specificWords.join(" "),
+    ...phrases,
+    ...specificWords.filter(word => word.length >= 6)
+  ]).filter(term => term.length >= 4).slice(0, 18);
+
+  return {
+    description: cleanIndustry,
+    high,
+    medium: [],
+    low: []
+  };
 }
 
 function getSearchKeywords({ sector, subsector, industry = "", isicCode = "" }) {
@@ -623,7 +772,7 @@ JSON shape:
         "Content-Type": "application/json",
         "Authorization": `Bearer ${env.OPENAI_API_KEY}`
       },
-      body: JSON.stringify({ model: OPENAI_FAST_MODEL, input: plannerPrompt })
+      body: JSON.stringify(buildOpenAIBasicRequest(env, plannerPrompt, { text: { format: { type: "json_object" } } }))
     });
 
     const data = await response.json();
@@ -636,18 +785,43 @@ JSON shape:
   }
 }
 
+function safeDomainFromUrl(url = "") {
+  try {
+    return new URL(String(url || "")).hostname.replace(/^www\./, "");
+  } catch (_) {
+    return "";
+  }
+}
+
+function compactArticleContent(text = "", maxChars = MAX_RETAINED_ARTICLE_CHARS) {
+  const clean = String(text || "").replace(/\u0000/g, "").trim();
+  if (clean.length <= maxChars) return clean;
+
+  // Keep evidence from the beginning, middle and end. This prevents a long article's
+  // regional/current sections from disappearing while substantially reducing Worker memory.
+  const separator = "\n[…]\n";
+  const usable = Math.max(3000, maxChars - separator.length * 2);
+  const firstLen = Math.floor(usable * 0.40);
+  const middleLen = Math.floor(usable * 0.30);
+  const endLen = usable - firstLen - middleLen;
+  const middleStart = Math.max(firstLen, Math.floor((clean.length - middleLen) / 2));
+  return `${clean.slice(0, firstLen)}${separator}${clean.slice(middleStart, middleStart + middleLen)}${separator}${clean.slice(-endLen)}`;
+}
+
 function normalizeTavilyResults(results, sourceGroup) {
-  return (results || []).map(item => ({
-    title: item.title || item.url || "Untitled source",
-    url: item.url,
-    source: item.source || "",
-    domain: item.url ? new URL(item.url).hostname.replace(/^www\./, "") : "",
-    published_at: item.published_date || item.published_at || "",
-    summary: item.content || "",
-    raw_content: item.raw_content || "",
-    score: item.score || 0,
-    source_group: sourceGroup
-  }));
+  return (results || [])
+    .filter(item => item && item.url)
+    .map(item => ({
+      title: item.title || item.url || "Untitled source",
+      url: String(item.url || ""),
+      source: item.source || "",
+      domain: safeDomainFromUrl(item.url),
+      published_at: item.published_date || item.published_at || "",
+      summary: compactArticleContent(item.content || "", 4000),
+      raw_content: compactArticleContent(item.raw_content || ""),
+      score: item.score || 0,
+      source_group: sourceGroup
+    }));
 }
 
 function countArticleWords(text = "") {
@@ -774,6 +948,28 @@ function dedupeSources(items) {
   }
 
   return deduped;
+}
+
+async function mapWithConcurrency(items, limit, mapper) {
+  const source = Array.isArray(items) ? items : [];
+  const results = new Array(source.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= source.length) return;
+      try {
+        results[index] = { status: "fulfilled", value: await mapper(source[index], index) };
+      } catch (error) {
+        results[index] = { status: "rejected", reason: error };
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(Math.max(1, limit), source.length || 1) }, () => worker()));
+  return results;
 }
 
 async function tavilySearch({ apiKey, query, startDate, endDate, includeDomains = null, excludeDomains = EXCLUDED_NEWS_DOMAINS, maxResults = MAX_TAVILY_RESULTS_PER_QUERY, searchDepth = "basic" }) {
@@ -1017,10 +1213,7 @@ ${JSON.stringify(compactFx, null, 2)}
         "Content-Type": "application/json",
         "Authorization": `Bearer ${env.OPENAI_API_KEY}`
       },
-      body: JSON.stringify({
-        model: OPENAI_FAST_MODEL,
-        input: prompt
-      })
+      body: JSON.stringify(buildOpenAIBasicRequest(env, prompt, { text: { format: { type: "json_object" } } }))
     });
 
     const data = await response.json();
@@ -1167,7 +1360,12 @@ async function assessSourceRelevance({ env, sources, sector, subsector, industry
     return {
       hasRelevantUpdates: false,
       noRelevantUpdateMessage: `No relevant news updates were found in the selected ${timeframe}-day period for this client profile.`,
-      sources: []
+      sources: [],
+      audit: {
+        model: getOpenAIBasicModel(env),
+        candidateCount: 0,
+        reviews: []
+      }
     };
   }
 
@@ -1288,14 +1486,11 @@ ${JSON.stringify(compactSources, null, 2)}
         "Content-Type": "application/json",
         "Authorization": `Bearer ${env.OPENAI_API_KEY}`
       },
-      body: JSON.stringify({
-        model: OPENAI_FAST_MODEL,
-        input: prompt
-      })
+      body: JSON.stringify(buildOpenAIBasicRequest(env, prompt, { text: { format: { type: "json_object" } } }))
     });
 
     const data = await response.json();
-    if (!response.ok) throw new Error("Source relevance review failed.");
+    if (!response.ok) throw new Error(data?.error?.message || `Source relevance review failed (HTTP ${response.status}).`);
 
     const parsed = parseJsonObject(extractOutputText(data));
     if (!parsed) throw new Error("Source relevance review returned invalid JSON.");
@@ -1317,7 +1512,7 @@ ${JSON.stringify(compactSources, null, 2)}
         })
     );
 
-    const reviewedSources = sources
+    const allReviewedSources = sources
       .map(source => {
         const review = reviewsByNumber.get(source.source_number);
         const relevanceLevel = review?.relevanceLevel || "LOW";
@@ -1332,8 +1527,9 @@ ${JSON.stringify(compactSources, null, 2)}
           relevance_justification: review?.justification || "",
           relevant: (relevanceLevel === "HIGH" || relevanceLevel === "MEDIUM") && currentDevelopment && newsworthyType
         };
-      })
-      .filter(source => source.relevant);
+      });
+
+    const reviewedSources = allReviewedSources.filter(source => source.relevant);
 
     const highSources = reviewedSources
       .filter(source => source.relevance_level === "HIGH")
@@ -1364,16 +1560,52 @@ ${JSON.stringify(compactSources, null, 2)}
 
     const hasRelevantUpdates = Boolean(parsed.hasRelevantUpdates) && selectedSources.length > 0;
 
+    const noRelevantUpdateMessage = String(parsed.noRelevantUpdateMessage || `No relevant news updates were found in the selected ${timeframe}-day period for this client profile.`).trim();
     return {
       hasRelevantUpdates,
-      noRelevantUpdateMessage: String(parsed.noRelevantUpdateMessage || `No relevant news updates were found in the selected ${timeframe}-day period for this client profile.`).trim(),
-      sources: selectedSources
+      noRelevantUpdateMessage,
+      sources: selectedSources,
+      audit: {
+        model: getOpenAIBasicModel(env),
+        candidateCount: sources.length,
+        modelHasRelevantUpdates: Boolean(parsed.hasRelevantUpdates),
+        noRelevantUpdateMessage,
+        reviews: allReviewedSources.map(source => {
+          const countryRel = calculateCountryRelevanceScore(source, countries);
+          const industryRel = calculateIndustryRelevanceScore(source, termProfile);
+          return {
+            number: source.source_number,
+            title: source.title,
+            url: source.url,
+            domain: source.domain || source.source || "",
+            publishedAt: source.published_at || "",
+            sourceGroup: source.source_group || "",
+            tavilyScore: Number(source.score || 0),
+            extractedWordCount: countArticleWords(source.raw_content || ""),
+            authorityScore: getSourceAuthorityScore(source),
+            recencyScore: getRecencyScore(source),
+            countryRelevance: countryRel,
+            industryRelevance: industryRel,
+            relevanceLevel: source.relevance_level,
+            contentType: source.content_type,
+            currentDevelopment: source.current_development,
+            kept: source.relevant && selectedSources.some(selected => selected.source_number === source.source_number),
+            justification: source.relevance_justification || ""
+          };
+        })
+      }
     };
-  } catch (_) {
+  } catch (error) {
     return {
       hasRelevantUpdates: false,
       noRelevantUpdateMessage: `No significant relevant news updates were found in the selected ${timeframe}-day period for this client profile.`,
-      sources: []
+      sources: [],
+      audit: {
+        model: getOpenAIBasicModel(env),
+        candidateCount: sources.length,
+        reviews: [],
+        error: String(error?.message || error || "Source relevance review failed.")
+      }
     };
   }
 }
@@ -1424,58 +1656,115 @@ function normalizeNoNewsText(timeframe) {
   return `No relevant recent news identified\nWe did not find a sufficiently relevant development for this client's industry and selected purchase/sales markets in the last ${timeframe} days.`;
 }
 
-function normalizeCardTags(tags = [], fallbackText = "") {
-  const allowed = new Set(["FX", "Trade", "Working capital", "Payments", "Supply chain", "Liquidity", "Geopolitics", "Rates", "Commodities", "Sector"]);
-  const map = {
-    fx: "FX",
-    currency: "FX",
-    currencies: "FX",
-    rates: "Rates",
-    rate: "Rates",
-    interest: "Rates",
-    trade: "Trade",
-    "trade finance": "Trade",
-    workingcapital: "Working capital",
-    "working capital": "Working capital",
-    payments: "Payments",
-    payment: "Payments",
-    collections: "Payments",
-    collection: "Payments",
-    "supply chain": "Supply chain",
-    supplychain: "Supply chain",
-    logistics: "Supply chain",
-    shipping: "Supply chain",
-    liquidity: "Liquidity",
-    cash: "Liquidity",
-    geopolitical: "Geopolitics",
-    geopolitics: "Geopolitics",
-    policy: "Geopolitics",
-    commodities: "Commodities",
-    commodity: "Commodities",
-    sector: "Sector",
-    industry: "Sector",
-    market: "Sector"
+const CLIENT_UNDERSTANDING_TAXONOMY = {
+  "Client business model and operating activities": [
+    "Purchase activities",
+    "Sales activities",
+    "Inventory / goods handling",
+    "Delivery / logistics",
+    "Payments",
+    "Collections",
+    "Reconciliation",
+    "Investments / operating activities"
+  ],
+  "Relationships with suppliers / buyers": [
+    "Business risks (affecting revenue)",
+    "Operational risks (affecting production)",
+    "Operating markets",
+    "Transaction volume of payments and collections",
+    "Dynamics of bargaining power",
+    "Supplier / buyer dependency",
+    "Trust / relationship",
+    "Trading / payment terms",
+    "Part of a larger group"
+  ],
+  "Working capital and financial management": [
+    "Payment timing",
+    "Collection timing",
+    "Currency needs",
+    "Exchange-rate exposure",
+    "Buyer payment risk",
+    "Cash available for payments",
+    "Documentation involved",
+    "Inventory days",
+    "Debtor days",
+    "Creditor days",
+    "Financing gap",
+    "Pre-shipment working capital",
+    "Post-shipment working capital"
+  ],
+  "Other business areas to consider": [
+    "Bank / account restrictions",
+    "Payment mode preferences",
+    "Collection mode preferences",
+    "Payment currency preferences",
+    "Collection currency preferences",
+    "Facility decision-making autonomy",
+    "Group / management influence"
+  ]
+};
+
+function normalizeUnderstandingArea(area = "") {
+  const clean = String(area || "").trim().toLowerCase();
+  const aliases = {
+    "client business model and operating activities": "Client business model and operating activities",
+    "business model and operating activities": "Client business model and operating activities",
+    "business model & operating activities": "Client business model and operating activities",
+    "business model & operations": "Client business model and operating activities",
+    "relationships with suppliers / buyers": "Relationships with suppliers / buyers",
+    "relationships with suppliers and buyers": "Relationships with suppliers / buyers",
+    "supplier / buyer relationships": "Relationships with suppliers / buyers",
+    "supplier/buyer relationships": "Relationships with suppliers / buyers",
+    "working capital and financial management": "Working capital and financial management",
+    "working capital & financial management": "Working capital and financial management",
+    "other business areas to consider": "Other business areas to consider",
+    "other business areas": "Other business areas to consider"
   };
+  return aliases[clean] || "";
+}
 
-  const cleanTags = (Array.isArray(tags) ? tags : String(tags || "").split(/[,|/]+/))
-    .map(tag => map[String(tag || "").trim().toLowerCase()] || String(tag || "").trim())
-    .filter(tag => allowed.has(tag));
+function normalizeUnderstandingActivity(area, activity = "") {
+  const canonicalArea = normalizeUnderstandingArea(area);
+  if (!canonicalArea) return "";
+  const allowed = CLIENT_UNDERSTANDING_TAXONOMY[canonicalArea] || [];
+  const clean = String(activity || "").trim().toLowerCase();
+  return allowed.find(item => item.toLowerCase() === clean) || "";
+}
 
-  if (!cleanTags.length && fallbackText) {
-    const text = String(fallbackText).toLowerCase();
-    if (/\b(fx|currency|currencies|usd|eur|cny|jpy|thb|hedg)/i.test(text)) cleanTags.push("FX");
-    if (/\b(rate|rates|interest|borrowing|funding cost|yield)\b/i.test(text)) cleanTags.push("Rates");
-    if (/\b(trade|letter of credit|lc\b|guarantee|documentary|supplier payment|buyer risk)\b/i.test(text)) cleanTags.push("Trade");
-    if (/\b(working capital|cash conversion|receivable|receivables|payable|payables|inventory|cash cycle)\b/i.test(text)) cleanTags.push("Working capital");
-    if (/\b(payment|payments|collection|collections|settlement|reconciliation|fraud|routing)\b/i.test(text)) cleanTags.push("Payments");
-    if (/\b(supply chain|supplier|shipping|logistics|port|freight|route|inventory buffer)\b/i.test(text)) cleanTags.push("Supply chain");
-    if (/\b(liquidity|cash visibility|cash buffer|cash forecasting|deposit|surplus cash|trapped cash)\b/i.test(text)) cleanTags.push("Liquidity");
-    if (/\b(geopolitic|sanction|tariff|policy|election|border|conflict|war|compliance)\b/i.test(text)) cleanTags.push("Geopolitics");
-    if (/\b(commodity|commodities|oil|gas|energy|metal|food prices|input cost)\b/i.test(text)) cleanTags.push("Commodities");
-  }
+function normalizeClientUnderstanding(value = []) {
+  if (!Array.isArray(value)) return [];
+  const seenAreas = new Set();
+  const normalized = [];
 
-  const unique = [...new Set(cleanTags)];
-  return (unique.length ? unique : ["Sector"]).slice(0, 3);
+  value.forEach((item, index) => {
+    const area = normalizeUnderstandingArea(item?.area || item?.level1 || item?.category || "");
+    if (!area || seenAreas.has(area)) return;
+    const activities = (Array.isArray(item?.activities) ? item.activities : [])
+      .map(activity => normalizeUnderstandingActivity(area, typeof activity === "string" ? activity : activity?.name))
+      .filter(Boolean);
+    const uniqueActivities = [...new Set(activities)].slice(0, 4);
+    if (!uniqueActivities.length) return;
+    normalized.push({
+      area,
+      priority: String(item?.priority || (index === 0 ? "PRIMARY" : "SECONDARY")).toUpperCase() === "SECONDARY" ? "SECONDARY" : "PRIMARY",
+      activities: uniqueActivities
+    });
+    seenAreas.add(area);
+  });
+
+  if (normalized.length) normalized[0].priority = "PRIMARY";
+  if (normalized.length > 1) normalized[1].priority = "SECONDARY";
+  return normalized.slice(0, 2);
+}
+
+function normalizeCardTags(tags = [], fallbackText = "", clientUnderstanding = []) {
+  const fromUnderstanding = normalizeClientUnderstanding(clientUnderstanding).map(item => item.area);
+  if (fromUnderstanding.length) return fromUnderstanding;
+
+  const normalized = (Array.isArray(tags) ? tags : String(tags || "").split(/[|]+/))
+    .map(normalizeUnderstandingArea)
+    .filter(Boolean);
+  return [...new Set(normalized)].slice(0, 2);
 }
 
 function formatNewsThemesFromJson(parsed) {
@@ -1485,13 +1774,15 @@ function formatNewsThemesFromJson(parsed) {
     const title = String(card.title || `Card ${index + 1}`).replace(/^(Theme|Card)\s*\d+\s*:\s*/i, "").trim();
     const context = String(card.context || card.commentOnContext || card.comment_on_context || card.whatIsHappening || card.what_is_happening || card.observe || "").trim();
     const relevance = String(card.relevance || card.linkToClient || card.link_to_client || card.whyRelevant || card.why_relevant || card.relate || "").trim();
-    const tags = normalizeCardTags(card.tags || card.tag || [], `${title} ${context} ${relevance}`);
+    const clientUnderstanding = normalizeClientUnderstanding(card.clientUnderstanding || card.client_understanding || []);
+    const tags = normalizeCardTags(card.tags || card.tag || [], `${title} ${context} ${relevance}`, clientUnderstanding);
     const sourceNumbers = Array.isArray(card.sourceNumbers) ? card.sourceNumbers : extractSourceRefs(`${context} ${relevance}`);
     const cleanSourceNumbers = [...new Set(sourceNumbers.map(Number).filter(Number.isFinite))].sort((a, b) => a - b);
 
     return [
       `Card ${index + 1}: ${stripInlineSourceRefs(title)}`,
-      `Tags: ${tags.join(", ")}`,
+      tags.length ? `Tags: ${tags.join(" | ")}` : "",
+      clientUnderstanding.length ? `Client understanding: ${JSON.stringify(clientUnderstanding)}` : "",
       cleanSourceNumbers.length ? `Sources: ${cleanSourceNumbers.map(number => `[${number}]`).join(" ")}` : "",
       context ? `Comment on context: ${stripInlineSourceRefs(context)}` : "",
       relevance ? `Link to client: ${stripInlineSourceRefs(relevance)}` : ""
@@ -1670,10 +1961,16 @@ ${sourceContext}
       "Content-Type": "application/json",
       "Authorization": `Bearer ${env.OPENAI_API_KEY}`
     },
-    body: JSON.stringify({
-      model: OPENAI_FAST_MODEL,
-      input: prompt
-    })
+    body: JSON.stringify(buildOpenAIBasicRequest(env, prompt, {
+      text: {
+        format: {
+          type: "json_schema",
+          name: "atomic_news_facts",
+          strict: true,
+          schema: buildAtomicFactJsonSchema()
+        }
+      }
+    }))
   });
 
   const data = await response.json();
@@ -1681,9 +1978,21 @@ ${sourceContext}
     throw new Error(data.error?.message || "Atomic news fact extraction failed.");
   }
 
-  const parsed = parseJsonObject(extractOutputText(data));
+  if (data?.status === "incomplete") {
+    const reason = String(data?.incomplete_details?.reason || "unknown reason");
+    throw new Error(`Atomic news fact extraction was incomplete (${reason}).`);
+  }
+
+  const refusal = getOpenAIRefusalText(data);
+  if (refusal) {
+    throw new Error(`Atomic news fact extraction was refused by the model: ${refusal}`);
+  }
+
+  const outputText = extractOutputText(data);
+  const parsed = parseJsonObject(outputText);
   if (!parsed || !Array.isArray(parsed.sources)) {
-    throw new Error("Atomic news fact extraction returned invalid JSON.");
+    const preview = outputText.replace(/\s+/g, " ").trim().slice(0, 180);
+    throw new Error(`Atomic news fact extraction returned an unexpected structured response${preview ? `: ${preview}` : "."}`);
   }
 
   const validSourceNumbers = new Set(sources.map(source => Number(source.source_number)));
@@ -1827,9 +2136,14 @@ function validateCardsAgainstAtomicFacts(cards, atomicFacts, knownClientFacts = 
     const relevance = String(card?.relevance || card?.linkToClient || card?.link_to_client || "").trim();
     if (!relevance || containsUnsupportedClientRelationshipAssumption(relevance) || containsSpeculativeConsequenceLink(relevance)) return false;
 
+    const clientUnderstanding = normalizeClientUnderstanding(card?.clientUnderstanding || card?.client_understanding || []);
+    if (!clientUnderstanding.length) return false;
+
     card.factIds = factIds;
     card.clientFactIds = clientFactIds;
     card.sourceNumbers = [...sourceNumbers];
+    card.clientUnderstanding = clientUnderstanding;
+    card.tags = clientUnderstanding.map(item => item.area);
     return true;
   });
 }
@@ -1873,7 +2187,7 @@ async function analyzeNewsDevelopments({ env, sources, atomicFacts = [], sector,
   });
 
   const prompt = `
-You are a transaction banking conversation coach supporting a junior Thailand-based relationship manager.
+You are a client-understanding coach supporting a junior Thailand-based relationship manager.
 
 The user's custom focus/context is:
 ${defaultPrompt}
@@ -1896,7 +2210,7 @@ ${knownClientFacts.map(fact => `- ${fact.id}: ${fact.statement}`).join("\n")}
 Anything not stated in this list is UNKNOWN. Do not fill gaps with typical industry practice.
 
 Task:
-Create evidence-grounded Client Signals from the provided atomic source facts. Rank them from most useful to least useful for a junior transaction banker. At this stage, generate signals only — do not generate questions, invitations, recommendations, or a full conversation flow.
+Create evidence-grounded Client Signals from the provided atomic source facts. Rank them from most useful to least useful for a junior transaction banker. Keep the existing Comment on context and Link to client structure. Then classify each retained signal against the workshop's Client Understanding framework so the banker can see which parts of their client understanding may be worth revisiting. Do not generate questions, invitations, recommendations, or a conversation flow.
 ${cardCountInstruction()}
 
 Signal coverage:
@@ -1937,6 +2251,56 @@ Card standard:
 - If the source itself directly reports a concrete operating consequence and that consequence maps literally to a known client fact, you may preserve it. Otherwise stop after the factual client connection.
 - When the article is broader than the client's exact product/activity but still passes because the geography and industry connection are strong, preserve that scope naturally and treat it as a watchpoint rather than a direct indicator of the client's orders or performance.
 - Do not generate a question or next step in this first stage
+- CLIENT UNDERSTANDING CLASSIFICATION: classify each retained signal using the fixed workshop taxonomy below. Classification happens only AFTER a signal has passed the news relevance gates; never use a training label to rescue a weak or speculative article.
+- Use exactly ONE primary Level 1 area. Add a second Level 1 area only when there is a clear first-order connection from the sourced fact and known client facts. Never add a second area merely because it could eventually be affected.
+- Under each selected Level 1 area, choose 1-4 Level 2 activities from the fixed list. These identify what aspect of existing client understanding may be worth revisiting; they are NOT claims that the client is affected.
+- Do not jump to Working capital and financial management simply because any business change could eventually affect cash. Select it only when the sourced development and known client facts create a direct first-order reason to revisit payment/collection timing, liquidity, currency needs, cash-conversion drivers, or financing gap.
+- Do not infer unknown buyers, suppliers, inputs, production processes, trading terms, payment terms, bargaining power, financing arrangements, management preferences, or group policies when choosing Level 2 activities.
+- Prefer the narrowest useful Level 2 activities. If the evidence only supports a broad market watchpoint, Operating markets or Business risks (affecting revenue) may be enough; do not add downstream financial consequences.
+- The purpose is pedagogical: show the participant which workshop area to revisit, while preserving the distinction between known client facts and information still to be understood.
+
+Fixed Client Understanding taxonomy:
+1) Client business model and operating activities
+   - Purchase activities
+   - Sales activities
+   - Inventory / goods handling
+   - Delivery / logistics
+   - Payments
+   - Collections
+   - Reconciliation
+   - Investments / operating activities
+2) Relationships with suppliers / buyers
+   - Business risks (affecting revenue)
+   - Operational risks (affecting production)
+   - Operating markets
+   - Transaction volume of payments and collections
+   - Dynamics of bargaining power
+   - Supplier / buyer dependency
+   - Trust / relationship
+   - Trading / payment terms
+   - Part of a larger group
+3) Working capital and financial management
+   - Payment timing
+   - Collection timing
+   - Currency needs
+   - Exchange-rate exposure
+   - Buyer payment risk
+   - Cash available for payments
+   - Documentation involved
+   - Inventory days
+   - Debtor days
+   - Creditor days
+   - Financing gap
+   - Pre-shipment working capital
+   - Post-shipment working capital
+4) Other business areas to consider
+   - Bank / account restrictions
+   - Payment mode preferences
+   - Collection mode preferences
+   - Payment currency preferences
+   - Collection currency preferences
+   - Facility decision-making autonomy
+   - Group / management influence
 - Prefer a concrete commercial transmission channel over generic wording
 - Avoid ambiguous contrasts or corrective phrases such as "rather than", "instead of", "not necessarily", "without assuming", "despite", or "although" unless the source itself clearly supports the contrast
 - Never imply that the user or client made an assumption that was not stated
@@ -1985,7 +2349,14 @@ Return JSON only in this exact shape:
   "cards": [
     {
       "title": "Specific practical signal title",
-      "tags": ["Trade", "Supply chain"],
+      "tags": ["Relationships with suppliers / buyers"],
+      "clientUnderstanding": [
+        {
+          "area": "Relationships with suppliers / buyers",
+          "priority": "PRIMARY",
+          "activities": ["Operating markets", "Business risks (affecting revenue)"]
+        }
+      ],
       "context": "One concise, evidence-grounded statement of what is happening",
       "relevance": "Usually two short, natural sentences linking the sourced development to one known client fact or existing market, with a light scope clarification where useful",
       "factIds": ["S1F1"],
@@ -1995,7 +2366,7 @@ Return JSON only in this exact shape:
   ]
 }
 
-Allowed tags: FX, Trade, Working capital, Payments, Supply chain, Liquidity, Geopolitics, Rates, Commodities, Sector. Use one to three tags per card. Prefer transaction-banking relevance tags over generic macro labels.
+Allowed tags are ONLY the four Level 1 Client Understanding areas listed above. The tags must match the areas used in clientUnderstanding. Use one primary tag and at most one secondary tag.
 
 If not relevant, return exactly this JSON:
 {
@@ -2033,7 +2404,8 @@ ${JSON.stringify(factContext, null, 2)}
       // A conservative no-news state is safer than displaying an unvalidated synthesis.
       return {
         status: "NO_NEWS",
-        content: normalizeNoNewsText(timeframe)
+        content: normalizeNoNewsText(timeframe),
+        audit: { model: env.OPENAI_ANALYSIS_MODEL || OPENAI_ANALYSIS_MODEL, parseError: true, rawOutputPreview: rawText.slice(0, 1200) }
       };
     }
 
@@ -2044,7 +2416,13 @@ ${JSON.stringify(factContext, null, 2)}
     if (status === "NO_NEWS" || cards.length === 0) {
       return {
         status: "NO_NEWS",
-        content: normalizeNoNewsText(timeframe)
+        content: normalizeNoNewsText(timeframe),
+        audit: {
+          model: env.OPENAI_ANALYSIS_MODEL || OPENAI_ANALYSIS_MODEL,
+          modelStatus: status || "UNSPECIFIED",
+          rawCardCount: rawCards.length,
+          validatedCards: cards
+        }
       };
     }
 
@@ -2054,13 +2432,27 @@ ${JSON.stringify(factContext, null, 2)}
     if (!content || sourceRefs.length === 0) {
       return {
         status: "NO_NEWS",
-        content: normalizeNoNewsText(timeframe)
+        content: normalizeNoNewsText(timeframe),
+        audit: {
+          model: env.OPENAI_ANALYSIS_MODEL || OPENAI_ANALYSIS_MODEL,
+          modelStatus: status || "UNSPECIFIED",
+          rawCardCount: rawCards.length,
+          validatedCards: cards,
+          reason: "Validated cards did not retain usable source references."
+        }
       };
     }
 
     return {
       status: "OK",
-      content
+      content,
+      audit: {
+        model: env.OPENAI_ANALYSIS_MODEL || OPENAI_ANALYSIS_MODEL,
+        modelStatus: status || "OK",
+        rawCardCount: rawCards.length,
+        validatedCards: cards,
+        sourceRefs
+      }
     };
   } catch (error) {
     throw error;
@@ -2136,9 +2528,7 @@ Strict requirements:
         "Content-Type": "application/json",
         "Authorization": `Bearer ${env.OPENAI_API_KEY}`
       },
-      body: JSON.stringify({
-        model: OPENAI_FAST_MODEL,
-        input: prompt,
+      body: JSON.stringify(buildOpenAIBasicRequest(env, prompt, {
         text: {
           format: {
             type: "json_schema",
@@ -2173,7 +2563,7 @@ Strict requirements:
             }
           }
         }
-      })
+      }))
     });
 
     const data = await response.json();
@@ -2211,69 +2601,213 @@ Strict requirements:
 }
 
 
-export async function onRequestPost(context) {
-  try {
-    const { request, env } = context;
-    const body = await request.json();
 
-    const sector = (body.sector || "").trim();
-    const subsector = (body.subsector || "").trim();
-    let industry = (body.industry || "").trim();
-    const timeframe = (body.timeframe || "30").trim();
-    const fxTenor = [30, 90].includes(Number(body.fxTenor)) ? Number(body.fxTenor) : 30;
-    const isicCode = (body.isicCode || "").trim();
-    if (isicCode && industry && !industry.includes(isicCode)) industry = `${isicCode} - ${industry}`;
-    const legacyCurrencies = Array.isArray(body.currencies) ? body.currencies.map(c => String(c).toUpperCase()) : [];
-    const legacyCountries = Array.isArray(body.countries) ? body.countries : [];
-    const tradeFlow = normalizeTradeFlow(body.tradeFlow || {}, legacyCountries, legacyCurrencies);
-    const tradeRoles = deriveTradeRolesFromFlow(tradeFlow, body.tradeRoles || []);
-    const currencies = getAllTradeFlowCurrencies(tradeFlow, legacyCurrencies);
-    const countries = getAllTradeFlowCountries(tradeFlow);
-    const defaultPrompt = (body.defaultPrompt || "").trim();
-    const conversationGoal = (body.conversationGoal || "general_check_in").trim();
-    const clientProfile = normalizeClientProfile(body.clientProfile || {});
-    const signalThreads = Array.isArray(body.signalThreads) && body.signalThreads.length
-      ? body.signalThreads.map(item => String(item))
-      : defaultSignalThreads();
+class ResearchRequestError extends Error {
+  constructor(message, status = 400) {
+    super(message);
+    this.name = "ResearchRequestError";
+    this.status = status;
+  }
+}
 
-    if (!sector) return Response.json({ error: "Please select a sector." }, { status: 400 });
-    if (!subsector) return Response.json({ error: "Please select a subsector." }, { status: 400 });
-    if (!industry) return Response.json({ error: "Please enter the client's industry." }, { status: 400 });
-    if (!tradeFlow.purchase.domestic && !tradeFlow.purchase.international) return Response.json({ error: "Please select domestic and/or international for Purchase from." }, { status: 400 });
-    if (!tradeFlow.sales.domestic && !tradeFlow.sales.international) return Response.json({ error: "Please select domestic and/or international for Sales to." }, { status: 400 });
-    if (tradeFlow.purchase.international && tradeFlow.purchase.countries.length === 0) return Response.json({ error: "Please select at least one international purchase market." }, { status: 400 });
-    if (tradeFlow.sales.international && tradeFlow.sales.countries.length === 0) return Response.json({ error: "Please select at least one international sales market." }, { status: 400 });
-    if (tradeFlow.purchase.currencies.length === 0) return Response.json({ error: "Please select at least one purchase currency." }, { status: 400 });
-    if (tradeFlow.sales.currencies.length === 0) return Response.json({ error: "Please select at least one sales currency." }, { status: 400 });
-    if (currencies.length === 0) return Response.json({ error: "Please select at least one currency." }, { status: 400 });
-    const unsupported = currencies.filter(currency => !ALLOWED_CURRENCIES.includes(currency));
-    if (unsupported.length > 0) {
-      return Response.json({ error: `Unsupported currency selected: ${unsupported.join(", ")}` }, { status: 400 });
+function createResearchRunId() {
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const token = (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`)
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .slice(0, 10)
+    .toUpperCase();
+  return `SIG-${date}-${token}`;
+}
+
+function auditSourceSnapshot(source) {
+  return {
+    title: source?.title || "",
+    url: source?.url || "",
+    domain: source?.domain || source?.source || "",
+    publishedAt: source?.published_at || "",
+    sourceGroup: source?.source_group || "",
+    tavilyScore: Number(source?.score || 0),
+    extractedWordCount: countArticleWords(source?.raw_content || ""),
+    summarySnippet: String(source?.summary || "").replace(/\s+/g, " ").trim().slice(0, 1200),
+    rawContentSnippet: String(source?.raw_content || "").replace(/\s+/g, " ").trim().slice(0, 1600)
+  };
+}
+
+function auditInputSnapshot(params) {
+  return {
+    sector: params.sector,
+    subsector: params.subsector,
+    industry: params.industry,
+    isicCode: params.isicCode,
+    timeframe: params.timeframe,
+    fxTenor: params.fxTenor,
+    tradeFlow: params.tradeFlow,
+    tradeRoles: params.tradeRoles,
+    countries: params.countries,
+    currencies: params.currencies,
+    signalThreads: params.signalThreads,
+    conversationGoal: params.conversationGoal
+  };
+}
+
+function normaliseResearchRequest(body, env) {
+  const sector = (body.sector || "").trim();
+  const subsector = (body.subsector || "").trim();
+  let industry = (body.industry || "").trim();
+  const timeframe = String(body.timeframe || "30").trim();
+  const fxTenor = [30, 90].includes(Number(body.fxTenor)) ? Number(body.fxTenor) : 30;
+  const isicCode = (body.isicCode || "").trim();
+  if (isicCode && industry && !industry.includes(isicCode)) industry = `${isicCode} - ${industry}`;
+  const legacyCurrencies = Array.isArray(body.currencies) ? body.currencies.map(c => String(c).toUpperCase()) : [];
+  const legacyCountries = Array.isArray(body.countries) ? body.countries : [];
+  const tradeFlow = normalizeTradeFlow(body.tradeFlow || {}, legacyCountries, legacyCurrencies);
+  const tradeRoles = deriveTradeRolesFromFlow(tradeFlow, body.tradeRoles || []);
+  const currencies = getAllTradeFlowCurrencies(tradeFlow, legacyCurrencies);
+  const countries = getAllTradeFlowCountries(tradeFlow);
+  const defaultPrompt = (body.defaultPrompt || "").trim();
+  const conversationGoal = (body.conversationGoal || "general_check_in").trim();
+  const clientProfile = normalizeClientProfile(body.clientProfile || {});
+  const signalThreads = Array.isArray(body.signalThreads) && body.signalThreads.length
+    ? body.signalThreads.map(item => String(item))
+    : defaultSignalThreads();
+
+  if (!sector) throw new ResearchRequestError("Please select a sector.");
+  if (!subsector) throw new ResearchRequestError("Please select a subsector.");
+  if (!industry) throw new ResearchRequestError("Please enter the client's industry.");
+  if (!tradeFlow.purchase.domestic && !tradeFlow.purchase.international) throw new ResearchRequestError("Please select domestic and/or international for Purchase from.");
+  if (!tradeFlow.sales.domestic && !tradeFlow.sales.international) throw new ResearchRequestError("Please select domestic and/or international for Sales to.");
+  if (tradeFlow.purchase.international && tradeFlow.purchase.countries.length === 0) throw new ResearchRequestError("Please select at least one international purchase market.");
+  if (tradeFlow.sales.international && tradeFlow.sales.countries.length === 0) throw new ResearchRequestError("Please select at least one international sales market.");
+  if (tradeFlow.purchase.currencies.length === 0) throw new ResearchRequestError("Please select at least one purchase currency.");
+  if (tradeFlow.sales.currencies.length === 0) throw new ResearchRequestError("Please select at least one sales currency.");
+  if (currencies.length === 0) throw new ResearchRequestError("Please select at least one currency.");
+  const unsupported = currencies.filter(currency => !ALLOWED_CURRENCIES.includes(currency));
+  if (unsupported.length > 0) throw new ResearchRequestError(`Unsupported currency selected: ${unsupported.join(", ")}`);
+  if (!env.TAVILY_API_KEY) throw new ResearchRequestError("Missing TAVILY_API_KEY secret in Cloudflare.", 500);
+  if (!env.OPENAI_API_KEY) throw new ResearchRequestError("Missing OPENAI_API_KEY secret in Cloudflare.", 500);
+
+  return { sector, subsector, industry, timeframe, fxTenor, isicCode, tradeFlow, tradeRoles, currencies, countries, defaultPrompt, conversationGoal, clientProfile, signalThreads };
+}
+
+async function insertAuditRun(env, runId, params, audit) {
+  if (!env.AUDIT_DB) return false;
+  const inputJson = JSON.stringify(auditInputSnapshot(params));
+  await env.AUDIT_DB.prepare(`
+    INSERT INTO research_runs
+      (run_id, started_at, status, isic_code, industry, sector, subsector, timeframe_days, input_json)
+    VALUES (?, ?, 'RUNNING', ?, ?, ?, ?, ?, ?)
+  `).bind(
+    runId,
+    audit.startedAt,
+    params.isicCode || "",
+    params.industry || "",
+    params.sector || "",
+    params.subsector || "",
+    Number(params.timeframe || 0) || null,
+    inputJson
+  ).run();
+  return true;
+}
+
+function serializeAuditForD1(audit) {
+  const encoder = new TextEncoder();
+  let json = JSON.stringify(audit);
+  if (encoder.encode(json).length < 1800000) return json;
+
+  // D1 has a 2 MB maximum row/string size. Preserve the decisions and scores first,
+  // and trim retrieval excerpts only if an unusually large run approaches that ceiling.
+  const compact = JSON.parse(json);
+  for (const query of compact?.tavily?.queries || []) {
+    for (const result of query.results || []) {
+      if (result.rawContentSnippet) result.rawContentSnippet = String(result.rawContentSnippet).slice(0, 400);
+      if (result.summarySnippet) result.summarySnippet = String(result.summarySnippet).slice(0, 400);
     }
+  }
+  for (const candidate of compact?.candidateSelection?.candidates || []) {
+    if (candidate.rawContentSnippet) candidate.rawContentSnippet = String(candidate.rawContentSnippet).slice(0, 300);
+    if (candidate.summarySnippet) candidate.summarySnippet = String(candidate.summarySnippet).slice(0, 300);
+  }
+  compact.storageNote = "Retrieval excerpts were shortened to keep this audit run within the D1 row-size limit; ratings, decisions, facts and final outputs were retained.";
+  json = JSON.stringify(compact);
+  return json;
+}
 
-    if (!env.TAVILY_API_KEY) {
-      return Response.json({ error: "Missing TAVILY_API_KEY secret in Cloudflare." }, { status: 500 });
+async function finishAuditRun(env, runId, { status, audit, result = null, error = "" }) {
+  if (!env.AUDIT_DB) return false;
+  const completedAt = new Date().toISOString();
+  const auditJson = serializeAuditForD1(audit);
+  const resultJson = result ? JSON.stringify(result) : null;
+  await env.AUDIT_DB.prepare(`
+    UPDATE research_runs
+       SET completed_at = ?, status = ?, audit_json = ?, result_json = ?, total_ms = ?, error_text = ?
+     WHERE run_id = ?
+  `).bind(
+    completedAt,
+    status,
+    auditJson,
+    resultJson,
+    Number(audit.totalMs || 0),
+    error ? String(error).slice(0, 4000) : null,
+    runId
+  ).run();
+  return true;
+}
+
+async function executeResearch({ env, params, audit, emit }) {
+  const { sector, subsector, industry, timeframe, fxTenor, isicCode, tradeFlow, tradeRoles, currencies, countries, defaultPrompt, conversationGoal, clientProfile, signalThreads } = params;
+
+  const stage = async (name, runningMessage, completedMessage, fn, detailBuilder = null) => {
+    const started = Date.now();
+    await emit({ type: "stage", stage: name, status: "running", message: runningMessage });
+
+    // Keep the streamed response active during long upstream OpenAI/Tavily calls.
+    // This also gives the participant a useful elapsed-time indicator rather than a frozen step.
+    const heartbeat = setInterval(() => {
+      emit({
+        type: "heartbeat",
+        stage: name,
+        status: "running",
+        elapsedMs: Date.now() - started,
+        message: runningMessage
+      }).catch(() => {});
+    }, 10000);
+
+    try {
+      const value = await fn();
+      const durationMs = Date.now() - started;
+      audit.timings[name] = durationMs;
+      const detail = typeof detailBuilder === "function" ? detailBuilder(value) : undefined;
+      await emit({ type: "stage", stage: name, status: "complete", message: completedMessage, durationMs, ...(detail || {}) });
+      return value;
+    } catch (error) {
+      const durationMs = Date.now() - started;
+      audit.timings[name] = durationMs;
+      await emit({ type: "stage", stage: name, status: "error", message: String(error?.message || error || "Stage failed"), durationMs });
+      throw error;
+    } finally {
+      clearInterval(heartbeat);
     }
+  };
 
-    if (!env.OPENAI_API_KEY) {
-      return Response.json({ error: "Missing OPENAI_API_KEY secret in Cloudflare." }, { status: 500 });
-    }
+  const { start_date, end_date } = getDateRange(timeframe);
+  const searchKeywords = getSearchKeywords({ sector, subsector, industry, isicCode });
 
-    const { start_date, end_date } = getDateRange(timeframe);
-    const searchKeywords = getSearchKeywords({ sector, subsector, industry, isicCode });
-    const plannedQueries = await planTavilyQueries({
-      env,
-      sector,
-      subsector,
-      industry,
-      isicCode,
-      tradeFlow,
-      timeframe
-    });
+  const plannedQueries = await stage(
+    "search_plan",
+    "Preparing targeted news searches…",
+    "Search plan ready",
+    () => planTavilyQueries({ env, sector, subsector, industry, isicCode, tradeFlow, timeframe }),
+    queries => ({ detail: `${queries.length} targeted searches` })
+  );
+  audit.searchPlan = { model: getOpenAIBasicModel(env), queries: plannedQueries };
 
-    const searchDepth = "advanced";
-    const tavilyBatches = await Promise.all(plannedQueries.map(plan =>
-      tavilySearch({
+  const searchDepth = "advanced";
+  const tavilyOutcome = await stage(
+    "tavily_search",
+    "Searching recent news…",
+    "Recent news search complete",
+    () => mapWithConcurrency(plannedQueries, TAVILY_CONCURRENCY, async plan => {
+      const results = await tavilySearch({
         apiKey: env.TAVILY_API_KEY,
         query: plan.query,
         startDate: start_date,
@@ -2282,133 +2816,283 @@ export async function onRequestPost(context) {
         excludeDomains: EXCLUDED_NEWS_DOMAINS,
         maxResults: plan.maxResults || MAX_TAVILY_RESULTS_PER_QUERY,
         searchDepth
-      }).then(results => normalizeTavilyResults(results, plan.label))
-    ));
-
-    const fxResults = [];
-
-    const primaryCandidateSources = prepareCandidateSources({
-      sources: tavilyBatches.flat()
-    });
-
-    const effectiveQueries = [...plannedQueries];
-    const sourceAssessment = await assessSourceRelevance({
-      env,
-      sources: primaryCandidateSources,
-      sector,
-      subsector,
-      industry,
-      isicCode,
-      tradeRoles,
-      countries,
-      tradeFlow,
-      timeframe,
-      plannedQueries: effectiveQueries
-    });
-
-    // Deliberately do not broaden or retry the news search when few/no sources survive.
-    // A genuine "no relevant news" result is preferable to forcing weaker articles into the output.
-    const fallbackTriggered = false;
-
-    const mergedSources = sourceAssessment.sources.map((source, index) => ({
-      ...source,
-      source_number: index + 1
-    }));
-
-    const extractedAtomicFacts = (!sourceAssessment.hasRelevantUpdates || mergedSources.length === 0)
-      ? []
-      : await extractAtomicNewsFacts({ env, sources: mergedSources });
-
-    // Trade remedies are directional. A destination-country measure that names origins other than
-    // the client's actual origin should not become a client signal merely because those countries
-    // appear elsewhere in the profile.
-    const atomicFacts = filterAtomicFactsForDirectionalTradeMeasures(extractedAtomicFacts, tradeFlow);
-
-    // DEACTIVATED 2026-05: Industry Context & RM Considerations is hidden in the UI.
-    // Keep generateGeneralContext() above for future reuse, but do not call it now.
-    // const generalContext = await generateGeneralContext({
-    //   env,
-    //   sector,
-    //   subsector,
-    //   industry,
-    //   tradeRoles,
-    //   countries
-    // });
-    const generalContext = { points: [] };
-
-    if (!sourceAssessment.hasRelevantUpdates || mergedSources.length === 0 || atomicFacts.length === 0) {
-      const noNews = {
-        status: "NO_NEWS",
-        content: normalizeNoNewsText(timeframe)
-      };
-
-      return Response.json({
-        analysis: noNews.content,
-        news: noNews,
-        context: generalContext,
-        no_relevant_updates: true,
-        fx: fxResults,
-        search_keywords: searchKeywords,
-        search_queries: effectiveQueries,
-        fallback_triggered: fallbackTriggered,
-        search_mode: "conversation_card_signal_scan",
-        sources: []
       });
+      return normalizeTavilyResults(results, plan.label);
+    }),
+    outcomes => {
+      const successful = outcomes.filter(item => item?.status === "fulfilled");
+      const returned = successful.reduce((sum, item) => sum + (item.value?.length || 0), 0);
+      const failed = outcomes.length - successful.length;
+      return { detail: `${returned} articles returned${failed ? ` · ${failed} search${failed === 1 ? "" : "es"} unavailable` : ""}` };
     }
+  );
 
-    const rawNewsSection = await analyzeNewsDevelopments({
-      env,
-      sources: mergedSources,
-      atomicFacts,
-      sector,
-      subsector,
-      industry,
-      isicCode,
-      tradeRoles,
-      countries,
-      tradeFlow,
-      timeframe,
-      plannedQueries: effectiveQueries,
-      defaultPrompt,
-      conversationGoal,
-      clientProfile,
-      signalThreads
-    });
+  const tavilyBatches = tavilyOutcome.map(item => item?.status === "fulfilled" ? item.value : []);
+  const tavilyErrors = tavilyOutcome.map((item, index) => item?.status === "rejected" ? {
+    label: plannedQueries[index]?.label || `query_${index + 1}`,
+    query: plannedQueries[index]?.query || "",
+    error: String(item.reason?.message || item.reason || "Tavily search failed")
+  } : null).filter(Boolean);
 
-    const aligned = alignSourcesToAnalysis({
-      sources: mergedSources,
-      newsSection: rawNewsSection,
-      timeframe
-    });
+  if (tavilyBatches.every(batch => batch.length === 0) && tavilyErrors.length) {
+    throw new Error(`All Tavily searches failed. ${tavilyErrors.map(item => `${item.label}: ${item.error}`).join(" | ")}`);
+  }
 
-    return Response.json({
-      analysis: aligned.newsSection.content,
-      news: aligned.newsSection,
+  const flatTavily = tavilyBatches.flat();
+  audit.tavily = {
+    dateRange: { startDate: start_date, endDate: end_date },
+    searchDepth,
+    concurrency: TAVILY_CONCURRENCY,
+    preferredDomains: PREFERRED_NEWS_DOMAINS,
+    excludedDomains: EXCLUDED_NEWS_DOMAINS,
+    errors: tavilyErrors,
+    queries: plannedQueries.map((plan, index) => ({ ...plan, results: (tavilyBatches[index] || []).map(auditSourceSnapshot), error: tavilyErrors.find(item => item.label === plan.label)?.error || "" }))
+  };
+
+  const fxResults = [];
+  const primaryCandidateSources = await stage(
+    "candidate_selection",
+    "Preparing the article shortlist…",
+    "Article shortlist ready",
+    () => Promise.resolve(prepareCandidateSources({ sources: flatTavily })),
+    candidates => ({ detail: `${candidates.length} articles shortlisted for review` })
+  );
+  audit.candidateSelection = {
+    retrievedCount: flatTavily.length,
+    candidateCount: primaryCandidateSources.length,
+    note: "Candidate pool after domain exclusion, thin-content filtering, deduplication and per-query balancing.",
+    candidates: primaryCandidateSources.map(auditSourceSnapshot)
+  };
+  const effectiveQueries = [...plannedQueries];
+
+  const sourceAssessment = await stage(
+    "source_review",
+    "Reviewing potential articles for this client…",
+    "Article relevance review complete",
+    () => assessSourceRelevance({ env, sources: primaryCandidateSources, sector, subsector, industry, isicCode, tradeRoles, countries, tradeFlow, timeframe, plannedQueries: effectiveQueries }),
+    assessment => ({ detail: `${assessment.sources.length} articles retained` })
+  );
+  audit.sourceReview = sourceAssessment.audit || { candidateCount: primaryCandidateSources.length, reviews: [] };
+
+  const fallbackTriggered = false;
+  const mergedSources = sourceAssessment.sources.map((source, index) => ({ ...source, source_number: index + 1 }));
+
+  const extractedAtomicFacts = (!sourceAssessment.hasRelevantUpdates || mergedSources.length === 0)
+    ? []
+    : await stage(
+        "fact_extraction",
+        "Checking the retained articles for precise facts, dates and geography…",
+        "Evidence extraction complete",
+        () => extractAtomicNewsFacts({ env, sources: mergedSources }),
+        facts => ({ detail: `${facts.length} current facts extracted` })
+      );
+
+  if (!sourceAssessment.hasRelevantUpdates || mergedSources.length === 0) {
+    audit.timings.fact_extraction = 0;
+    await emit({ type: "stage", stage: "fact_extraction", status: "skipped", message: "No retained articles required fact extraction" });
+  }
+
+  audit.atomicFacts = { extracted: extractedAtomicFacts };
+
+  const flowStarted = Date.now();
+  await emit({ type: "stage", stage: "trade_flow_check", status: "running", message: "Checking facts against the client’s actual purchase and sales flows…" });
+  const atomicFacts = filterAtomicFactsForDirectionalTradeMeasures(extractedAtomicFacts, tradeFlow);
+  const retainedFactIds = new Set(atomicFacts.map(fact => fact.factId));
+  const rejectedByTradeFlow = extractedAtomicFacts.filter(fact => !retainedFactIds.has(fact.factId));
+  audit.timings.trade_flow_check = Date.now() - flowStarted;
+  audit.atomicFacts.retainedAfterTradeFlowCheck = atomicFacts;
+  audit.atomicFacts.rejectedByTradeFlowCheck = rejectedByTradeFlow.map(fact => ({ ...fact, rejectionReason: "Directional trade-measure scope did not match the client's actual flow." }));
+  await emit({ type: "stage", stage: "trade_flow_check", status: "complete", message: "Client-flow check complete", durationMs: audit.timings.trade_flow_check, detail: rejectedByTradeFlow.length ? `${rejectedByTradeFlow.length} fact(s) removed` : "No flow conflicts found" });
+
+  const generalContext = { points: [] };
+
+  if (!sourceAssessment.hasRelevantUpdates || mergedSources.length === 0 || atomicFacts.length === 0) {
+    await emit({ type: "stage", stage: "signal_generation", status: "skipped", message: "No sufficiently relevant evidence remained to build a signal" });
+    const noNews = { status: "NO_NEWS", content: normalizeNoNewsText(timeframe) };
+    const result = {
+      analysis: noNews.content,
+      news: noNews,
       context: generalContext,
-      no_relevant_updates: aligned.newsSection.status === "NO_NEWS",
+      no_relevant_updates: true,
       fx: fxResults,
       search_keywords: searchKeywords,
       search_queries: effectiveQueries,
       fallback_triggered: fallbackTriggered,
       search_mode: "conversation_card_signal_scan",
-      sources: aligned.newsSection.status === "NO_NEWS" ? [] : aligned.sources.map(source => ({
-        number: source.source_number,
-        title: source.title,
-        url: source.url,
-        source: source.source,
-        domain: source.domain,
-        published_at: source.published_at,
-        source_group: source.source_group,
-        syndicated_via: Array.isArray(source.syndicated_via) ? source.syndicated_via : [],
-        justification: source.relevance_justification || ""
-      }))
-    });
-  } catch (error) {
-    return Response.json({
-      error:
-        typeof error.message === "string"
-          ? error.message
-          : JSON.stringify(error.message || error)
-    }, { status: 500 });
+      sources: []
+    };
+    audit.finalSelection = { status: "NO_NEWS", reason: "No source/fact survived all relevance and flow gates." };
+    return result;
   }
+
+  const rawNewsSection = await stage(
+    "signal_generation",
+    "Building the strongest Client Signals…",
+    "Client Signals ready",
+    () => analyzeNewsDevelopments({ env, sources: mergedSources, atomicFacts, sector, subsector, industry, isicCode, tradeRoles, countries, tradeFlow, timeframe, plannedQueries: effectiveQueries, defaultPrompt, conversationGoal, clientProfile, signalThreads }),
+    news => ({ detail: news.status === "NO_NEWS" ? "No final signal passed" : "Final signals generated" })
+  );
+  audit.finalSelection = rawNewsSection.audit || { status: rawNewsSection.status };
+
+  const aligned = alignSourcesToAnalysis({ sources: mergedSources, newsSection: rawNewsSection, timeframe });
+  const publicNewsSection = { status: aligned.newsSection.status, content: aligned.newsSection.content };
+  const result = {
+    analysis: publicNewsSection.content,
+    news: publicNewsSection,
+    context: generalContext,
+    no_relevant_updates: aligned.newsSection.status === "NO_NEWS",
+    fx: fxResults,
+    search_keywords: searchKeywords,
+    search_queries: effectiveQueries,
+    fallback_triggered: fallbackTriggered,
+    search_mode: "conversation_card_signal_scan",
+    sources: aligned.newsSection.status === "NO_NEWS" ? [] : aligned.sources.map(source => ({
+      number: source.source_number,
+      title: source.title,
+      url: source.url,
+      source: source.source,
+      domain: source.domain,
+      published_at: source.published_at,
+      source_group: source.source_group,
+      syndicated_via: Array.isArray(source.syndicated_via) ? source.syndicated_via : [],
+      justification: source.relevance_justification || ""
+    }))
+  };
+  audit.finalSelection.publicResult = { status: result.news?.status || "", sourceCount: result.sources.length, content: result.news?.content || "" };
+  return result;
+}
+
+async function runResearchWithAudit({ context, body, emit }) {
+  const { env } = context;
+  const runId = createResearchRunId();
+  const startedMs = Date.now();
+  const audit = {
+    schemaVersion: 1,
+    runId,
+    startedAt: new Date(startedMs).toISOString(),
+    models: {
+      searchPlanner: getOpenAIBasicModel(env),
+      sourceReview: getOpenAIBasicModel(env),
+      factExtraction: getOpenAIBasicModel(env),
+      basicReasoningEffort: getOpenAIBasicReasoningEffort(env),
+      finalSignals: env.OPENAI_ANALYSIS_MODEL || OPENAI_ANALYSIS_MODEL
+    },
+    timings: {}
+  };
+  let auditRowCreated = false;
+
+  try {
+    const params = normaliseResearchRequest(body, env);
+    audit.input = auditInputSnapshot(params);
+    let auditStartError = "";
+    try {
+      auditRowCreated = await insertAuditRun(env, runId, params, audit);
+    } catch (auditError) {
+      auditStartError = String(auditError?.message || auditError || "Audit insert failed");
+      auditRowCreated = false;
+    }
+    audit.storage = { d1Configured: Boolean(env.AUDIT_DB), rowCreated: auditRowCreated, ...(auditStartError ? { startError: auditStartError } : {}) };
+    await emit({ type: "run", status: "started", runId, auditEnabled: auditRowCreated, message: "Research started" });
+
+    const result = await executeResearch({ env, params, audit, emit });
+    audit.totalMs = Date.now() - startedMs;
+    audit.completedAt = new Date().toISOString();
+    audit.status = "COMPLETED";
+
+    if (auditRowCreated) {
+      const saveTask = finishAuditRun(env, runId, { status: "COMPLETED", audit, result }).catch(auditError => {
+        console.error("Audit save failed", runId, auditError);
+      });
+      if (typeof context.waitUntil === "function") {
+        context.waitUntil(saveTask);
+        await emit({ type: "audit", status: "saving", runId });
+      } else {
+        await saveTask;
+        await emit({ type: "audit", status: "saved", runId });
+      }
+    } else {
+      await emit({ type: "audit", status: env.AUDIT_DB ? "save_failed" : "disabled", runId });
+    }
+    return { runId, result, status: 200 };
+  } catch (error) {
+    audit.totalMs = Date.now() - startedMs;
+    audit.completedAt = new Date().toISOString();
+    audit.status = "ERROR";
+    audit.error = String(error?.message || error || "Research failed");
+    if (auditRowCreated) {
+      const saveTask = finishAuditRun(env, runId, { status: "ERROR", audit, error: audit.error }).catch(auditError => {
+        console.error("Audit error-state save failed", runId, auditError);
+      });
+      if (typeof context.waitUntil === "function") context.waitUntil(saveTask);
+      else await saveTask;
+    }
+    const status = error instanceof ResearchRequestError ? error.status : 500;
+    await emit({ type: "error", runId, statusCode: status, error: audit.error });
+    return { runId, result: { error: audit.error, run_id: runId }, status };
+  }
+}
+
+function makeNdjsonStreamResponse(context, body) {
+  const encoder = new TextEncoder();
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+
+  let closed = false;
+  const emit = async event => {
+    if (closed) return;
+    try {
+      await writer.write(encoder.encode(`${JSON.stringify(event)}\n`));
+    } catch (_) {
+      closed = true;
+    }
+  };
+
+  const producer = (async () => {
+    try {
+      const outcome = await runResearchWithAudit({ context, body, emit });
+      if (!closed && outcome.status < 400) {
+        await emit({ type: "result", runId: outcome.runId, data: outcome.result });
+        await emit({ type: "done", runId: outcome.runId, status: "complete" });
+      }
+    } catch (error) {
+      await emit({ type: "error", error: String(error?.message || error || "Unexpected research stream failure") });
+    } finally {
+      if (!closed) {
+        closed = true;
+        try { await writer.close(); } catch (_) {}
+      }
+    }
+  })();
+
+  // The response body itself keeps the invocation alive while the participant is connected.
+  // waitUntil also ensures the producer is not treated as a floating promise if the platform
+  // transitions the request lifecycle while the stream is still being consumed.
+  if (typeof context.waitUntil === "function") {
+    context.waitUntil(producer.catch(() => {}));
+  }
+
+  return new Response(readable, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-store, no-transform",
+      "X-Content-Type-Options": "nosniff"
+    }
+  });
+}
+
+export async function onRequestPost(context) {
+  let body;
+  try {
+    body = await context.request.json();
+  } catch (_) {
+    return Response.json({ error: "Invalid JSON request body." }, { status: 400 });
+  }
+
+  const url = new URL(context.request.url);
+  const wantsStream = url.searchParams.get("stream") === "1" || String(context.request.headers.get("accept") || "").includes("application/x-ndjson");
+  if (wantsStream) return makeNdjsonStreamResponse(context, body);
+
+  const outcome = await runResearchWithAudit({ context, body, emit: async () => {} });
+  return Response.json(outcome.result, { status: outcome.status });
 }

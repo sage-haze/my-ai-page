@@ -1647,82 +1647,102 @@ let lastBuiltConversationCards = [];
 let selectedSignalIndexes = new Set();
 let lastSources = [];
 
-const ALLOWED_SIGNAL_TAGS = [
-  "FX",
-  "Trade",
-  "Working capital",
-  "Payments",
-  "Supply chain",
-  "Liquidity",
-  "Geopolitics",
-  "Rates",
-  "Commodities",
-  "Sector"
-];
+const CLIENT_UNDERSTANDING_TAXONOMY = {
+  "Client business model and operating activities": [
+    "Purchase activities", "Sales activities", "Inventory / goods handling", "Delivery / logistics",
+    "Payments", "Collections", "Reconciliation", "Investments / operating activities"
+  ],
+  "Relationships with suppliers / buyers": [
+    "Business risks (affecting revenue)", "Operational risks (affecting production)", "Operating markets",
+    "Transaction volume of payments and collections", "Dynamics of bargaining power", "Supplier / buyer dependency",
+    "Trust / relationship", "Trading / payment terms", "Part of a larger group"
+  ],
+  "Working capital and financial management": [
+    "Payment timing", "Collection timing", "Currency needs", "Exchange-rate exposure", "Buyer payment risk",
+    "Cash available for payments", "Documentation involved", "Inventory days", "Debtor days", "Creditor days",
+    "Financing gap", "Pre-shipment working capital", "Post-shipment working capital"
+  ],
+  "Other business areas to consider": [
+    "Bank / account restrictions", "Payment mode preferences", "Collection mode preferences",
+    "Payment currency preferences", "Collection currency preferences", "Facility decision-making autonomy",
+    "Group / management influence"
+  ]
+};
 
 function normaliseSignalTag(tag) {
   const clean = String(tag || "").trim().toLowerCase();
   const map = {
-    fx: "FX",
-    currency: "FX",
-    currencies: "FX",
-    rates: "Rates",
-    rate: "Rates",
-    interest: "Rates",
-    trade: "Trade",
-    "trade finance": "Trade",
-    workingcapital: "Working capital",
-    "working capital": "Working capital",
-    payments: "Payments",
-    payment: "Payments",
-    collections: "Payments",
-    collection: "Payments",
-    "supply chain": "Supply chain",
-    supplychain: "Supply chain",
-    logistics: "Supply chain",
-    shipping: "Supply chain",
-    liquidity: "Liquidity",
-    cash: "Liquidity",
-    geopolitical: "Geopolitics",
-    geopolitics: "Geopolitics",
-    policy: "Geopolitics",
-    commodities: "Commodities",
-    commodity: "Commodities",
-    input: "Commodities",
-    sector: "Sector",
-    industry: "Sector",
-    market: "Sector"
+    "client business model and operating activities": "Client business model and operating activities",
+    "business model and operating activities": "Client business model and operating activities",
+    "business model & operating activities": "Client business model and operating activities",
+    "business model & operations": "Client business model and operating activities",
+    "relationships with suppliers / buyers": "Relationships with suppliers / buyers",
+    "relationships with suppliers and buyers": "Relationships with suppliers / buyers",
+    "supplier / buyer relationships": "Relationships with suppliers / buyers",
+    "supplier/buyer relationships": "Relationships with suppliers / buyers",
+    "working capital and financial management": "Working capital and financial management",
+    "working capital & financial management": "Working capital and financial management",
+    "other business areas to consider": "Other business areas to consider",
+    "other business areas": "Other business areas to consider"
   };
   return map[clean] || null;
 }
 
-function deriveSignalTags(text) {
-  const source = String(text || "").toLowerCase();
-  const tags = [];
-  const add = (tag) => { if (!tags.includes(tag)) tags.push(tag); };
+const CLIENT_UNDERSTANDING_DISPLAY_LABELS = {
+  "Client business model and operating activities": "Business model",
+  "Working capital and financial management": "Working capital",
+  "Relationships with suppliers / buyers": "Up/Downstream relations",
+  "Other business areas to consider": "Other business areas"
+};
 
-  if (/\b(fx|currency|currencies|usd|eur|cny|jpy|thb|hedg)/i.test(source)) add("FX");
-  if (/\b(rate|rates|interest|borrowing|funding cost|yield)\b/i.test(source)) add("Rates");
-  if (/\b(trade|letter of credit|lc\b|guarantee|documentary|supplier payment|buyer risk)\b/i.test(source)) add("Trade");
-  if (/\b(working capital|cash conversion|receivable|receivables|payable|payables|inventory|cash cycle)\b/i.test(source)) add("Working capital");
-  if (/\b(payment|payments|collection|collections|settlement|reconciliation|fraud|routing)\b/i.test(source)) add("Payments");
-  if (/\b(supply chain|supplier|shipping|logistics|port|freight|route|inventory buffer)\b/i.test(source)) add("Supply chain");
-  if (/\b(liquidity|cash visibility|cash buffer|cash forecasting|deposit|surplus cash|trapped cash)\b/i.test(source)) add("Liquidity");
-  if (/\b(geopolitic|sanction|tariff|policy|election|border|conflict|war|compliance)\b/i.test(source)) add("Geopolitics");
-  if (/\b(commodity|commodities|oil|gas|energy|metal|food prices|input cost)\b/i.test(source)) add("Commodities");
+function clientUnderstandingDisplayLabel(area) {
+  const canonical = normaliseSignalTag(area);
+  return CLIENT_UNDERSTANDING_DISPLAY_LABELS[canonical] || canonical || String(area || "").trim();
+}
 
-  if (!tags.length) add("Sector");
-  return tags.slice(0, 3);
+function deriveSignalTags() {
+  return [];
 }
 
 function parseTagsFromLine(line) {
   const match = String(line || "").match(/^Tags?\s*:\s*(.+)$/i);
   if (!match) return null;
   const rawTags = match[1]
-    .split(/[,|/]+/)
+    .split(/\s*\|\s*/)
     .map(item => normaliseSignalTag(item))
     .filter(Boolean);
-  return [...new Set(rawTags)].slice(0, 3);
+  return [...new Set(rawTags)].slice(0, 2);
+}
+
+function normalizeClientUnderstanding(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  return value.map((item, index) => {
+    const area = normaliseSignalTag(item?.area || item?.level1 || "");
+    if (!area || seen.has(area)) return null;
+    const allowed = CLIENT_UNDERSTANDING_TAXONOMY[area] || [];
+    const activities = (Array.isArray(item?.activities) ? item.activities : [])
+      .map(activity => String(typeof activity === "string" ? activity : activity?.name || "").trim())
+      .map(activity => allowed.find(candidate => candidate.toLowerCase() === activity.toLowerCase()) || "")
+      .filter(Boolean);
+    if (!activities.length) return null;
+    seen.add(area);
+    return {
+      area,
+      priority: index === 0 ? "PRIMARY" : "SECONDARY",
+      activities: [...new Set(activities)].slice(0, 4)
+    };
+  }).filter(Boolean).slice(0, 2);
+}
+
+function parseClientUnderstandingFromLine(line) {
+  const match = String(line || "").match(/^Client understanding\s*:\s*(.+)$/i);
+  if (!match) return null;
+  try {
+    return normalizeClientUnderstanding(JSON.parse(match[1]));
+  } catch {
+    return [];
+  }
 }
 
 function normaliseConversationLabel(label) {
@@ -1816,6 +1836,7 @@ function parseConversationCardBlock(block) {
   const heading = stripSourceMarkers(lines.shift() || "Card");
   const sections = [];
   let tags = [];
+  let clientUnderstanding = [];
   const sourceNumbers = new Set(extractSourceNumbers(block));
   const sectionPattern = /^(Comment on context|Context|What is happening|Link to client|Relevance|Why it may be relevant|Explore lightly|Allow room|Reaffirm support|Observe|Relate|Leave Space|Lightly Explore|Offer Support|Propose Support Path|Background cue|Plain-English context|Plain English context|Client relevance lens|Transaction banking angle|Useful observation(?: to offer)?|Gentle observation|Soft invitation|If they pick up on it|If client engages|Bank angle(?: \/ handoff)?|Bank relevance|Handoff cue)\s*:\s*(.*)$/i;
   let current = null;
@@ -1824,6 +1845,13 @@ function parseConversationCardBlock(block) {
     const parsedTags = parseTagsFromLine(line);
     if (parsedTags) {
       tags = parsedTags;
+      current = null;
+      return;
+    }
+
+    const parsedUnderstanding = parseClientUnderstandingFromLine(line);
+    if (parsedUnderstanding) {
+      clientUnderstanding = parsedUnderstanding;
       current = null;
       return;
     }
@@ -1853,7 +1881,13 @@ function parseConversationCardBlock(block) {
   if (!tags.length) {
     tags = deriveSignalTags(`${heading}\n${mergedSections.map(section => section.text).join("\n")}`);
   }
-  return { heading, tags, sections: mergedSections, sourceNumbers: [...sourceNumbers].sort((a, b) => a - b) };
+  return {
+    heading,
+    tags,
+    clientUnderstanding,
+    sections: mergedSections,
+    sourceNumbers: [...sourceNumbers].sort((a, b) => a - b)
+  };
 }
 
 function renderSignalTags(tags) {
@@ -1863,7 +1897,31 @@ function renderSignalTags(tags) {
     .filter((tag, index, array) => array.indexOf(tag) === index)
     .slice(0, 3);
   if (!cleanTags.length) return "";
-  return `<div class="signal-tag-row">${cleanTags.map(tag => `<span class="signal-tag">${escapeHtml(tag)}</span>`).join("")}</div>`;
+  return `<div class="signal-tag-row">${cleanTags.map(tag => `<span class="signal-tag">${escapeHtml(clientUnderstandingDisplayLabel(tag))}</span>`).join("")}</div>`;
+}
+
+function renderClientUnderstandingDetails(card) {
+  const groups = normalizeClientUnderstanding(card?.clientUnderstanding || []);
+  if (!groups.length) return "";
+
+  const groupHtml = groups.map((group, index) => `
+    <div class="understanding-group">
+      <div class="understanding-group-heading">
+        <span>${escapeHtml(clientUnderstandingDisplayLabel(group.area))}</span>
+        <small>${index === 0 ? "Most relevant" : "Also worth revisiting"}</small>
+      </div>
+      <ul class="understanding-activity-list">
+        ${group.activities.map(activity => `<li>${escapeHtml(activity)}</li>`).join("")}
+      </ul>
+    </div>
+  `).join("");
+
+  return `
+    <details class="client-understanding-details">
+      <summary>Potential areas to consider</summary>
+      <div class="understanding-groups">${groupHtml}</div>
+    </details>
+  `;
 }
 
 function getConversationSectionText(card, label) {
@@ -1966,14 +2024,9 @@ function renderSignalSelectionCard(card, index) {
   const cleanHeading = card.heading.replace(/^(Card\s+\d+\s*:\s*)/i, "").trim() || `Signal ${index + 1}`;
   const context = getSignalContextText(card);
   const relevance = getSignalRelevanceText(card);
-  const checked = selectedSignalIndexes.has(index) ? "checked" : "";
 
   return `
     <div class="signal-selection-card" data-signal-index="${index}">
-      <label class="signal-select-row">
-        <input type="checkbox" class="signal-select-checkbox" data-signal-index="${index}" ${checked}>
-        <span>Use in client conversation</span>
-      </label>
       <div class="signal-card-topline">
         ${renderSignalTags(card.tags)}
         <span class="signal-rank">#${index + 1}</span>
@@ -1983,6 +2036,7 @@ function renderSignalSelectionCard(card, index) {
       <p class="signal-preview-text">${escapeHtml(context)}</p>
       <div class="signal-preview-label signal-link-label">Link to client</div>
       <p class="signal-preview-text">${escapeHtml(relevance)}</p>
+      ${renderClientUnderstandingDetails(card)}
       ${renderSignalSourceLine(card)}
     </div>
   `;
@@ -2252,7 +2306,6 @@ function renderSignalSelectionList() {
   const visibleLimit = conversationCardsExpanded ? lastConversationCards.length : DEFAULT_VISIBLE_SIGNAL_COUNT;
   const visibleCards = lastConversationCards.slice(0, visibleLimit);
   const hiddenCount = Math.max(0, lastConversationCards.length - DEFAULT_VISIBLE_SIGNAL_COUNT);
-  const selectedCount = selectedSignalIndexes.size;
 
   const cardsHtml = visibleCards.map((card, index) => renderSignalSelectionCard(card, index)).join("");
   const toggleHtml = hiddenCount > 0 ? `
@@ -2262,43 +2315,17 @@ function renderSignalSelectionList() {
   ` : "";
 
   analysisOutput.innerHTML = `
-    <div class="signals-summary">Showing ${visibleCards.length} of ${lastConversationCards.length} Client Signal${lastConversationCards.length === 1 ? "" : "s"}. Select only the signals you may want to use in a client conversation.</div>
+    <div class="signals-summary">Showing ${visibleCards.length} of ${lastConversationCards.length} Client Signal${lastConversationCards.length === 1 ? "" : "s"}. Expand a card to see which areas from the Client Understanding workshop may be worth revisiting.</div>
     <div class="signal-selection-list">${cardsHtml}</div>
-    <div class="signal-action-row">
-      ${toggleHtml}
-      <button type="button" class="secondary-action primary-bridge-action" id="buildBridgeButton" ${selectedCount ? "" : "disabled"}>
-        Build client conversation${selectedCount ? ` (${selectedCount})` : ""}
-      </button>
-    </div>
+    ${toggleHtml ? `<div class="signal-action-row">${toggleHtml}</div>` : ""}
   `;
 
-  if (conversationBridgeBuilt && bridgeOutput && bridgePanel) {
-    bridgeOutput.innerHTML = renderSelectedConversationBridge();
-    bridgePanel.classList.remove("hidden");
-  } else if (!conversationBridgeBuilt) {
-    resetConversationBridge();
-  }
-
-  document.querySelectorAll(".signal-select-checkbox").forEach(input => {
-    input.addEventListener("change", event => {
-      const index = Number(event.currentTarget.getAttribute("data-signal-index"));
-      if (!Number.isFinite(index)) return;
-      if (event.currentTarget.checked) {
-        selectedSignalIndexes.add(index);
-      } else {
-        selectedSignalIndexes.delete(index);
-      }
-      conversationBridgeBuilt = false;
-      renderSignalSelectionList();
-    });
-  });
+  resetConversationBridge();
 
   document.getElementById("toggleSignals")?.addEventListener("click", () => {
     conversationCardsExpanded = !conversationCardsExpanded;
     renderSignalSelectionList();
   });
-
-  document.getElementById("buildBridgeButton")?.addEventListener("click", buildSelectedConversation);
 }
 
 function renderConversationCards(text) {
@@ -2608,6 +2635,144 @@ function attachGenerateSignalsUnlockListeners() {
 
 attachGenerateSignalsUnlockListeners();
 
+const RESEARCH_PROGRESS_STAGES = [
+  ["search_plan", "Preparing targeted news searches"],
+  ["tavily_search", "Searching recent news"],
+  ["candidate_selection", "Preparing the article shortlist"],
+  ["source_review", "Reviewing potential articles"],
+  ["fact_extraction", "Checking facts, dates and geography"],
+  ["trade_flow_check", "Checking against the client’s actual trade flows"],
+  ["signal_generation", "Building Client Signals"]
+];
+
+function renderResearchProgress() {
+  analysisOutput.innerHTML = `
+    <div class="research-progress" aria-live="polite">
+      <div class="research-progress-heading">Researching relevant signals…</div>
+      <div class="research-progress-run" data-research-run hidden></div>
+      <div class="research-progress-list">
+        ${RESEARCH_PROGRESS_STAGES.map(([stage, label]) => `
+          <div class="research-progress-item" data-stage="${stage}" data-status="pending">
+            <span class="research-progress-icon" aria-hidden="true">○</span>
+            <span class="research-progress-copy">
+              <span class="research-progress-label">${label}</span>
+              <span class="research-progress-detail"></span>
+            </span>
+          </div>
+        `).join("")}
+      </div>
+    </div>`;
+}
+
+function updateResearchProgress(event) {
+  if (!event || typeof event !== "object") return;
+  if (event.type === "run") {
+    const runEl = analysisOutput.querySelector("[data-research-run]");
+    if (runEl && event.runId) {
+      runEl.textContent = `Run ${event.runId}`;
+      runEl.dataset.runId = event.runId;
+      // Keep the run ID in the DOM for support/audit correlation without adding noise for participants.
+    }
+    return;
+  }
+  if (event.type === "heartbeat" && event.stage) {
+    const item = analysisOutput.querySelector(`[data-stage="${event.stage}"]`);
+    if (!item) return;
+    item.dataset.status = "running";
+    const icon = item.querySelector(".research-progress-icon");
+    if (icon) icon.textContent = "●";
+    const detail = item.querySelector(".research-progress-detail");
+    if (detail) {
+      const seconds = Math.max(1, Math.round(Number(event.elapsedMs || 0) / 1000));
+      detail.textContent = `Still working… ${seconds}s`;
+    }
+    return;
+  }
+  if (event.type !== "stage" || !event.stage) return;
+  const item = analysisOutput.querySelector(`[data-stage="${event.stage}"]`);
+  if (!item) return;
+  item.dataset.status = event.status || "pending";
+  const icon = item.querySelector(".research-progress-icon");
+  if (icon) icon.textContent = event.status === "complete" ? "✓" : event.status === "error" ? "!" : event.status === "skipped" ? "–" : event.status === "running" ? "●" : "○";
+  const detail = item.querySelector(".research-progress-detail");
+  if (detail) detail.textContent = event.detail || (event.status === "error" ? event.message || "Stage failed" : "");
+}
+
+async function readResearchStream(response) {
+  if (!response.body || typeof response.body.getReader !== "function") {
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Request failed.");
+    return data;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalData = null;
+  let streamError = null;
+  let runId = "";
+  let lastStage = "";
+  let lastStageMessage = "";
+
+  const processEvent = event => {
+    updateResearchProgress(event);
+    if (event?.runId) runId = event.runId;
+    if (event?.type === "stage" && event.stage) {
+      lastStage = event.stage;
+      lastStageMessage = event.message || "";
+    }
+    if (event?.type === "heartbeat" && event.stage) {
+      lastStage = event.stage;
+      lastStageMessage = event.message || lastStageMessage;
+    }
+    if (event?.type === "result") finalData = event.data;
+    if (event?.type === "error") streamError = new Error(event.error || "Research request failed.");
+  };
+
+  while (true) {
+    let chunk;
+    try {
+      chunk = await reader.read();
+    } catch (error) {
+      const where = lastStageMessage ? ` while ${lastStageMessage.toLowerCase()}` : "";
+      const run = runId ? ` Run ${runId}.` : "";
+      throw new Error(`The research connection was interrupted${where}.${run} ${error?.message || ""}`.trim());
+    }
+
+    const { value, done } = chunk;
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try { processEvent(JSON.parse(trimmed)); } catch (_) {}
+    }
+
+    // The final result is intentionally sent before background audit persistence completes.
+    // Return immediately so the participant is not held up by the D1 write.
+    if (finalData) {
+      try { await reader.cancel(); } catch (_) {}
+      return finalData;
+    }
+    if (streamError) throw streamError;
+    if (done) break;
+  }
+
+  if (buffer.trim()) {
+    try { processEvent(JSON.parse(buffer.trim())); } catch (_) {}
+  }
+
+  if (finalData) return finalData;
+  if (streamError) throw streamError;
+
+  const stageText = lastStageMessage || lastStage;
+  const where = stageText ? ` after “${stageText}”` : "";
+  const run = runId ? ` Run ${runId}.` : "";
+  throw new Error(`The research stream ended unexpectedly${where}.${run} Please check the run in the audit page.`);
+}
+
 button.addEventListener("click", async function () {
   const sector = sectorBox.value;
   const subsector = subsectorBox.value;
@@ -2675,7 +2840,7 @@ button.addEventListener("click", async function () {
   updateGenerateSignalsButtonState();
   let signalRunSucceeded = false;
   resetConversationBridge();
-  analysisOutput.innerHTML = `<span class="loading">Researching relevant signals...</span>`;
+  renderResearchProgress();
   renderFxContext("");
   if (sourcesOutput) sourcesOutput.innerHTML = `<span class="loading">Loading sources...</span>`;
   if (contextOutput) contextOutput.textContent = "";
@@ -2683,10 +2848,11 @@ button.addEventListener("click", async function () {
   const marketIntelligencePromise = fetchMarketIntelligence({ showLoading: true });
 
   try {
-    const response = await fetch("/api/chat", {
+    const response = await fetch("/api/chat?stream=1", {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Accept": "application/x-ndjson"
       },
       body: JSON.stringify({
         sector,
@@ -2706,14 +2872,7 @@ button.addEventListener("click", async function () {
       })
     });
 
-    const data = await response.json();
-
-    if (!response.ok) {
-      analysisOutput.innerHTML = `<span class="error">${data.error || "Request failed."}</span>`;
-      if (sourcesOutput) sourcesOutput.textContent = "";
-      if (contextOutput) contextOutput.textContent = "";
-      return;
-    }
+    const data = await readResearchStream(response);
 
     renderSources(data.sources || [], Boolean(data.no_relevant_updates), Boolean(data.fallback_triggered));
     const analysisText = data.news?.content || data.analysis || "";
@@ -2732,7 +2891,7 @@ button.addEventListener("click", async function () {
     // Industry Context & RM Considerations is currently deactivated in the UI.
     // renderContext(data.context || "");
   } catch (error) {
-    analysisOutput.innerHTML = `<span class="error">Network error.</span>`;
+    analysisOutput.innerHTML = `<span class="error">${escapeHtml(error?.message || "Network error.")}</span>`;
     if (sourcesOutput) sourcesOutput.textContent = "";
     if (contextOutput) contextOutput.textContent = "";
   } finally {

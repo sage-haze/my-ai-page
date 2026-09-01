@@ -38,10 +38,25 @@ async function checkTavily(env) {
 }
 
 async function checkOpenAI(env) {
+  const basicModel = String(env.OPENAI_BASIC_MODEL || "").trim() || "gpt-5.6-luna";
+  const analysisModel = String(env.OPENAI_ANALYSIS_MODEL || "").trim() || "gpt-4.1";
+  const basicReasoningEffort = String(env.OPENAI_BASIC_REASONING_EFFORT || "").trim().toLowerCase() || "none";
   return {
     configured: Boolean(env.OPENAI_API_KEY),
     ok: Boolean(env.OPENAI_API_KEY),
-    message: env.OPENAI_API_KEY ? "Configured" : "Missing OPENAI_API_KEY"
+    message: env.OPENAI_API_KEY ? "Configured" : "Missing OPENAI_API_KEY",
+    models: {
+      basic: {
+        model: basicModel,
+        reasoningEffort: basicReasoningEffort,
+        configuredBy: env.OPENAI_BASIC_MODEL ? "OPENAI_BASIC_MODEL" : "code default",
+        reasoningConfiguredBy: env.OPENAI_BASIC_REASONING_EFFORT ? "OPENAI_BASIC_REASONING_EFFORT" : "code default"
+      },
+      analysis: {
+        model: analysisModel,
+        configuredBy: env.OPENAI_ANALYSIS_MODEL ? "OPENAI_ANALYSIS_MODEL" : "code default"
+      }
+    }
   };
 }
 
@@ -64,13 +79,19 @@ export async function onRequestGet(context) {
     checkTavily(env),
     checkYahooFinance()
   ]);
+  const auditDatabase = {
+    configured: Boolean(env.AUDIT_DB),
+    ok: Boolean(env.AUDIT_DB),
+    message: env.AUDIT_DB ? "D1 binding AUDIT_DB configured" : "Optional AUDIT_DB binding not configured"
+  };
 
   return Response.json({
     checked_at: new Date().toISOString(),
     sources: {
       openai,
       tavily,
-      yahoo_finance: yahooFinance
+      yahoo_finance: yahooFinance,
+      audit_database: auditDatabase
     }
   });
 }
