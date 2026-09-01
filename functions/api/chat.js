@@ -1,5 +1,3 @@
-import { INDUSTRY_TERMS } from "./industry-terms.js";
-
 const PREFERRED_NEWS_DOMAINS = [
   "reuters.com",
   "bloomberg.com",
@@ -28,6 +26,8 @@ const EXCLUDED_NEWS_DOMAINS = [
 const MIN_RAW_ARTICLE_WORDS = 120;
 const MAX_TAVILY_RESULTS_PER_QUERY = 10;
 const MAX_FINAL_NEWS_SOURCES = 10;
+const MAX_RETAINED_ARTICLE_CHARS = 18000;
+const TAVILY_CONCURRENCY = 2;
 
 const ALLOWED_CURRENCIES = ["THB", "USD", "JPY", "EUR", "CNY"];
 
@@ -299,21 +299,50 @@ function uniqueArray(items) {
 }
 
 function getIndustryTermProfile({ isicCode = "", industry = "" } = {}) {
-  const code = String(isicCode || "").trim();
-  if (code && INDUSTRY_TERMS[code]) return INDUSTRY_TERMS[code];
-
+  // Keep the Worker lightweight: derive a focused term profile from the exact selected
+  // ISIC activity instead of importing the full ~900 KB catalogue into every isolate.
+  // The OpenAI relevance gate remains the main semantic filter; these terms are only
+  // used for search/scoring support.
   const cleanIndustry = String(industry || "")
     .replace(/^\d+\s*[-–—:]\s*/, "")
-    .toLowerCase()
+    .replace(/\s+/g, " ")
     .trim();
 
-  if (!cleanIndustry) return { high: [], medium: [], low: [] };
+  if (!cleanIndustry) return { description: "", high: [], medium: [], low: [] };
 
-  const match = Object.values(INDUSTRY_TERMS).find(profile =>
-    String(profile.description || "").toLowerCase() === cleanIndustry
-  );
+  const generic = new Set([
+    "manufacture", "manufacturing", "activities", "activity", "services", "service",
+    "production", "processing", "growing", "wholesale", "retail", "repair", "installation",
+    "other", "except", "including", "related", "operation", "operations", "products", "product"
+  ]);
+  const words = cleanIndustry
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter(word => !["and", "the", "for", "with", "from", "of", "in", "on", "by", "to", "or"].includes(word));
+  const specificWords = words.filter(word => !generic.has(word));
 
-  return match || { high: [], medium: [], low: [] };
+  const phrases = [];
+  for (let size = Math.min(4, specificWords.length); size >= 2; size -= 1) {
+    for (let i = 0; i <= specificWords.length - size; i += 1) {
+      phrases.push(specificWords.slice(i, i + size).join(" "));
+    }
+  }
+
+  const high = uniqueArray([
+    cleanIndustry.toLowerCase(),
+    specificWords.join(" "),
+    ...phrases,
+    ...specificWords.filter(word => word.length >= 6)
+  ]).filter(term => term.length >= 4).slice(0, 18);
+
+  return {
+    description: cleanIndustry,
+    high,
+    medium: [],
+    low: []
+  };
 }
 
 function getSearchKeywords({ sector, subsector, industry = "", isicCode = "" }) {
@@ -756,18 +785,43 @@ JSON shape:
   }
 }
 
+function safeDomainFromUrl(url = "") {
+  try {
+    return new URL(String(url || "")).hostname.replace(/^www\./, "");
+  } catch (_) {
+    return "";
+  }
+}
+
+function compactArticleContent(text = "", maxChars = MAX_RETAINED_ARTICLE_CHARS) {
+  const clean = String(text || "").replace(/\u0000/g, "").trim();
+  if (clean.length <= maxChars) return clean;
+
+  // Keep evidence from the beginning, middle and end. This prevents a long article's
+  // regional/current sections from disappearing while substantially reducing Worker memory.
+  const separator = "\n[…]\n";
+  const usable = Math.max(3000, maxChars - separator.length * 2);
+  const firstLen = Math.floor(usable * 0.40);
+  const middleLen = Math.floor(usable * 0.30);
+  const endLen = usable - firstLen - middleLen;
+  const middleStart = Math.max(firstLen, Math.floor((clean.length - middleLen) / 2));
+  return `${clean.slice(0, firstLen)}${separator}${clean.slice(middleStart, middleStart + middleLen)}${separator}${clean.slice(-endLen)}`;
+}
+
 function normalizeTavilyResults(results, sourceGroup) {
-  return (results || []).map(item => ({
-    title: item.title || item.url || "Untitled source",
-    url: item.url,
-    source: item.source || "",
-    domain: item.url ? new URL(item.url).hostname.replace(/^www\./, "") : "",
-    published_at: item.published_date || item.published_at || "",
-    summary: item.content || "",
-    raw_content: item.raw_content || "",
-    score: item.score || 0,
-    source_group: sourceGroup
-  }));
+  return (results || [])
+    .filter(item => item && item.url)
+    .map(item => ({
+      title: item.title || item.url || "Untitled source",
+      url: String(item.url || ""),
+      source: item.source || "",
+      domain: safeDomainFromUrl(item.url),
+      published_at: item.published_date || item.published_at || "",
+      summary: compactArticleContent(item.content || "", 4000),
+      raw_content: compactArticleContent(item.raw_content || ""),
+      score: item.score || 0,
+      source_group: sourceGroup
+    }));
 }
 
 function countArticleWords(text = "") {
@@ -894,6 +948,28 @@ function dedupeSources(items) {
   }
 
   return deduped;
+}
+
+async function mapWithConcurrency(items, limit, mapper) {
+  const source = Array.isArray(items) ? items : [];
+  const results = new Array(source.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= source.length) return;
+      try {
+        results[index] = { status: "fulfilled", value: await mapper(source[index], index) };
+      } catch (error) {
+        results[index] = { status: "rejected", reason: error };
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(Math.max(1, limit), source.length || 1) }, () => worker()));
+  return results;
 }
 
 async function tavilySearch({ apiKey, query, startDate, endDate, includeDomains = null, excludeDomains = EXCLUDED_NEWS_DOMAINS, maxResults = MAX_TAVILY_RESULTS_PER_QUERY, searchDepth = "basic" }) {
@@ -2726,12 +2802,12 @@ async function executeResearch({ env, params, audit, emit }) {
   audit.searchPlan = { model: getOpenAIBasicModel(env), queries: plannedQueries };
 
   const searchDepth = "advanced";
-  const tavilyBatches = await stage(
+  const tavilyOutcome = await stage(
     "tavily_search",
     "Searching recent news…",
     "Recent news search complete",
-    () => Promise.all(plannedQueries.map(plan =>
-      tavilySearch({
+    () => mapWithConcurrency(plannedQueries, TAVILY_CONCURRENCY, async plan => {
+      const results = await tavilySearch({
         apiKey: env.TAVILY_API_KEY,
         query: plan.query,
         startDate: start_date,
@@ -2740,22 +2816,47 @@ async function executeResearch({ env, params, audit, emit }) {
         excludeDomains: EXCLUDED_NEWS_DOMAINS,
         maxResults: plan.maxResults || MAX_TAVILY_RESULTS_PER_QUERY,
         searchDepth
-      }).then(results => normalizeTavilyResults(results, plan.label))
-    )),
-    batches => ({ detail: `${batches.reduce((sum, batch) => sum + batch.length, 0)} articles returned` })
+      });
+      return normalizeTavilyResults(results, plan.label);
+    }),
+    outcomes => {
+      const successful = outcomes.filter(item => item?.status === "fulfilled");
+      const returned = successful.reduce((sum, item) => sum + (item.value?.length || 0), 0);
+      const failed = outcomes.length - successful.length;
+      return { detail: `${returned} articles returned${failed ? ` · ${failed} search${failed === 1 ? "" : "es"} unavailable` : ""}` };
+    }
   );
+
+  const tavilyBatches = tavilyOutcome.map(item => item?.status === "fulfilled" ? item.value : []);
+  const tavilyErrors = tavilyOutcome.map((item, index) => item?.status === "rejected" ? {
+    label: plannedQueries[index]?.label || `query_${index + 1}`,
+    query: plannedQueries[index]?.query || "",
+    error: String(item.reason?.message || item.reason || "Tavily search failed")
+  } : null).filter(Boolean);
+
+  if (tavilyBatches.every(batch => batch.length === 0) && tavilyErrors.length) {
+    throw new Error(`All Tavily searches failed. ${tavilyErrors.map(item => `${item.label}: ${item.error}`).join(" | ")}`);
+  }
 
   const flatTavily = tavilyBatches.flat();
   audit.tavily = {
     dateRange: { startDate: start_date, endDate: end_date },
     searchDepth,
+    concurrency: TAVILY_CONCURRENCY,
     preferredDomains: PREFERRED_NEWS_DOMAINS,
     excludedDomains: EXCLUDED_NEWS_DOMAINS,
-    queries: plannedQueries.map((plan, index) => ({ ...plan, results: (tavilyBatches[index] || []).map(auditSourceSnapshot) }))
+    errors: tavilyErrors,
+    queries: plannedQueries.map((plan, index) => ({ ...plan, results: (tavilyBatches[index] || []).map(auditSourceSnapshot), error: tavilyErrors.find(item => item.label === plan.label)?.error || "" }))
   };
 
   const fxResults = [];
-  const primaryCandidateSources = prepareCandidateSources({ sources: flatTavily });
+  const primaryCandidateSources = await stage(
+    "candidate_selection",
+    "Preparing the article shortlist…",
+    "Article shortlist ready",
+    () => Promise.resolve(prepareCandidateSources({ sources: flatTavily })),
+    candidates => ({ detail: `${candidates.length} articles shortlisted for review` })
+  );
   audit.candidateSelection = {
     retrievedCount: flatTavily.length,
     candidateCount: primaryCandidateSources.length,
@@ -2933,36 +3034,44 @@ async function runResearchWithAudit({ context, body, emit }) {
 
 function makeNdjsonStreamResponse(context, body) {
   const encoder = new TextEncoder();
-  const stream = new ReadableStream({
-    async start(controller) {
-      let closed = false;
-      const emit = async event => {
-        if (closed) return;
-        try {
-          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
-        } catch (_) {
-          closed = true;
-        }
-      };
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
 
-      try {
-        const outcome = await runResearchWithAudit({ context, body, emit });
-        if (!closed && outcome.status < 400) {
-          await emit({ type: "result", runId: outcome.runId, data: outcome.result });
-          await emit({ type: "done", runId: outcome.runId, status: "complete" });
-        }
-      } catch (error) {
-        await emit({ type: "error", error: String(error?.message || error || "Unexpected research stream failure") });
-      } finally {
-        if (!closed) {
-          closed = true;
-          try { controller.close(); } catch (_) {}
-        }
+  let closed = false;
+  const emit = async event => {
+    if (closed) return;
+    try {
+      await writer.write(encoder.encode(`${JSON.stringify(event)}\n`));
+    } catch (_) {
+      closed = true;
+    }
+  };
+
+  const producer = (async () => {
+    try {
+      const outcome = await runResearchWithAudit({ context, body, emit });
+      if (!closed && outcome.status < 400) {
+        await emit({ type: "result", runId: outcome.runId, data: outcome.result });
+        await emit({ type: "done", runId: outcome.runId, status: "complete" });
+      }
+    } catch (error) {
+      await emit({ type: "error", error: String(error?.message || error || "Unexpected research stream failure") });
+    } finally {
+      if (!closed) {
+        closed = true;
+        try { await writer.close(); } catch (_) {}
       }
     }
-  });
+  })();
 
-  return new Response(stream, {
+  // The response body itself keeps the invocation alive while the participant is connected.
+  // waitUntil also ensures the producer is not treated as a floating promise if the platform
+  // transitions the request lifecycle while the stream is still being consumed.
+  if (typeof context.waitUntil === "function") {
+    context.waitUntil(producer.catch(() => {}));
+  }
+
+  return new Response(readable, {
     status: 200,
     headers: {
       "Content-Type": "application/x-ndjson; charset=utf-8",

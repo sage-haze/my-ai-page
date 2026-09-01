@@ -2638,6 +2638,7 @@ attachGenerateSignalsUnlockListeners();
 const RESEARCH_PROGRESS_STAGES = [
   ["search_plan", "Preparing targeted news searches"],
   ["tavily_search", "Searching recent news"],
+  ["candidate_selection", "Preparing the article shortlist"],
   ["source_review", "Reviewing potential articles"],
   ["fact_extraction", "Checking facts, dates and geography"],
   ["trade_flow_check", "Checking against the client’s actual trade flows"],
