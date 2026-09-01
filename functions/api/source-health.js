@@ -38,10 +38,22 @@ async function checkTavily(env) {
 }
 
 async function checkOpenAI(env) {
+  const basicModel = String(env.OPENAI_BASIC_MODEL || "").trim() || "gpt-5.6-luna";
+  const analysisModel = String(env.OPENAI_ANALYSIS_MODEL || "").trim() || "gpt-4.1";
   return {
     configured: Boolean(env.OPENAI_API_KEY),
     ok: Boolean(env.OPENAI_API_KEY),
-    message: env.OPENAI_API_KEY ? "Configured" : "Missing OPENAI_API_KEY"
+    message: env.OPENAI_API_KEY ? "Configured" : "Missing OPENAI_API_KEY",
+    models: {
+      basic: {
+        model: basicModel,
+        configuredBy: env.OPENAI_BASIC_MODEL ? "OPENAI_BASIC_MODEL" : "code default"
+      },
+      analysis: {
+        model: analysisModel,
+        configuredBy: env.OPENAI_ANALYSIS_MODEL ? "OPENAI_ANALYSIS_MODEL" : "code default"
+      }
+    }
   };
 }
 

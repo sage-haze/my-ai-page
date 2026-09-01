@@ -31,8 +31,13 @@ const MAX_FINAL_NEWS_SOURCES = 10;
 
 const ALLOWED_CURRENCIES = ["THB", "USD", "JPY", "EUR", "CNY"];
 
-const OPENAI_FAST_MODEL = "gpt-4.1-mini";
+const DEFAULT_OPENAI_BASIC_MODEL = "gpt-5.6-luna";
 const OPENAI_ANALYSIS_MODEL = "gpt-4.1";
+
+function getOpenAIBasicModel(env = {}) {
+  const configured = String(env?.OPENAI_BASIC_MODEL || "").trim();
+  return configured || DEFAULT_OPENAI_BASIC_MODEL;
+}
 
 const SUBSECTOR_KEYWORD_MAP = {
   "Thai commercial bank": [
@@ -623,7 +628,7 @@ JSON shape:
         "Content-Type": "application/json",
         "Authorization": `Bearer ${env.OPENAI_API_KEY}`
       },
-      body: JSON.stringify({ model: OPENAI_FAST_MODEL, input: plannerPrompt })
+      body: JSON.stringify({ model: getOpenAIBasicModel(env), input: plannerPrompt })
     });
 
     const data = await response.json();
@@ -1018,7 +1023,7 @@ ${JSON.stringify(compactFx, null, 2)}
         "Authorization": `Bearer ${env.OPENAI_API_KEY}`
       },
       body: JSON.stringify({
-        model: OPENAI_FAST_MODEL,
+        model: getOpenAIBasicModel(env),
         input: prompt
       })
     });
@@ -1169,7 +1174,7 @@ async function assessSourceRelevance({ env, sources, sector, subsector, industry
       noRelevantUpdateMessage: `No relevant news updates were found in the selected ${timeframe}-day period for this client profile.`,
       sources: [],
       audit: {
-        model: OPENAI_FAST_MODEL,
+        model: getOpenAIBasicModel(env),
         candidateCount: 0,
         reviews: []
       }
@@ -1294,7 +1299,7 @@ ${JSON.stringify(compactSources, null, 2)}
         "Authorization": `Bearer ${env.OPENAI_API_KEY}`
       },
       body: JSON.stringify({
-        model: OPENAI_FAST_MODEL,
+        model: getOpenAIBasicModel(env),
         input: prompt
       })
     });
@@ -1376,7 +1381,7 @@ ${JSON.stringify(compactSources, null, 2)}
       noRelevantUpdateMessage,
       sources: selectedSources,
       audit: {
-        model: OPENAI_FAST_MODEL,
+        model: getOpenAIBasicModel(env),
         candidateCount: sources.length,
         modelHasRelevantUpdates: Boolean(parsed.hasRelevantUpdates),
         noRelevantUpdateMessage,
@@ -1411,7 +1416,7 @@ ${JSON.stringify(compactSources, null, 2)}
       noRelevantUpdateMessage: `No significant relevant news updates were found in the selected ${timeframe}-day period for this client profile.`,
       sources: [],
       audit: {
-        model: OPENAI_FAST_MODEL,
+        model: getOpenAIBasicModel(env),
         candidateCount: sources.length,
         reviews: [],
         error: String(error?.message || error || "Source relevance review failed.")
@@ -1772,7 +1777,7 @@ ${sourceContext}
       "Authorization": `Bearer ${env.OPENAI_API_KEY}`
     },
     body: JSON.stringify({
-      model: OPENAI_FAST_MODEL,
+      model: getOpenAIBasicModel(env),
       input: prompt
     })
   });
@@ -2321,7 +2326,7 @@ Strict requirements:
         "Authorization": `Bearer ${env.OPENAI_API_KEY}`
       },
       body: JSON.stringify({
-        model: OPENAI_FAST_MODEL,
+        model: getOpenAIBasicModel(env),
         input: prompt,
         text: {
           format: {
@@ -2578,7 +2583,7 @@ async function executeResearch({ env, params, audit, emit }) {
     () => planTavilyQueries({ env, sector, subsector, industry, isicCode, tradeFlow, timeframe }),
     queries => ({ detail: `${queries.length} targeted searches` })
   );
-  audit.searchPlan = { model: OPENAI_FAST_MODEL, queries: plannedQueries };
+  audit.searchPlan = { model: getOpenAIBasicModel(env), queries: plannedQueries };
 
   const searchDepth = "advanced";
   const tavilyBatches = await stage(
@@ -2724,7 +2729,7 @@ async function runResearchWithAudit({ context, body, emit }) {
     schemaVersion: 1,
     runId,
     startedAt: new Date(startedMs).toISOString(),
-    models: { searchPlanner: OPENAI_FAST_MODEL, sourceReview: OPENAI_FAST_MODEL, factExtraction: OPENAI_FAST_MODEL, finalSignals: env.OPENAI_ANALYSIS_MODEL || OPENAI_ANALYSIS_MODEL },
+    models: { searchPlanner: getOpenAIBasicModel(env), sourceReview: getOpenAIBasicModel(env), factExtraction: getOpenAIBasicModel(env), finalSignals: env.OPENAI_ANALYSIS_MODEL || OPENAI_ANALYSIS_MODEL },
     timings: {}
   };
   let auditRowCreated = false;

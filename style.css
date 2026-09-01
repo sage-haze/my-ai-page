@@ -2663,18 +2663,38 @@ select.auto-filled {
   font-size: 12px;
   font-weight: 800;
   line-height: 1.35;
-  list-style-position: outside;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.client-understanding-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.client-understanding-details > summary::before {
+  content: "›";
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 10px;
+  min-width: 10px;
+  height: 16px;
+  line-height: 1;
+  font-size: 15px;
+  font-weight: 800;
+  transform: rotate(0deg);
+  transform-origin: center;
+  transition: transform 0.15s ease;
+}
+
+.client-understanding-details[open] > summary::before {
+  transform: rotate(90deg);
 }
 
 .client-understanding-details[open] > summary {
   margin-bottom: 8px;
-}
-
-.understanding-helper {
-  color: #64748b;
-  font-size: 11.5px;
-  line-height: 1.45;
-  margin-bottom: 9px;
 }
 
 .understanding-groups {

@@ -1918,8 +1918,7 @@ function renderClientUnderstandingDetails(card) {
 
   return `
     <details class="client-understanding-details">
-      <summary>Client understanding to revisit</summary>
-      <div class="understanding-helper">Possible Level 2 areas to revisit from the workshop — prompts for what may be worth understanding better, not assumptions that the client is already affected.</div>
+      <summary>Potential areas to consider</summary>
       <div class="understanding-groups">${groupHtml}</div>
     </details>
   `;
