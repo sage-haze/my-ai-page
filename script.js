@@ -2636,6 +2636,100 @@ function attachGenerateSignalsUnlockListeners() {
 
 attachGenerateSignalsUnlockListeners();
 
+const RESEARCH_PROGRESS_STAGES = [
+  ["search_plan", "Preparing targeted news searches"],
+  ["tavily_search", "Searching recent news"],
+  ["source_review", "Reviewing potential articles"],
+  ["fact_extraction", "Checking facts, dates and geography"],
+  ["trade_flow_check", "Checking against the client’s actual trade flows"],
+  ["signal_generation", "Building Client Signals"]
+];
+
+function renderResearchProgress() {
+  analysisOutput.innerHTML = `
+    <div class="research-progress" aria-live="polite">
+      <div class="research-progress-heading">Researching relevant signals…</div>
+      <div class="research-progress-run" data-research-run hidden></div>
+      <div class="research-progress-list">
+        ${RESEARCH_PROGRESS_STAGES.map(([stage, label]) => `
+          <div class="research-progress-item" data-stage="${stage}" data-status="pending">
+            <span class="research-progress-icon" aria-hidden="true">○</span>
+            <span class="research-progress-copy">
+              <span class="research-progress-label">${label}</span>
+              <span class="research-progress-detail"></span>
+            </span>
+          </div>
+        `).join("")}
+      </div>
+    </div>`;
+}
+
+function updateResearchProgress(event) {
+  if (!event || typeof event !== "object") return;
+  if (event.type === "run") {
+    const runEl = analysisOutput.querySelector("[data-research-run]");
+    if (runEl && event.runId) {
+      runEl.textContent = `Run ${event.runId}`;
+      runEl.dataset.runId = event.runId;
+      // Keep the run ID in the DOM for support/audit correlation without adding noise for participants.
+    }
+    return;
+  }
+  if (event.type !== "stage" || !event.stage) return;
+  const item = analysisOutput.querySelector(`[data-stage="${event.stage}"]`);
+  if (!item) return;
+  item.dataset.status = event.status || "pending";
+  const icon = item.querySelector(".research-progress-icon");
+  if (icon) icon.textContent = event.status === "complete" ? "✓" : event.status === "error" ? "!" : event.status === "skipped" ? "–" : event.status === "running" ? "●" : "○";
+  const detail = item.querySelector(".research-progress-detail");
+  if (detail) detail.textContent = event.detail || (event.status === "error" ? event.message || "Stage failed" : "");
+}
+
+async function readResearchStream(response) {
+  if (!response.body || typeof response.body.getReader !== "function") {
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Request failed.");
+    return data;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalData = null;
+  let streamError = null;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      let event;
+      try { event = JSON.parse(trimmed); } catch (_) { continue; }
+      updateResearchProgress(event);
+      if (event.type === "result") finalData = event.data;
+      if (event.type === "error") streamError = new Error(event.error || "Research request failed.");
+    }
+    if (done) break;
+  }
+
+  if (buffer.trim()) {
+    try {
+      const event = JSON.parse(buffer.trim());
+      updateResearchProgress(event);
+      if (event.type === "result") finalData = event.data;
+      if (event.type === "error") streamError = new Error(event.error || "Research request failed.");
+    } catch (_) {}
+  }
+
+  if (streamError) throw streamError;
+  if (!finalData) throw new Error("The research stream ended before a final result was returned.");
+  return finalData;
+}
+
 button.addEventListener("click", async function () {
   const sector = sectorBox.value;
   const subsector = subsectorBox.value;
@@ -2703,7 +2797,7 @@ button.addEventListener("click", async function () {
   updateGenerateSignalsButtonState();
   let signalRunSucceeded = false;
   resetConversationBridge();
-  analysisOutput.innerHTML = `<span class="loading">Researching relevant signals...</span>`;
+  renderResearchProgress();
   renderFxContext("");
   if (sourcesOutput) sourcesOutput.innerHTML = `<span class="loading">Loading sources...</span>`;
   if (contextOutput) contextOutput.textContent = "";
@@ -2711,10 +2805,11 @@ button.addEventListener("click", async function () {
   const marketIntelligencePromise = fetchMarketIntelligence({ showLoading: true });
 
   try {
-    const response = await fetch("/api/chat", {
+    const response = await fetch("/api/chat?stream=1", {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Accept": "application/x-ndjson"
       },
       body: JSON.stringify({
         sector,
@@ -2734,14 +2829,7 @@ button.addEventListener("click", async function () {
       })
     });
 
-    const data = await response.json();
-
-    if (!response.ok) {
-      analysisOutput.innerHTML = `<span class="error">${data.error || "Request failed."}</span>`;
-      if (sourcesOutput) sourcesOutput.textContent = "";
-      if (contextOutput) contextOutput.textContent = "";
-      return;
-    }
+    const data = await readResearchStream(response);
 
     renderSources(data.sources || [], Boolean(data.no_relevant_updates), Boolean(data.fallback_triggered));
     const analysisText = data.news?.content || data.analysis || "";
@@ -2760,7 +2848,7 @@ button.addEventListener("click", async function () {
     // Industry Context & RM Considerations is currently deactivated in the UI.
     // renderContext(data.context || "");
   } catch (error) {
-    analysisOutput.innerHTML = `<span class="error">Network error.</span>`;
+    analysisOutput.innerHTML = `<span class="error">${escapeHtml(error?.message || "Network error.")}</span>`;
     if (sourcesOutput) sourcesOutput.textContent = "";
     if (contextOutput) contextOutput.textContent = "";
   } finally {

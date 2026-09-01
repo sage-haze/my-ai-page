@@ -1167,7 +1167,12 @@ async function assessSourceRelevance({ env, sources, sector, subsector, industry
     return {
       hasRelevantUpdates: false,
       noRelevantUpdateMessage: `No relevant news updates were found in the selected ${timeframe}-day period for this client profile.`,
-      sources: []
+      sources: [],
+      audit: {
+        model: OPENAI_FAST_MODEL,
+        candidateCount: 0,
+        reviews: []
+      }
     };
   }
 
@@ -1317,7 +1322,7 @@ ${JSON.stringify(compactSources, null, 2)}
         })
     );
 
-    const reviewedSources = sources
+    const allReviewedSources = sources
       .map(source => {
         const review = reviewsByNumber.get(source.source_number);
         const relevanceLevel = review?.relevanceLevel || "LOW";
@@ -1332,8 +1337,9 @@ ${JSON.stringify(compactSources, null, 2)}
           relevance_justification: review?.justification || "",
           relevant: (relevanceLevel === "HIGH" || relevanceLevel === "MEDIUM") && currentDevelopment && newsworthyType
         };
-      })
-      .filter(source => source.relevant);
+      });
+
+    const reviewedSources = allReviewedSources.filter(source => source.relevant);
 
     const highSources = reviewedSources
       .filter(source => source.relevance_level === "HIGH")
@@ -1364,16 +1370,52 @@ ${JSON.stringify(compactSources, null, 2)}
 
     const hasRelevantUpdates = Boolean(parsed.hasRelevantUpdates) && selectedSources.length > 0;
 
+    const noRelevantUpdateMessage = String(parsed.noRelevantUpdateMessage || `No relevant news updates were found in the selected ${timeframe}-day period for this client profile.`).trim();
     return {
       hasRelevantUpdates,
-      noRelevantUpdateMessage: String(parsed.noRelevantUpdateMessage || `No relevant news updates were found in the selected ${timeframe}-day period for this client profile.`).trim(),
-      sources: selectedSources
+      noRelevantUpdateMessage,
+      sources: selectedSources,
+      audit: {
+        model: OPENAI_FAST_MODEL,
+        candidateCount: sources.length,
+        modelHasRelevantUpdates: Boolean(parsed.hasRelevantUpdates),
+        noRelevantUpdateMessage,
+        reviews: allReviewedSources.map(source => {
+          const countryRel = calculateCountryRelevanceScore(source, countries);
+          const industryRel = calculateIndustryRelevanceScore(source, termProfile);
+          return {
+            number: source.source_number,
+            title: source.title,
+            url: source.url,
+            domain: source.domain || source.source || "",
+            publishedAt: source.published_at || "",
+            sourceGroup: source.source_group || "",
+            tavilyScore: Number(source.score || 0),
+            extractedWordCount: countArticleWords(source.raw_content || ""),
+            authorityScore: getSourceAuthorityScore(source),
+            recencyScore: getRecencyScore(source),
+            countryRelevance: countryRel,
+            industryRelevance: industryRel,
+            relevanceLevel: source.relevance_level,
+            contentType: source.content_type,
+            currentDevelopment: source.current_development,
+            kept: source.relevant && selectedSources.some(selected => selected.source_number === source.source_number),
+            justification: source.relevance_justification || ""
+          };
+        })
+      }
     };
-  } catch (_) {
+  } catch (error) {
     return {
       hasRelevantUpdates: false,
       noRelevantUpdateMessage: `No significant relevant news updates were found in the selected ${timeframe}-day period for this client profile.`,
-      sources: []
+      sources: [],
+      audit: {
+        model: OPENAI_FAST_MODEL,
+        candidateCount: sources.length,
+        reviews: [],
+        error: String(error?.message || error || "Source relevance review failed.")
+      }
     };
   }
 }
@@ -2154,7 +2196,8 @@ ${JSON.stringify(factContext, null, 2)}
       // A conservative no-news state is safer than displaying an unvalidated synthesis.
       return {
         status: "NO_NEWS",
-        content: normalizeNoNewsText(timeframe)
+        content: normalizeNoNewsText(timeframe),
+        audit: { model: env.OPENAI_ANALYSIS_MODEL || OPENAI_ANALYSIS_MODEL, parseError: true, rawOutputPreview: rawText.slice(0, 1200) }
       };
     }
 
@@ -2165,7 +2208,13 @@ ${JSON.stringify(factContext, null, 2)}
     if (status === "NO_NEWS" || cards.length === 0) {
       return {
         status: "NO_NEWS",
-        content: normalizeNoNewsText(timeframe)
+        content: normalizeNoNewsText(timeframe),
+        audit: {
+          model: env.OPENAI_ANALYSIS_MODEL || OPENAI_ANALYSIS_MODEL,
+          modelStatus: status || "UNSPECIFIED",
+          rawCardCount: rawCards.length,
+          validatedCards: cards
+        }
       };
     }
 
@@ -2175,13 +2224,27 @@ ${JSON.stringify(factContext, null, 2)}
     if (!content || sourceRefs.length === 0) {
       return {
         status: "NO_NEWS",
-        content: normalizeNoNewsText(timeframe)
+        content: normalizeNoNewsText(timeframe),
+        audit: {
+          model: env.OPENAI_ANALYSIS_MODEL || OPENAI_ANALYSIS_MODEL,
+          modelStatus: status || "UNSPECIFIED",
+          rawCardCount: rawCards.length,
+          validatedCards: cards,
+          reason: "Validated cards did not retain usable source references."
+        }
       };
     }
 
     return {
       status: "OK",
-      content
+      content,
+      audit: {
+        model: env.OPENAI_ANALYSIS_MODEL || OPENAI_ANALYSIS_MODEL,
+        modelStatus: status || "OK",
+        rawCardCount: rawCards.length,
+        validatedCards: cards,
+        sourceRefs
+      }
     };
   } catch (error) {
     throw error;
@@ -2332,68 +2395,197 @@ Strict requirements:
 }
 
 
-export async function onRequestPost(context) {
-  try {
-    const { request, env } = context;
-    const body = await request.json();
 
-    const sector = (body.sector || "").trim();
-    const subsector = (body.subsector || "").trim();
-    let industry = (body.industry || "").trim();
-    const timeframe = (body.timeframe || "30").trim();
-    const fxTenor = [30, 90].includes(Number(body.fxTenor)) ? Number(body.fxTenor) : 30;
-    const isicCode = (body.isicCode || "").trim();
-    if (isicCode && industry && !industry.includes(isicCode)) industry = `${isicCode} - ${industry}`;
-    const legacyCurrencies = Array.isArray(body.currencies) ? body.currencies.map(c => String(c).toUpperCase()) : [];
-    const legacyCountries = Array.isArray(body.countries) ? body.countries : [];
-    const tradeFlow = normalizeTradeFlow(body.tradeFlow || {}, legacyCountries, legacyCurrencies);
-    const tradeRoles = deriveTradeRolesFromFlow(tradeFlow, body.tradeRoles || []);
-    const currencies = getAllTradeFlowCurrencies(tradeFlow, legacyCurrencies);
-    const countries = getAllTradeFlowCountries(tradeFlow);
-    const defaultPrompt = (body.defaultPrompt || "").trim();
-    const conversationGoal = (body.conversationGoal || "general_check_in").trim();
-    const clientProfile = normalizeClientProfile(body.clientProfile || {});
-    const signalThreads = Array.isArray(body.signalThreads) && body.signalThreads.length
-      ? body.signalThreads.map(item => String(item))
-      : defaultSignalThreads();
+class ResearchRequestError extends Error {
+  constructor(message, status = 400) {
+    super(message);
+    this.name = "ResearchRequestError";
+    this.status = status;
+  }
+}
 
-    if (!sector) return Response.json({ error: "Please select a sector." }, { status: 400 });
-    if (!subsector) return Response.json({ error: "Please select a subsector." }, { status: 400 });
-    if (!industry) return Response.json({ error: "Please enter the client's industry." }, { status: 400 });
-    if (!tradeFlow.purchase.domestic && !tradeFlow.purchase.international) return Response.json({ error: "Please select domestic and/or international for Purchase from." }, { status: 400 });
-    if (!tradeFlow.sales.domestic && !tradeFlow.sales.international) return Response.json({ error: "Please select domestic and/or international for Sales to." }, { status: 400 });
-    if (tradeFlow.purchase.international && tradeFlow.purchase.countries.length === 0) return Response.json({ error: "Please select at least one international purchase market." }, { status: 400 });
-    if (tradeFlow.sales.international && tradeFlow.sales.countries.length === 0) return Response.json({ error: "Please select at least one international sales market." }, { status: 400 });
-    if (tradeFlow.purchase.currencies.length === 0) return Response.json({ error: "Please select at least one purchase currency." }, { status: 400 });
-    if (tradeFlow.sales.currencies.length === 0) return Response.json({ error: "Please select at least one sales currency." }, { status: 400 });
-    if (currencies.length === 0) return Response.json({ error: "Please select at least one currency." }, { status: 400 });
-    const unsupported = currencies.filter(currency => !ALLOWED_CURRENCIES.includes(currency));
-    if (unsupported.length > 0) {
-      return Response.json({ error: `Unsupported currency selected: ${unsupported.join(", ")}` }, { status: 400 });
+function createResearchRunId() {
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const token = (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`)
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .slice(0, 10)
+    .toUpperCase();
+  return `SIG-${date}-${token}`;
+}
+
+function auditSourceSnapshot(source) {
+  return {
+    title: source?.title || "",
+    url: source?.url || "",
+    domain: source?.domain || source?.source || "",
+    publishedAt: source?.published_at || "",
+    sourceGroup: source?.source_group || "",
+    tavilyScore: Number(source?.score || 0),
+    extractedWordCount: countArticleWords(source?.raw_content || ""),
+    summarySnippet: String(source?.summary || "").replace(/\s+/g, " ").trim().slice(0, 1200),
+    rawContentSnippet: String(source?.raw_content || "").replace(/\s+/g, " ").trim().slice(0, 1600)
+  };
+}
+
+function auditInputSnapshot(params) {
+  return {
+    sector: params.sector,
+    subsector: params.subsector,
+    industry: params.industry,
+    isicCode: params.isicCode,
+    timeframe: params.timeframe,
+    fxTenor: params.fxTenor,
+    tradeFlow: params.tradeFlow,
+    tradeRoles: params.tradeRoles,
+    countries: params.countries,
+    currencies: params.currencies,
+    signalThreads: params.signalThreads,
+    conversationGoal: params.conversationGoal
+  };
+}
+
+function normaliseResearchRequest(body, env) {
+  const sector = (body.sector || "").trim();
+  const subsector = (body.subsector || "").trim();
+  let industry = (body.industry || "").trim();
+  const timeframe = (body.timeframe || "30").trim();
+  const fxTenor = [30, 90].includes(Number(body.fxTenor)) ? Number(body.fxTenor) : 30;
+  const isicCode = (body.isicCode || "").trim();
+  if (isicCode && industry && !industry.includes(isicCode)) industry = `${isicCode} - ${industry}`;
+  const legacyCurrencies = Array.isArray(body.currencies) ? body.currencies.map(c => String(c).toUpperCase()) : [];
+  const legacyCountries = Array.isArray(body.countries) ? body.countries : [];
+  const tradeFlow = normalizeTradeFlow(body.tradeFlow || {}, legacyCountries, legacyCurrencies);
+  const tradeRoles = deriveTradeRolesFromFlow(tradeFlow, body.tradeRoles || []);
+  const currencies = getAllTradeFlowCurrencies(tradeFlow, legacyCurrencies);
+  const countries = getAllTradeFlowCountries(tradeFlow);
+  const defaultPrompt = (body.defaultPrompt || "").trim();
+  const conversationGoal = (body.conversationGoal || "general_check_in").trim();
+  const clientProfile = normalizeClientProfile(body.clientProfile || {});
+  const signalThreads = Array.isArray(body.signalThreads) && body.signalThreads.length
+    ? body.signalThreads.map(item => String(item))
+    : defaultSignalThreads();
+
+  if (!sector) throw new ResearchRequestError("Please select a sector.");
+  if (!subsector) throw new ResearchRequestError("Please select a subsector.");
+  if (!industry) throw new ResearchRequestError("Please enter the client's industry.");
+  if (!tradeFlow.purchase.domestic && !tradeFlow.purchase.international) throw new ResearchRequestError("Please select domestic and/or international for Purchase from.");
+  if (!tradeFlow.sales.domestic && !tradeFlow.sales.international) throw new ResearchRequestError("Please select domestic and/or international for Sales to.");
+  if (tradeFlow.purchase.international && tradeFlow.purchase.countries.length === 0) throw new ResearchRequestError("Please select at least one international purchase market.");
+  if (tradeFlow.sales.international && tradeFlow.sales.countries.length === 0) throw new ResearchRequestError("Please select at least one international sales market.");
+  if (tradeFlow.purchase.currencies.length === 0) throw new ResearchRequestError("Please select at least one purchase currency.");
+  if (tradeFlow.sales.currencies.length === 0) throw new ResearchRequestError("Please select at least one sales currency.");
+  if (currencies.length === 0) throw new ResearchRequestError("Please select at least one currency.");
+  const unsupported = currencies.filter(currency => !ALLOWED_CURRENCIES.includes(currency));
+  if (unsupported.length > 0) throw new ResearchRequestError(`Unsupported currency selected: ${unsupported.join(", ")}`);
+  if (!env.TAVILY_API_KEY) throw new ResearchRequestError("Missing TAVILY_API_KEY secret in Cloudflare.", 500);
+  if (!env.OPENAI_API_KEY) throw new ResearchRequestError("Missing OPENAI_API_KEY secret in Cloudflare.", 500);
+
+  return { sector, subsector, industry, timeframe, fxTenor, isicCode, tradeFlow, tradeRoles, currencies, countries, defaultPrompt, conversationGoal, clientProfile, signalThreads };
+}
+
+async function insertAuditRun(env, runId, params, audit) {
+  if (!env.AUDIT_DB) return false;
+  const inputJson = JSON.stringify(auditInputSnapshot(params));
+  await env.AUDIT_DB.prepare(`
+    INSERT INTO research_runs
+      (run_id, started_at, status, isic_code, industry, sector, subsector, timeframe_days, input_json)
+    VALUES (?, ?, 'RUNNING', ?, ?, ?, ?, ?, ?)
+  `).bind(
+    runId,
+    audit.startedAt,
+    params.isicCode || "",
+    params.industry || "",
+    params.sector || "",
+    params.subsector || "",
+    Number(params.timeframe || 0) || null,
+    inputJson
+  ).run();
+  return true;
+}
+
+function serializeAuditForD1(audit) {
+  const encoder = new TextEncoder();
+  let json = JSON.stringify(audit);
+  if (encoder.encode(json).length < 1800000) return json;
+
+  // D1 has a 2 MB maximum row/string size. Preserve the decisions and scores first,
+  // and trim retrieval excerpts only if an unusually large run approaches that ceiling.
+  const compact = JSON.parse(json);
+  for (const query of compact?.tavily?.queries || []) {
+    for (const result of query.results || []) {
+      if (result.rawContentSnippet) result.rawContentSnippet = String(result.rawContentSnippet).slice(0, 400);
+      if (result.summarySnippet) result.summarySnippet = String(result.summarySnippet).slice(0, 400);
     }
+  }
+  for (const candidate of compact?.candidateSelection?.candidates || []) {
+    if (candidate.rawContentSnippet) candidate.rawContentSnippet = String(candidate.rawContentSnippet).slice(0, 300);
+    if (candidate.summarySnippet) candidate.summarySnippet = String(candidate.summarySnippet).slice(0, 300);
+  }
+  compact.storageNote = "Retrieval excerpts were shortened to keep this audit run within the D1 row-size limit; ratings, decisions, facts and final outputs were retained.";
+  json = JSON.stringify(compact);
+  return json;
+}
 
-    if (!env.TAVILY_API_KEY) {
-      return Response.json({ error: "Missing TAVILY_API_KEY secret in Cloudflare." }, { status: 500 });
+async function finishAuditRun(env, runId, { status, audit, result = null, error = "" }) {
+  if (!env.AUDIT_DB) return false;
+  const completedAt = new Date().toISOString();
+  const auditJson = serializeAuditForD1(audit);
+  const resultJson = result ? JSON.stringify(result) : null;
+  await env.AUDIT_DB.prepare(`
+    UPDATE research_runs
+       SET completed_at = ?, status = ?, audit_json = ?, result_json = ?, total_ms = ?, error_text = ?
+     WHERE run_id = ?
+  `).bind(
+    completedAt,
+    status,
+    auditJson,
+    resultJson,
+    Number(audit.totalMs || 0),
+    error ? String(error).slice(0, 4000) : null,
+    runId
+  ).run();
+  return true;
+}
+
+async function executeResearch({ env, params, audit, emit }) {
+  const { sector, subsector, industry, timeframe, fxTenor, isicCode, tradeFlow, tradeRoles, currencies, countries, defaultPrompt, conversationGoal, clientProfile, signalThreads } = params;
+
+  const stage = async (name, runningMessage, completedMessage, fn, detailBuilder = null) => {
+    const started = Date.now();
+    await emit({ type: "stage", stage: name, status: "running", message: runningMessage });
+    try {
+      const value = await fn();
+      const durationMs = Date.now() - started;
+      audit.timings[name] = durationMs;
+      const detail = typeof detailBuilder === "function" ? detailBuilder(value) : undefined;
+      await emit({ type: "stage", stage: name, status: "complete", message: completedMessage, durationMs, ...(detail || {}) });
+      return value;
+    } catch (error) {
+      const durationMs = Date.now() - started;
+      audit.timings[name] = durationMs;
+      await emit({ type: "stage", stage: name, status: "error", message: String(error?.message || error || "Stage failed"), durationMs });
+      throw error;
     }
+  };
 
-    if (!env.OPENAI_API_KEY) {
-      return Response.json({ error: "Missing OPENAI_API_KEY secret in Cloudflare." }, { status: 500 });
-    }
+  const { start_date, end_date } = getDateRange(timeframe);
+  const searchKeywords = getSearchKeywords({ sector, subsector, industry, isicCode });
 
-    const { start_date, end_date } = getDateRange(timeframe);
-    const searchKeywords = getSearchKeywords({ sector, subsector, industry, isicCode });
-    const plannedQueries = await planTavilyQueries({
-      env,
-      sector,
-      subsector,
-      industry,
-      isicCode,
-      tradeFlow,
-      timeframe
-    });
+  const plannedQueries = await stage(
+    "search_plan",
+    "Preparing targeted news searches…",
+    "Search plan ready",
+    () => planTavilyQueries({ env, sector, subsector, industry, isicCode, tradeFlow, timeframe }),
+    queries => ({ detail: `${queries.length} targeted searches` })
+  );
+  audit.searchPlan = { model: OPENAI_FAST_MODEL, queries: plannedQueries };
 
-    const searchDepth = "advanced";
-    const tavilyBatches = await Promise.all(plannedQueries.map(plan =>
+  const searchDepth = "advanced";
+  const tavilyBatches = await stage(
+    "tavily_search",
+    "Searching recent news…",
+    "Recent news search complete",
+    () => Promise.all(plannedQueries.map(plan =>
       tavilySearch({
         apiKey: env.TAVILY_API_KEY,
         query: plan.query,
@@ -2404,132 +2596,229 @@ export async function onRequestPost(context) {
         maxResults: plan.maxResults || MAX_TAVILY_RESULTS_PER_QUERY,
         searchDepth
       }).then(results => normalizeTavilyResults(results, plan.label))
-    ));
+    )),
+    batches => ({ detail: `${batches.reduce((sum, batch) => sum + batch.length, 0)} articles returned` })
+  );
 
-    const fxResults = [];
+  const flatTavily = tavilyBatches.flat();
+  audit.tavily = {
+    dateRange: { startDate: start_date, endDate: end_date },
+    searchDepth,
+    preferredDomains: PREFERRED_NEWS_DOMAINS,
+    excludedDomains: EXCLUDED_NEWS_DOMAINS,
+    queries: plannedQueries.map((plan, index) => ({ ...plan, results: (tavilyBatches[index] || []).map(auditSourceSnapshot) }))
+  };
 
-    const primaryCandidateSources = prepareCandidateSources({
-      sources: tavilyBatches.flat()
-    });
+  const fxResults = [];
+  const primaryCandidateSources = prepareCandidateSources({ sources: flatTavily });
+  audit.candidateSelection = {
+    retrievedCount: flatTavily.length,
+    candidateCount: primaryCandidateSources.length,
+    note: "Candidate pool after domain exclusion, thin-content filtering, deduplication and per-query balancing.",
+    candidates: primaryCandidateSources.map(auditSourceSnapshot)
+  };
+  const effectiveQueries = [...plannedQueries];
 
-    const effectiveQueries = [...plannedQueries];
-    const sourceAssessment = await assessSourceRelevance({
-      env,
-      sources: primaryCandidateSources,
-      sector,
-      subsector,
-      industry,
-      isicCode,
-      tradeRoles,
-      countries,
-      tradeFlow,
-      timeframe,
-      plannedQueries: effectiveQueries
-    });
+  const sourceAssessment = await stage(
+    "source_review",
+    "Reviewing potential articles for this client…",
+    "Article relevance review complete",
+    () => assessSourceRelevance({ env, sources: primaryCandidateSources, sector, subsector, industry, isicCode, tradeRoles, countries, tradeFlow, timeframe, plannedQueries: effectiveQueries }),
+    assessment => ({ detail: `${assessment.sources.length} articles retained` })
+  );
+  audit.sourceReview = sourceAssessment.audit || { candidateCount: primaryCandidateSources.length, reviews: [] };
 
-    // Deliberately do not broaden or retry the news search when few/no sources survive.
-    // A genuine "no relevant news" result is preferable to forcing weaker articles into the output.
-    const fallbackTriggered = false;
+  const fallbackTriggered = false;
+  const mergedSources = sourceAssessment.sources.map((source, index) => ({ ...source, source_number: index + 1 }));
 
-    const mergedSources = sourceAssessment.sources.map((source, index) => ({
-      ...source,
-      source_number: index + 1
-    }));
+  const extractedAtomicFacts = (!sourceAssessment.hasRelevantUpdates || mergedSources.length === 0)
+    ? []
+    : await stage(
+        "fact_extraction",
+        "Checking the retained articles for precise facts, dates and geography…",
+        "Evidence extraction complete",
+        () => extractAtomicNewsFacts({ env, sources: mergedSources }),
+        facts => ({ detail: `${facts.length} current facts extracted` })
+      );
 
-    const extractedAtomicFacts = (!sourceAssessment.hasRelevantUpdates || mergedSources.length === 0)
-      ? []
-      : await extractAtomicNewsFacts({ env, sources: mergedSources });
+  if (!sourceAssessment.hasRelevantUpdates || mergedSources.length === 0) {
+    audit.timings.fact_extraction = 0;
+    await emit({ type: "stage", stage: "fact_extraction", status: "skipped", message: "No retained articles required fact extraction" });
+  }
 
-    // Trade remedies are directional. A destination-country measure that names origins other than
-    // the client's actual origin should not become a client signal merely because those countries
-    // appear elsewhere in the profile.
-    const atomicFacts = filterAtomicFactsForDirectionalTradeMeasures(extractedAtomicFacts, tradeFlow);
+  audit.atomicFacts = { extracted: extractedAtomicFacts };
 
-    // DEACTIVATED 2026-05: Industry Context & RM Considerations is hidden in the UI.
-    // Keep generateGeneralContext() above for future reuse, but do not call it now.
-    // const generalContext = await generateGeneralContext({
-    //   env,
-    //   sector,
-    //   subsector,
-    //   industry,
-    //   tradeRoles,
-    //   countries
-    // });
-    const generalContext = { points: [] };
+  const flowStarted = Date.now();
+  await emit({ type: "stage", stage: "trade_flow_check", status: "running", message: "Checking facts against the client’s actual purchase and sales flows…" });
+  const atomicFacts = filterAtomicFactsForDirectionalTradeMeasures(extractedAtomicFacts, tradeFlow);
+  const retainedFactIds = new Set(atomicFacts.map(fact => fact.factId));
+  const rejectedByTradeFlow = extractedAtomicFacts.filter(fact => !retainedFactIds.has(fact.factId));
+  audit.timings.trade_flow_check = Date.now() - flowStarted;
+  audit.atomicFacts.retainedAfterTradeFlowCheck = atomicFacts;
+  audit.atomicFacts.rejectedByTradeFlowCheck = rejectedByTradeFlow.map(fact => ({ ...fact, rejectionReason: "Directional trade-measure scope did not match the client's actual flow." }));
+  await emit({ type: "stage", stage: "trade_flow_check", status: "complete", message: "Client-flow check complete", durationMs: audit.timings.trade_flow_check, detail: rejectedByTradeFlow.length ? `${rejectedByTradeFlow.length} fact(s) removed` : "No flow conflicts found" });
 
-    if (!sourceAssessment.hasRelevantUpdates || mergedSources.length === 0 || atomicFacts.length === 0) {
-      const noNews = {
-        status: "NO_NEWS",
-        content: normalizeNoNewsText(timeframe)
-      };
+  const generalContext = { points: [] };
 
-      return Response.json({
-        analysis: noNews.content,
-        news: noNews,
-        context: generalContext,
-        no_relevant_updates: true,
-        fx: fxResults,
-        search_keywords: searchKeywords,
-        search_queries: effectiveQueries,
-        fallback_triggered: fallbackTriggered,
-        search_mode: "conversation_card_signal_scan",
-        sources: []
-      });
-    }
-
-    const rawNewsSection = await analyzeNewsDevelopments({
-      env,
-      sources: mergedSources,
-      atomicFacts,
-      sector,
-      subsector,
-      industry,
-      isicCode,
-      tradeRoles,
-      countries,
-      tradeFlow,
-      timeframe,
-      plannedQueries: effectiveQueries,
-      defaultPrompt,
-      conversationGoal,
-      clientProfile,
-      signalThreads
-    });
-
-    const aligned = alignSourcesToAnalysis({
-      sources: mergedSources,
-      newsSection: rawNewsSection,
-      timeframe
-    });
-
-    return Response.json({
-      analysis: aligned.newsSection.content,
-      news: aligned.newsSection,
+  if (!sourceAssessment.hasRelevantUpdates || mergedSources.length === 0 || atomicFacts.length === 0) {
+    await emit({ type: "stage", stage: "signal_generation", status: "skipped", message: "No sufficiently relevant evidence remained to build a signal" });
+    const noNews = { status: "NO_NEWS", content: normalizeNoNewsText(timeframe) };
+    const result = {
+      analysis: noNews.content,
+      news: noNews,
       context: generalContext,
-      no_relevant_updates: aligned.newsSection.status === "NO_NEWS",
+      no_relevant_updates: true,
       fx: fxResults,
       search_keywords: searchKeywords,
       search_queries: effectiveQueries,
       fallback_triggered: fallbackTriggered,
       search_mode: "conversation_card_signal_scan",
-      sources: aligned.newsSection.status === "NO_NEWS" ? [] : aligned.sources.map(source => ({
-        number: source.source_number,
-        title: source.title,
-        url: source.url,
-        source: source.source,
-        domain: source.domain,
-        published_at: source.published_at,
-        source_group: source.source_group,
-        syndicated_via: Array.isArray(source.syndicated_via) ? source.syndicated_via : [],
-        justification: source.relevance_justification || ""
-      }))
-    });
-  } catch (error) {
-    return Response.json({
-      error:
-        typeof error.message === "string"
-          ? error.message
-          : JSON.stringify(error.message || error)
-    }, { status: 500 });
+      sources: []
+    };
+    audit.finalSelection = { status: "NO_NEWS", reason: "No source/fact survived all relevance and flow gates." };
+    return result;
   }
+
+  const rawNewsSection = await stage(
+    "signal_generation",
+    "Building the strongest Client Signals…",
+    "Client Signals ready",
+    () => analyzeNewsDevelopments({ env, sources: mergedSources, atomicFacts, sector, subsector, industry, isicCode, tradeRoles, countries, tradeFlow, timeframe, plannedQueries: effectiveQueries, defaultPrompt, conversationGoal, clientProfile, signalThreads }),
+    news => ({ detail: news.status === "NO_NEWS" ? "No final signal passed" : "Final signals generated" })
+  );
+  audit.finalSelection = rawNewsSection.audit || { status: rawNewsSection.status };
+
+  const aligned = alignSourcesToAnalysis({ sources: mergedSources, newsSection: rawNewsSection, timeframe });
+  const publicNewsSection = { status: aligned.newsSection.status, content: aligned.newsSection.content };
+  const result = {
+    analysis: publicNewsSection.content,
+    news: publicNewsSection,
+    context: generalContext,
+    no_relevant_updates: aligned.newsSection.status === "NO_NEWS",
+    fx: fxResults,
+    search_keywords: searchKeywords,
+    search_queries: effectiveQueries,
+    fallback_triggered: fallbackTriggered,
+    search_mode: "conversation_card_signal_scan",
+    sources: aligned.newsSection.status === "NO_NEWS" ? [] : aligned.sources.map(source => ({
+      number: source.source_number,
+      title: source.title,
+      url: source.url,
+      source: source.source,
+      domain: source.domain,
+      published_at: source.published_at,
+      source_group: source.source_group,
+      syndicated_via: Array.isArray(source.syndicated_via) ? source.syndicated_via : [],
+      justification: source.relevance_justification || ""
+    }))
+  };
+  audit.finalSelection.publicResult = { status: result.news?.status || "", sourceCount: result.sources.length, content: result.news?.content || "" };
+  return result;
+}
+
+async function runResearchWithAudit({ context, body, emit }) {
+  const { env } = context;
+  const runId = createResearchRunId();
+  const startedMs = Date.now();
+  const audit = {
+    schemaVersion: 1,
+    runId,
+    startedAt: new Date(startedMs).toISOString(),
+    models: { searchPlanner: OPENAI_FAST_MODEL, sourceReview: OPENAI_FAST_MODEL, factExtraction: OPENAI_FAST_MODEL, finalSignals: env.OPENAI_ANALYSIS_MODEL || OPENAI_ANALYSIS_MODEL },
+    timings: {}
+  };
+  let auditRowCreated = false;
+
+  try {
+    const params = normaliseResearchRequest(body, env);
+    audit.input = auditInputSnapshot(params);
+    let auditStartError = "";
+    try {
+      auditRowCreated = await insertAuditRun(env, runId, params, audit);
+    } catch (auditError) {
+      auditStartError = String(auditError?.message || auditError || "Audit insert failed");
+      auditRowCreated = false;
+    }
+    audit.storage = { d1Configured: Boolean(env.AUDIT_DB), rowCreated: auditRowCreated, ...(auditStartError ? { startError: auditStartError } : {}) };
+    await emit({ type: "run", status: "started", runId, auditEnabled: auditRowCreated, message: "Research started" });
+
+    const result = await executeResearch({ env, params, audit, emit });
+    audit.totalMs = Date.now() - startedMs;
+    audit.completedAt = new Date().toISOString();
+    audit.status = "COMPLETED";
+
+    let saved = false;
+    if (auditRowCreated) {
+      try {
+        saved = await finishAuditRun(env, runId, { status: "COMPLETED", audit, result });
+      } catch (auditError) {
+        audit.auditSaveError = String(auditError?.message || auditError || "Audit save failed");
+      }
+    }
+    await emit({ type: "audit", status: saved ? "saved" : (env.AUDIT_DB ? "save_failed" : "disabled"), runId });
+    return { runId, result, status: 200 };
+  } catch (error) {
+    audit.totalMs = Date.now() - startedMs;
+    audit.completedAt = new Date().toISOString();
+    audit.status = "ERROR";
+    audit.error = String(error?.message || error || "Research failed");
+    if (auditRowCreated) {
+      try { await finishAuditRun(env, runId, { status: "ERROR", audit, error: audit.error }); } catch (_) {}
+    }
+    const status = error instanceof ResearchRequestError ? error.status : 500;
+    await emit({ type: "error", runId, statusCode: status, error: audit.error });
+    return { runId, result: { error: audit.error, run_id: runId }, status };
+  }
+}
+
+function makeNdjsonStreamResponse(context, body) {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      let closed = false;
+      const emit = async event => {
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+        } catch (_) {
+          closed = true;
+        }
+      };
+
+      try {
+        const outcome = await runResearchWithAudit({ context, body, emit });
+        if (!closed && outcome.status < 400) await emit({ type: "result", runId: outcome.runId, data: outcome.result });
+      } finally {
+        if (!closed) {
+          closed = true;
+          try { controller.close(); } catch (_) {}
+        }
+      }
+    }
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-store, no-transform",
+      "X-Content-Type-Options": "nosniff"
+    }
+  });
+}
+
+export async function onRequestPost(context) {
+  let body;
+  try {
+    body = await context.request.json();
+  } catch (_) {
+    return Response.json({ error: "Invalid JSON request body." }, { status: 400 });
+  }
+
+  const url = new URL(context.request.url);
+  const wantsStream = url.searchParams.get("stream") === "1" || String(context.request.headers.get("accept") || "").includes("application/x-ndjson");
+  if (wantsStream) return makeNdjsonStreamResponse(context, body);
+
+  const outcome = await runResearchWithAudit({ context, body, emit: async () => {} });
+  return Response.json(outcome.result, { status: outcome.status });
 }

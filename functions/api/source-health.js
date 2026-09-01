@@ -64,13 +64,19 @@ export async function onRequestGet(context) {
     checkTavily(env),
     checkYahooFinance()
   ]);
+  const auditDatabase = {
+    configured: Boolean(env.AUDIT_DB),
+    ok: Boolean(env.AUDIT_DB),
+    message: env.AUDIT_DB ? "D1 binding AUDIT_DB configured" : "Optional AUDIT_DB binding not configured"
+  };
 
   return Response.json({
     checked_at: new Date().toISOString(),
     sources: {
       openai,
       tavily,
-      yahoo_finance: yahooFinance
+      yahoo_finance: yahooFinance,
+      audit_database: auditDatabase
     }
   });
 }

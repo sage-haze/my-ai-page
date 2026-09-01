@@ -2720,3 +2720,75 @@ select.auto-filled {
 .understanding-activity-list li {
   margin: 3px 0;
 }
+
+/* Live research progress */
+.research-progress {
+  border: 1px solid #d9e3ef;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 14px 16px;
+}
+
+.research-progress-heading {
+  font-size: 14px;
+  font-weight: 700;
+  color: #16324f;
+  margin-bottom: 10px;
+}
+
+.research-progress-run {
+  display: none;
+}
+
+.research-progress-list {
+  display: grid;
+  gap: 7px;
+}
+
+.research-progress-item {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  font-size: 12px;
+  color: #6b7b8c;
+}
+
+.research-progress-item[data-status="running"] {
+  color: #173b5f;
+  font-weight: 600;
+}
+
+.research-progress-item[data-status="complete"] {
+  color: #2f5d50;
+}
+
+.research-progress-item[data-status="error"] {
+  color: #9a3131;
+}
+
+.research-progress-item[data-status="skipped"] {
+  color: #8a96a3;
+}
+
+.research-progress-icon {
+  width: 14px;
+  flex: 0 0 14px;
+  text-align: center;
+  line-height: 1.35;
+}
+
+.research-progress-copy {
+  min-width: 0;
+}
+
+.research-progress-label {
+  display: inline;
+}
+
+.research-progress-detail {
+  display: inline;
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 400;
+  color: #8190a1;
+}
