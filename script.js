@@ -2674,6 +2674,19 @@ function updateResearchProgress(event) {
     }
     return;
   }
+  if (event.type === "heartbeat" && event.stage) {
+    const item = analysisOutput.querySelector(`[data-stage="${event.stage}"]`);
+    if (!item) return;
+    item.dataset.status = "running";
+    const icon = item.querySelector(".research-progress-icon");
+    if (icon) icon.textContent = "●";
+    const detail = item.querySelector(".research-progress-detail");
+    if (detail) {
+      const seconds = Math.max(1, Math.round(Number(event.elapsedMs || 0) / 1000));
+      detail.textContent = `Still working… ${seconds}s`;
+    }
+    return;
+  }
   if (event.type !== "stage" || !event.stage) return;
   const item = analysisOutput.querySelector(`[data-stage="${event.stage}"]`);
   if (!item) return;
@@ -2696,9 +2709,36 @@ async function readResearchStream(response) {
   let buffer = "";
   let finalData = null;
   let streamError = null;
+  let runId = "";
+  let lastStage = "";
+  let lastStageMessage = "";
+
+  const processEvent = event => {
+    updateResearchProgress(event);
+    if (event?.runId) runId = event.runId;
+    if (event?.type === "stage" && event.stage) {
+      lastStage = event.stage;
+      lastStageMessage = event.message || "";
+    }
+    if (event?.type === "heartbeat" && event.stage) {
+      lastStage = event.stage;
+      lastStageMessage = event.message || lastStageMessage;
+    }
+    if (event?.type === "result") finalData = event.data;
+    if (event?.type === "error") streamError = new Error(event.error || "Research request failed.");
+  };
 
   while (true) {
-    const { value, done } = await reader.read();
+    let chunk;
+    try {
+      chunk = await reader.read();
+    } catch (error) {
+      const where = lastStageMessage ? ` while ${lastStageMessage.toLowerCase()}` : "";
+      const run = runId ? ` Run ${runId}.` : "";
+      throw new Error(`The research connection was interrupted${where}.${run} ${error?.message || ""}`.trim());
+    }
+
+    const { value, done } = chunk;
     buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
     const lines = buffer.split("\n");
     buffer = lines.pop() || "";
@@ -2706,27 +2746,30 @@ async function readResearchStream(response) {
     for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed) continue;
-      let event;
-      try { event = JSON.parse(trimmed); } catch (_) { continue; }
-      updateResearchProgress(event);
-      if (event.type === "result") finalData = event.data;
-      if (event.type === "error") streamError = new Error(event.error || "Research request failed.");
+      try { processEvent(JSON.parse(trimmed)); } catch (_) {}
     }
+
+    // The final result is intentionally sent before background audit persistence completes.
+    // Return immediately so the participant is not held up by the D1 write.
+    if (finalData) {
+      try { await reader.cancel(); } catch (_) {}
+      return finalData;
+    }
+    if (streamError) throw streamError;
     if (done) break;
   }
 
   if (buffer.trim()) {
-    try {
-      const event = JSON.parse(buffer.trim());
-      updateResearchProgress(event);
-      if (event.type === "result") finalData = event.data;
-      if (event.type === "error") streamError = new Error(event.error || "Research request failed.");
-    } catch (_) {}
+    try { processEvent(JSON.parse(buffer.trim())); } catch (_) {}
   }
 
+  if (finalData) return finalData;
   if (streamError) throw streamError;
-  if (!finalData) throw new Error("The research stream ended before a final result was returned.");
-  return finalData;
+
+  const stageText = lastStageMessage || lastStage;
+  const where = stageText ? ` after “${stageText}”` : "";
+  const run = runId ? ` Run ${runId}.` : "";
+  throw new Error(`The research stream ended unexpectedly${where}.${run} Please check the run in the audit page.`);
 }
 
 button.addEventListener("click", async function () {

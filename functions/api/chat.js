@@ -32,11 +32,30 @@ const MAX_FINAL_NEWS_SOURCES = 10;
 const ALLOWED_CURRENCIES = ["THB", "USD", "JPY", "EUR", "CNY"];
 
 const DEFAULT_OPENAI_BASIC_MODEL = "gpt-5.6-luna";
+const DEFAULT_OPENAI_BASIC_REASONING_EFFORT = "none";
 const OPENAI_ANALYSIS_MODEL = "gpt-4.1";
 
 function getOpenAIBasicModel(env = {}) {
   const configured = String(env?.OPENAI_BASIC_MODEL || "").trim();
   return configured || DEFAULT_OPENAI_BASIC_MODEL;
+}
+
+function getOpenAIBasicReasoningEffort(env = {}) {
+  const allowed = new Set(["none", "minimal", "low", "medium", "high", "xhigh"]);
+  const configured = String(env?.OPENAI_BASIC_REASONING_EFFORT || DEFAULT_OPENAI_BASIC_REASONING_EFFORT).trim().toLowerCase();
+  return allowed.has(configured) ? configured : DEFAULT_OPENAI_BASIC_REASONING_EFFORT;
+}
+
+function buildOpenAIBasicRequest(env, input, extra = {}) {
+  const model = getOpenAIBasicModel(env);
+  const body = { model, input, ...extra };
+  // GPT-5 family models support explicit reasoning effort. The basic research stages are
+  // classification/extraction tasks, so default to no extra reasoning for lower latency.
+  // This can be overridden in Cloudflare with OPENAI_BASIC_REASONING_EFFORT.
+  if (/^gpt-5(?:\.|$)/i.test(model)) {
+    body.reasoning = { effort: getOpenAIBasicReasoningEffort(env) };
+  }
+  return body;
 }
 
 const SUBSECTOR_KEYWORD_MAP = {
@@ -628,7 +647,7 @@ JSON shape:
         "Content-Type": "application/json",
         "Authorization": `Bearer ${env.OPENAI_API_KEY}`
       },
-      body: JSON.stringify({ model: getOpenAIBasicModel(env), input: plannerPrompt })
+      body: JSON.stringify(buildOpenAIBasicRequest(env, plannerPrompt))
     });
 
     const data = await response.json();
@@ -1022,10 +1041,7 @@ ${JSON.stringify(compactFx, null, 2)}
         "Content-Type": "application/json",
         "Authorization": `Bearer ${env.OPENAI_API_KEY}`
       },
-      body: JSON.stringify({
-        model: getOpenAIBasicModel(env),
-        input: prompt
-      })
+      body: JSON.stringify(buildOpenAIBasicRequest(env, prompt))
     });
 
     const data = await response.json();
@@ -1298,14 +1314,11 @@ ${JSON.stringify(compactSources, null, 2)}
         "Content-Type": "application/json",
         "Authorization": `Bearer ${env.OPENAI_API_KEY}`
       },
-      body: JSON.stringify({
-        model: getOpenAIBasicModel(env),
-        input: prompt
-      })
+      body: JSON.stringify(buildOpenAIBasicRequest(env, prompt))
     });
 
     const data = await response.json();
-    if (!response.ok) throw new Error("Source relevance review failed.");
+    if (!response.ok) throw new Error(data?.error?.message || `Source relevance review failed (HTTP ${response.status}).`);
 
     const parsed = parseJsonObject(extractOutputText(data));
     if (!parsed) throw new Error("Source relevance review returned invalid JSON.");
@@ -1776,10 +1789,7 @@ ${sourceContext}
       "Content-Type": "application/json",
       "Authorization": `Bearer ${env.OPENAI_API_KEY}`
     },
-    body: JSON.stringify({
-      model: getOpenAIBasicModel(env),
-      input: prompt
-    })
+    body: JSON.stringify(buildOpenAIBasicRequest(env, prompt))
   });
 
   const data = await response.json();
@@ -2325,9 +2335,7 @@ Strict requirements:
         "Content-Type": "application/json",
         "Authorization": `Bearer ${env.OPENAI_API_KEY}`
       },
-      body: JSON.stringify({
-        model: getOpenAIBasicModel(env),
-        input: prompt,
+      body: JSON.stringify(buildOpenAIBasicRequest(env, prompt, {
         text: {
           format: {
             type: "json_schema",
@@ -2362,7 +2370,7 @@ Strict requirements:
             }
           }
         }
-      })
+      }))
     });
 
     const data = await response.json();
@@ -2453,7 +2461,7 @@ function normaliseResearchRequest(body, env) {
   const sector = (body.sector || "").trim();
   const subsector = (body.subsector || "").trim();
   let industry = (body.industry || "").trim();
-  const timeframe = (body.timeframe || "30").trim();
+  const timeframe = String(body.timeframe || "30").trim();
   const fxTenor = [30, 90].includes(Number(body.fxTenor)) ? Number(body.fxTenor) : 30;
   const isicCode = (body.isicCode || "").trim();
   if (isicCode && industry && !industry.includes(isicCode)) industry = `${isicCode} - ${industry}`;
@@ -2558,6 +2566,19 @@ async function executeResearch({ env, params, audit, emit }) {
   const stage = async (name, runningMessage, completedMessage, fn, detailBuilder = null) => {
     const started = Date.now();
     await emit({ type: "stage", stage: name, status: "running", message: runningMessage });
+
+    // Keep the streamed response active during long upstream OpenAI/Tavily calls.
+    // This also gives the participant a useful elapsed-time indicator rather than a frozen step.
+    const heartbeat = setInterval(() => {
+      emit({
+        type: "heartbeat",
+        stage: name,
+        status: "running",
+        elapsedMs: Date.now() - started,
+        message: runningMessage
+      }).catch(() => {});
+    }, 10000);
+
     try {
       const value = await fn();
       const durationMs = Date.now() - started;
@@ -2570,6 +2591,8 @@ async function executeResearch({ env, params, audit, emit }) {
       audit.timings[name] = durationMs;
       await emit({ type: "stage", stage: name, status: "error", message: String(error?.message || error || "Stage failed"), durationMs });
       throw error;
+    } finally {
+      clearInterval(heartbeat);
     }
   };
 
@@ -2729,7 +2752,13 @@ async function runResearchWithAudit({ context, body, emit }) {
     schemaVersion: 1,
     runId,
     startedAt: new Date(startedMs).toISOString(),
-    models: { searchPlanner: getOpenAIBasicModel(env), sourceReview: getOpenAIBasicModel(env), factExtraction: getOpenAIBasicModel(env), finalSignals: env.OPENAI_ANALYSIS_MODEL || OPENAI_ANALYSIS_MODEL },
+    models: {
+      searchPlanner: getOpenAIBasicModel(env),
+      sourceReview: getOpenAIBasicModel(env),
+      factExtraction: getOpenAIBasicModel(env),
+      basicReasoningEffort: getOpenAIBasicReasoningEffort(env),
+      finalSignals: env.OPENAI_ANALYSIS_MODEL || OPENAI_ANALYSIS_MODEL
+    },
     timings: {}
   };
   let auditRowCreated = false;
@@ -2752,15 +2781,20 @@ async function runResearchWithAudit({ context, body, emit }) {
     audit.completedAt = new Date().toISOString();
     audit.status = "COMPLETED";
 
-    let saved = false;
     if (auditRowCreated) {
-      try {
-        saved = await finishAuditRun(env, runId, { status: "COMPLETED", audit, result });
-      } catch (auditError) {
-        audit.auditSaveError = String(auditError?.message || auditError || "Audit save failed");
+      const saveTask = finishAuditRun(env, runId, { status: "COMPLETED", audit, result }).catch(auditError => {
+        console.error("Audit save failed", runId, auditError);
+      });
+      if (typeof context.waitUntil === "function") {
+        context.waitUntil(saveTask);
+        await emit({ type: "audit", status: "saving", runId });
+      } else {
+        await saveTask;
+        await emit({ type: "audit", status: "saved", runId });
       }
+    } else {
+      await emit({ type: "audit", status: env.AUDIT_DB ? "save_failed" : "disabled", runId });
     }
-    await emit({ type: "audit", status: saved ? "saved" : (env.AUDIT_DB ? "save_failed" : "disabled"), runId });
     return { runId, result, status: 200 };
   } catch (error) {
     audit.totalMs = Date.now() - startedMs;
@@ -2768,7 +2802,11 @@ async function runResearchWithAudit({ context, body, emit }) {
     audit.status = "ERROR";
     audit.error = String(error?.message || error || "Research failed");
     if (auditRowCreated) {
-      try { await finishAuditRun(env, runId, { status: "ERROR", audit, error: audit.error }); } catch (_) {}
+      const saveTask = finishAuditRun(env, runId, { status: "ERROR", audit, error: audit.error }).catch(auditError => {
+        console.error("Audit error-state save failed", runId, auditError);
+      });
+      if (typeof context.waitUntil === "function") context.waitUntil(saveTask);
+      else await saveTask;
     }
     const status = error instanceof ResearchRequestError ? error.status : 500;
     await emit({ type: "error", runId, statusCode: status, error: audit.error });
@@ -2792,7 +2830,12 @@ function makeNdjsonStreamResponse(context, body) {
 
       try {
         const outcome = await runResearchWithAudit({ context, body, emit });
-        if (!closed && outcome.status < 400) await emit({ type: "result", runId: outcome.runId, data: outcome.result });
+        if (!closed && outcome.status < 400) {
+          await emit({ type: "result", runId: outcome.runId, data: outcome.result });
+          await emit({ type: "done", runId: outcome.runId, status: "complete" });
+        }
+      } catch (error) {
+        await emit({ type: "error", error: String(error?.message || error || "Unexpected research stream failure") });
       } finally {
         if (!closed) {
           closed = true;

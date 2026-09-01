@@ -40,6 +40,7 @@ async function checkTavily(env) {
 async function checkOpenAI(env) {
   const basicModel = String(env.OPENAI_BASIC_MODEL || "").trim() || "gpt-5.6-luna";
   const analysisModel = String(env.OPENAI_ANALYSIS_MODEL || "").trim() || "gpt-4.1";
+  const basicReasoningEffort = String(env.OPENAI_BASIC_REASONING_EFFORT || "").trim().toLowerCase() || "none";
   return {
     configured: Boolean(env.OPENAI_API_KEY),
     ok: Boolean(env.OPENAI_API_KEY),
@@ -47,7 +48,9 @@ async function checkOpenAI(env) {
     models: {
       basic: {
         model: basicModel,
-        configuredBy: env.OPENAI_BASIC_MODEL ? "OPENAI_BASIC_MODEL" : "code default"
+        reasoningEffort: basicReasoningEffort,
+        configuredBy: env.OPENAI_BASIC_MODEL ? "OPENAI_BASIC_MODEL" : "code default",
+        reasoningConfiguredBy: env.OPENAI_BASIC_REASONING_EFFORT ? "OPENAI_BASIC_REASONING_EFFORT" : "code default"
       },
       analysis: {
         model: analysisModel,
