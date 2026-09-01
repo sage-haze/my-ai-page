@@ -58,6 +58,102 @@ function buildOpenAIBasicRequest(env, input, extra = {}) {
   return body;
 }
 
+function buildAtomicFactJsonSchema() {
+  const factSchema = {
+    type: "object",
+    properties: {
+      fact: { type: "string" },
+      geography: { type: "string" },
+      geographyScope: {
+        type: "string",
+        enum: ["COUNTRY", "REGION", "GLOBAL", "MULTI_COUNTRY", "UNSPECIFIED"]
+      },
+      countryExamples: {
+        type: "array",
+        items: { type: "string" }
+      },
+      productOrTopic: { type: "string" },
+      period: { type: "string" },
+      recencyRank: {
+        type: "string",
+        enum: ["LATEST_UPDATE", "LATEST_PERIOD", "RECENT_PERIOD", "OLDER_BACKGROUND", "UNSPECIFIED"]
+      },
+      factType: {
+        type: "string",
+        enum: [
+          "CURRENT_EVENT",
+          "CURRENT_MARKET_UPDATE",
+          "CURRENT_REGULATORY_UPDATE",
+          "CURRENT_COMPANY_EVENT",
+          "FORECAST_REVISION",
+          "BACKGROUND_REFERENCE"
+        ]
+      },
+      tradeMeasureDestination: { type: "string" },
+      affectedOriginCountries: {
+        type: "array",
+        items: { type: "string" }
+      },
+      originCoverage: {
+        type: "string",
+        enum: ["NAMED_ORIGINS_ONLY", "ALL_ORIGINS", "NOT_STATED", "NOT_APPLICABLE"]
+      },
+      scopeNote: { type: "string" }
+    },
+    required: [
+      "fact",
+      "geography",
+      "geographyScope",
+      "countryExamples",
+      "productOrTopic",
+      "period",
+      "recencyRank",
+      "factType",
+      "tradeMeasureDestination",
+      "affectedOriginCountries",
+      "originCoverage",
+      "scopeNote"
+    ],
+    additionalProperties: false
+  };
+
+  return {
+    type: "object",
+    properties: {
+      sources: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            sourceNumber: { type: "integer" },
+            facts: {
+              type: "array",
+              items: factSchema
+            }
+          },
+          required: ["sourceNumber", "facts"],
+          additionalProperties: false
+        }
+      }
+    },
+    required: ["sources"],
+    additionalProperties: false
+  };
+}
+
+function getOpenAIRefusalText(data) {
+  if (!Array.isArray(data?.output)) return "";
+  for (const item of data.output) {
+    if (!Array.isArray(item?.content)) continue;
+    for (const contentItem of item.content) {
+      if (contentItem?.type === "refusal" && contentItem.refusal) {
+        return String(contentItem.refusal).trim();
+      }
+    }
+  }
+  return "";
+}
+
 const SUBSECTOR_KEYWORD_MAP = {
   "Thai commercial bank": [
     "Thailand banking",
@@ -647,7 +743,7 @@ JSON shape:
         "Content-Type": "application/json",
         "Authorization": `Bearer ${env.OPENAI_API_KEY}`
       },
-      body: JSON.stringify(buildOpenAIBasicRequest(env, plannerPrompt))
+      body: JSON.stringify(buildOpenAIBasicRequest(env, plannerPrompt, { text: { format: { type: "json_object" } } }))
     });
 
     const data = await response.json();
@@ -1041,7 +1137,7 @@ ${JSON.stringify(compactFx, null, 2)}
         "Content-Type": "application/json",
         "Authorization": `Bearer ${env.OPENAI_API_KEY}`
       },
-      body: JSON.stringify(buildOpenAIBasicRequest(env, prompt))
+      body: JSON.stringify(buildOpenAIBasicRequest(env, prompt, { text: { format: { type: "json_object" } } }))
     });
 
     const data = await response.json();
@@ -1314,7 +1410,7 @@ ${JSON.stringify(compactSources, null, 2)}
         "Content-Type": "application/json",
         "Authorization": `Bearer ${env.OPENAI_API_KEY}`
       },
-      body: JSON.stringify(buildOpenAIBasicRequest(env, prompt))
+      body: JSON.stringify(buildOpenAIBasicRequest(env, prompt, { text: { format: { type: "json_object" } } }))
     });
 
     const data = await response.json();
@@ -1789,7 +1885,16 @@ ${sourceContext}
       "Content-Type": "application/json",
       "Authorization": `Bearer ${env.OPENAI_API_KEY}`
     },
-    body: JSON.stringify(buildOpenAIBasicRequest(env, prompt))
+    body: JSON.stringify(buildOpenAIBasicRequest(env, prompt, {
+      text: {
+        format: {
+          type: "json_schema",
+          name: "atomic_news_facts",
+          strict: true,
+          schema: buildAtomicFactJsonSchema()
+        }
+      }
+    }))
   });
 
   const data = await response.json();
@@ -1797,9 +1902,21 @@ ${sourceContext}
     throw new Error(data.error?.message || "Atomic news fact extraction failed.");
   }
 
-  const parsed = parseJsonObject(extractOutputText(data));
+  if (data?.status === "incomplete") {
+    const reason = String(data?.incomplete_details?.reason || "unknown reason");
+    throw new Error(`Atomic news fact extraction was incomplete (${reason}).`);
+  }
+
+  const refusal = getOpenAIRefusalText(data);
+  if (refusal) {
+    throw new Error(`Atomic news fact extraction was refused by the model: ${refusal}`);
+  }
+
+  const outputText = extractOutputText(data);
+  const parsed = parseJsonObject(outputText);
   if (!parsed || !Array.isArray(parsed.sources)) {
-    throw new Error("Atomic news fact extraction returned invalid JSON.");
+    const preview = outputText.replace(/\s+/g, " ").trim().slice(0, 180);
+    throw new Error(`Atomic news fact extraction returned an unexpected structured response${preview ? `: ${preview}` : "."}`);
   }
 
   const validSourceNumbers = new Set(sources.map(source => Number(source.source_number)));
