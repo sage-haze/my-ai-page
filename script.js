@@ -41,6 +41,7 @@ const suppressCountryDropdownUntil = { purchase: 0, sales: 0 };
 let fxCharts = {};
 let signalRequestInFlight = false;
 let signalRunLocked = false;
+let currentResearchRunId = "";
 
 function updateGenerateSignalsButtonState() {
   if (!button) return;
@@ -2302,6 +2303,11 @@ async function buildSelectedConversation() {
   }
 }
 
+function researchRunFootnoteHtml() {
+  if (!currentResearchRunId) return "";
+  return `<div class="research-run-footnote">Run ID: ${escapeHtml(currentResearchRunId)}</div>`;
+}
+
 function renderSignalSelectionList() {
   const visibleLimit = conversationCardsExpanded ? lastConversationCards.length : DEFAULT_VISIBLE_SIGNAL_COUNT;
   const visibleCards = lastConversationCards.slice(0, visibleLimit);
@@ -2318,6 +2324,7 @@ function renderSignalSelectionList() {
     <div class="signals-summary">Showing ${visibleCards.length} of ${lastConversationCards.length} Client Signal${lastConversationCards.length === 1 ? "" : "s"}. Expand a card to see which areas from the Client Understanding workshop may be worth revisiting.</div>
     <div class="signal-selection-list">${cardsHtml}</div>
     ${toggleHtml ? `<div class="signal-action-row">${toggleHtml}</div>` : ""}
+    ${researchRunFootnoteHtml()}
   `;
 
   resetConversationBridge();
@@ -2360,6 +2367,7 @@ function renderNoNewsState(text) {
       <h3>${escapeHtml(heading)}</h3>
       ${detail ? `<p>${escapeHtml(detail)}</p>` : ""}
     </div>
+    ${researchRunFootnoteHtml()}
   `;
 }
 
@@ -2421,7 +2429,7 @@ function renderAnalysis(text) {
         ${bullets ? `<ul>${bullets}</ul>` : ""}
       </div>
     `;
-  }).join("");
+  }).join("") + researchRunFootnoteHtml();
 }
 
 
@@ -2668,10 +2676,11 @@ function updateResearchProgress(event) {
   if (!event || typeof event !== "object") return;
   if (event.type === "run") {
     const runEl = analysisOutput.querySelector("[data-research-run]");
+    if (event.runId) currentResearchRunId = event.runId;
     if (runEl && event.runId) {
       runEl.textContent = `Run ${event.runId}`;
       runEl.dataset.runId = event.runId;
-      // Keep the run ID in the DOM for support/audit correlation without adding noise for participants.
+      // Keep the run ID in the DOM for support/audit correlation while research is in progress.
     }
     return;
   }
@@ -2837,6 +2846,7 @@ button.addEventListener("click", async function () {
 
   signalRequestInFlight = true;
   signalRunLocked = false;
+  currentResearchRunId = "";
   updateGenerateSignalsButtonState();
   let signalRunSucceeded = false;
   resetConversationBridge();
