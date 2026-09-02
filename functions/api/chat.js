@@ -141,6 +141,43 @@ function buildAtomicFactJsonSchema() {
   };
 }
 
+function buildSourceReviewJsonSchema() {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      hasRelevantUpdates: { type: "boolean" },
+      noRelevantUpdateMessage: { type: "string" },
+      sources: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            number: { type: "integer" },
+            relevanceLevel: { type: "string", enum: ["HIGH", "MEDIUM", "LOW"] },
+            contentType: {
+              type: "string",
+              enum: [
+                "CURRENT_DEVELOPMENT",
+                "ANALYSIS_WITH_CURRENT_UPDATE",
+                "STATIC_REFERENCE",
+                "DIRECTORY_PROFILE",
+                "EVERGREEN_FORECAST",
+                "PROMOTIONAL_OTHER"
+              ]
+            },
+            currentDevelopment: { type: "boolean" },
+            justification: { type: "string" }
+          },
+          required: ["number", "relevanceLevel", "contentType", "currentDevelopment", "justification"]
+        }
+      }
+    },
+    required: ["hasRelevantUpdates", "noRelevantUpdateMessage", "sources"]
+  };
+}
+
 function getOpenAIRefusalText(data) {
   if (!Array.isArray(data?.output)) return "";
   for (const item of data.output) {
@@ -1463,7 +1500,8 @@ Relevance levels:
 - LOW: weak keyword match, adjacent-product/process story without an explicit direct link to the exact ISIC activity, unrelated country export/import story, country-pair story without a direct link to the client's stated footprint, new-market or expansion opportunity outside the stated footprint, unrelated company news, static reference/directory/evergreen forecast content, old/background content, or no clear client implication.
 
 Rules:
-- Return HIGH and MEDIUM sources only; omit LOW sources completely.
+- Return one review object for EVERY candidate source, including LOW sources. This is required for auditability.
+- LOW sources will be rejected by the application after review; do not omit them from the JSON.
 - HIGH or MEDIUM requires currentDevelopment=true and contentType CURRENT_DEVELOPMENT or ANALYSIS_WITH_CURRENT_UPDATE. Static/reference/directory/evergreen-forecast content cannot pass.
 - Reject a source when its client relevance depends on phrases such as "if the client sells to...", "if the client sources...", "if this is part of the client's input mix...", or any other unstated client relationship.
 - For a destination-country trade remedy that names affected origin countries, reject it when the client's origin is not in scope. Example: a Japan investigation of steel from South Korea, China and Taiwan is LOW for a Thailand-origin exporter to Japan unless the article explicitly includes Thailand or applies the measure more broadly.
@@ -1486,7 +1524,16 @@ ${JSON.stringify(compactSources, null, 2)}
         "Content-Type": "application/json",
         "Authorization": `Bearer ${env.OPENAI_API_KEY}`
       },
-      body: JSON.stringify(buildOpenAIBasicRequest(env, prompt, { text: { format: { type: "json_object" } } }))
+      body: JSON.stringify(buildOpenAIBasicRequest(env, prompt, {
+        text: {
+          format: {
+            type: "json_schema",
+            name: "source_relevance_review",
+            strict: true,
+            schema: buildSourceReviewJsonSchema()
+          }
+        }
+      }))
     });
 
     const data = await response.json();
@@ -1558,7 +1605,9 @@ ${JSON.stringify(compactSources, null, 2)}
         };
       });
 
-    const hasRelevantUpdates = Boolean(parsed.hasRelevantUpdates) && selectedSources.length > 0;
+    // The per-source reviews are the authoritative decision. A contradictory or omitted
+    // top-level hasRelevantUpdates flag should not erase retained HIGH/MEDIUM sources.
+    const hasRelevantUpdates = selectedSources.length > 0;
 
     const noRelevantUpdateMessage = String(parsed.noRelevantUpdateMessage || `No relevant news updates were found in the selected ${timeframe}-day period for this client profile.`).trim();
     return {
@@ -1596,17 +1645,10 @@ ${JSON.stringify(compactSources, null, 2)}
       }
     };
   } catch (error) {
-    return {
-      hasRelevantUpdates: false,
-      noRelevantUpdateMessage: `No significant relevant news updates were found in the selected ${timeframe}-day period for this client profile.`,
-      sources: [],
-      audit: {
-        model: getOpenAIBasicModel(env),
-        candidateCount: sources.length,
-        reviews: [],
-        error: String(error?.message || error || "Source relevance review failed.")
-      }
-    };
+    // A review/API/JSON failure is a pipeline error, not evidence that there is no news.
+    // Propagate it so the participant sees an error and the audit run is marked ERROR.
+    const detail = String(error?.message || error || "Source relevance review failed.");
+    throw new Error(`Source relevance review failed: ${detail}`);
   }
 }
 
@@ -2400,47 +2442,45 @@ ${JSON.stringify(factContext, null, 2)}
     const parsed = parseJsonObject(rawText);
 
     if (!parsed) {
-      // Do not fall back to free-form model text here: it would bypass atomic-fact validation.
-      // A conservative no-news state is safer than displaying an unvalidated synthesis.
-      return {
-        status: "NO_NEWS",
-        content: normalizeNoNewsText(timeframe),
-        audit: { model: env.OPENAI_ANALYSIS_MODEL || OPENAI_ANALYSIS_MODEL, parseError: true, rawOutputPreview: rawText.slice(0, 1200) }
-      };
+      // Invalid model output is a generation failure, not a genuine NO_NEWS decision.
+      const preview = rawText.replace(/\s+/g, " ").slice(0, 240);
+      throw new Error(`Final signal generation returned invalid JSON${preview ? `: ${preview}` : "."}`);
     }
 
     const status = String(parsed.status || "").toUpperCase();
     const rawCards = Array.isArray(parsed.cards) ? parsed.cards : (Array.isArray(parsed.themes) ? parsed.themes : []);
-    const cards = validateCardsAgainstAtomicFacts(rawCards, atomicFacts, knownClientFacts);
 
-    if (status === "NO_NEWS" || cards.length === 0) {
+    // Only an explicit model NO_NEWS decision is treated as genuine no-news at this stage.
+    if (status === "NO_NEWS") {
       return {
         status: "NO_NEWS",
         content: normalizeNoNewsText(timeframe),
         audit: {
           model: env.OPENAI_ANALYSIS_MODEL || OPENAI_ANALYSIS_MODEL,
-          modelStatus: status || "UNSPECIFIED",
+          modelStatus: status,
           rawCardCount: rawCards.length,
-          validatedCards: cards
+          validatedCards: []
         }
       };
+    }
+
+    if (status !== "OK") {
+      throw new Error(`Final signal generation returned unexpected status: ${status || "UNSPECIFIED"}.`);
+    }
+    if (rawCards.length === 0) {
+      throw new Error("Final signal generation returned status OK but no cards.");
+    }
+
+    const cards = validateCardsAgainstAtomicFacts(rawCards, atomicFacts, knownClientFacts);
+    if (cards.length === 0) {
+      throw new Error(`Final signal generation produced ${rawCards.length} card(s), but all failed evidence/client-link validation.`);
     }
 
     const content = formatNewsThemesFromJson({ ...parsed, cards }).replace(/\bNO_NEWS\b/g, "").trim();
     const sourceRefs = extractSourceRefs(content);
 
     if (!content || sourceRefs.length === 0) {
-      return {
-        status: "NO_NEWS",
-        content: normalizeNoNewsText(timeframe),
-        audit: {
-          model: env.OPENAI_ANALYSIS_MODEL || OPENAI_ANALYSIS_MODEL,
-          modelStatus: status || "UNSPECIFIED",
-          rawCardCount: rawCards.length,
-          validatedCards: cards,
-          reason: "Validated cards did not retain usable source references."
-        }
-      };
+      throw new Error("Validated signal cards did not retain usable source references.");
     }
 
     return {
@@ -2908,6 +2948,11 @@ async function executeResearch({ env, params, audit, emit }) {
 
   if (!sourceAssessment.hasRelevantUpdates || mergedSources.length === 0 || atomicFacts.length === 0) {
     await emit({ type: "stage", stage: "signal_generation", status: "skipped", message: "No sufficiently relevant evidence remained to build a signal" });
+    const noNewsReason = (!sourceAssessment.hasRelevantUpdates || mergedSources.length === 0)
+      ? "Source relevance review retained no HIGH/MEDIUM current-development sources."
+      : (extractedAtomicFacts.length === 0
+        ? "Retained sources produced no current atomic facts after fact/date/geography extraction."
+        : "All extracted facts were removed by the directional trade-flow applicability check.");
     const noNews = { status: "NO_NEWS", content: normalizeNoNewsText(timeframe) };
     const result = {
       analysis: noNews.content,
@@ -2921,7 +2966,7 @@ async function executeResearch({ env, params, audit, emit }) {
       search_mode: "conversation_card_signal_scan",
       sources: []
     };
-    audit.finalSelection = { status: "NO_NEWS", reason: "No source/fact survived all relevance and flow gates." };
+    audit.finalSelection = { status: "NO_NEWS", reason: noNewsReason };
     return result;
   }
 
